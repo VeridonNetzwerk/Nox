@@ -1,0 +1,43 @@
+# Build artifacts
+nox-app/dist/
+nox-app/ui/dist/
+
+# Backend build output
+nox-app/backend/dist-backend/
+
+# Node modules
+node_modules/
+nox-app/ui/node_modules/
+
+# Python embedded distribution (too large for git)
+nox-app/backend/python/
+
+# Models (downloaded at runtime)
+nox-app/backend/models/
+nox-app/backend/dist-backend/models/
+
+# Logs
+*.log
+nox-app/logs/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Config (user-specific)
+nox-app/backend/config.local.yaml
+
+# CUDA upgrade flag
+.cuda-upgrade-done
+
+# App extracted (temp for asar patching)
+nox-app/dist/win-unpacked/resources/app-extracted/
+
+# Temp files
+*.tmp
+*.bak

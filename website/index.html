@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Nox – ein vollkommen lokaler KI-Desktop-Assistent. Keine Cloud. Keine Konten. Nur du und deine KI." />
+  <title>NOX — Local AI Desktop Assistant</title>
+  <link rel="icon" type="image/png" href="assets/nox-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============== BOOT SEQUENCE ============== -->
+  <div id="boot">
+    <div class="boot-lines">
+      <div class="boot-line" data-delay="0" data-i18n="boot_system">NOX SYSTEM v0.5.0</div>
+      <div class="boot-line" data-delay="200" data-i18n="boot_init">> initializing local inference engine...</div>
+      <div class="boot-line" data-delay="450" data-i18n="boot_models">> loading neural models... OK</div>
+      <div class="boot-line" data-delay="700" data-i18n="boot_voice">> establishing voice pipeline... OK</div>
+      <div class="boot-line" data-delay="950" data-i18n="boot_cloud">> cloud connectivity... DISABLED</div>
+      <div class="boot-line" data-delay="1150" data-i18n="boot_priv">> privacy shield... ACTIVE</div>
+      <div class="boot-line boot-prompt" data-delay="1400" data-i18n="boot_ready">> ready</div>
+    </div>
+  </div>
+
+  <!-- ============== CANVAS BACKGROUND ============== -->
+  <canvas id="constellation"></canvas>
+  <div id="noise"></div>
+  <div id="vignette"></div>
+
+  <!-- ============== NAV ============== -->
+  <nav id="nav">
+    <div class="nav-inner">
+      <a href="#top" class="nav-brand">
+        <img src="assets/nox-logo-glowing.png" alt="NOX" class="nav-icon" />
+      </a>
+      <div class="nav-links">
+        <a href="#modules" class="nav-link" data-i18n="nav_modules">MODULES</a>
+        <a href="#privacy" class="nav-link" data-i18n="nav_privacy">PRIVACY</a>
+        <a href="#install" class="nav-link" data-i18n="nav_install">INSTALL</a>
+        <a href="#queries" class="nav-link" data-i18n="nav_queries">QUERIES</a>
+      </div>
+      <button class="nav-burger" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+    <div class="nav-mobile">
+      <a href="#modules" data-i18n="nav_modules">MODULES</a>
+      <a href="#privacy" data-i18n="nav_privacy">PRIVACY</a>
+      <a href="#install" data-i18n="nav_install">INSTALL</a>
+      <a href="#queries" data-i18n="nav_queries">QUERIES</a>
+    </div>
+  </nav>
+
+  <!-- ============== HERO ============== -->
+  <section id="hero">
+    <div class="hero-grid">
+      <!-- Left: Identity -->
+      <div class="hero-left">
+        <div class="hero-tag">
+          <span class="status-dot"></span>
+          <span data-i18n="hero_tag">SYSTEM OFFLINE · 100% LOCAL</span>
+        </div>
+        <h1 class="hero-title">
+          <span class="hero-title-line" data-i18n="hero_t1">Dein KI.</span>
+          <span class="hero-title-line" data-i18n="hero_t2">Dein Rechner.</span>
+          <span class="hero-title-line hero-title-accent" data-i18n="hero_t3">Keine Cloud.</span>
+        </h1>
+        <p class="hero-desc" data-i18n="hero_desc">
+          Nox ist ein vollkommen lokaler, sprachgesteuerter KI-Assistent für Windows.
+          Alle Modelle laufen auf deiner Hardware. Keine Daten verlassen deinen Rechner.
+          Keine Konten. Keine Telemetrie. Nur du und deine KI.
+        </p>
+        <div class="hero-actions">
+          <a href="#install" class="btn-primary">
+            <span data-i18n="hero_dl">HERUNTERLADEN</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </a>
+          <a href="#modules" class="btn-ghost">
+            <span data-i18n="hero_info">MORE INFO</span>
+          </a>
+        </div>
+      </div>
+      <!-- Right: System Core Visual -->
+      <div class="hero-right">
+        <div class="core-visual">
+          <div class="core-ring core-ring-1"></div>
+          <div class="core-ring core-ring-2"></div>
+          <div class="core-ring core-ring-3"></div>
+          <div class="core-center">
+            <img src="assets/nox-icon.png" alt="Nox" class="core-icon" />
+          </div>
+          <div class="core-label core-label-tl">VOICE</div>
+          <div class="core-label core-label-tr">STT</div>
+          <div class="core-label core-label-bl">TTS</div>
+          <div class="core-label core-label-br">CONTEXT</div>
+          <div class="core-readout">
+            <div class="readout-row"><span>LLM</span><span class="readout-val">OLLAMA</span></div>
+            <div class="readout-row"><span>STT</span><span class="readout-val">WHISPER</span></div>
+            <div class="readout-row"><span>TTS</span><span class="readout-val">PIPER</span></div>
+            <div class="readout-row"><span>WAKE</span><span class="readout-val">OWW</span></div>
+            <div class="readout-row readout-row-final"><span>CLOUD</span><span class="readout-val readout-val-null">— NULL</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="hero-strip">
+      <div class="strip-item"><span class="strip-key">v0.5.0</span><span class="strip-val" data-i18n="strip_build">CURRENT BUILD</span></div>
+      <div class="strip-divider"></div>
+      <div class="strip-item"><span class="strip-key">0</span><span class="strip-val" data-i18n="strip_cloud">CLOUD REQUESTS</span></div>
+      <div class="strip-divider"></div>
+      <div class="strip-item"><span class="strip-key">∞</span><span class="strip-val" data-i18n="strip_priv">PRIVACY</span></div>
+      <div class="strip-divider"></div>
+      <div class="strip-item"><span class="strip-key">WIN 11</span><span class="strip-val" data-i18n="strip_platform">PLATFORM</span></div>
+    </div>
+  </section>
+
+  <!-- ============== MODULES ============== -->
+  <section id="modules" class="section">
+    <div class="section-header">
+      <div class="section-prefix" data-i18n="mod_prefix">// SYSTEM MODULES</div>
+      <h2 class="section-title" data-i18n="mod_title">Was Nox kann</h2>
+      <p class="section-sub" data-i18n="mod_sub">Sechs Kernmodule. Alle lokal. Alle offline.</p>
+    </div>
+    <div class="module-grid">
+      <div class="module-card" data-module="VOICE">
+        <div class="module-header">
+          <span class="module-id">M01</span>
+          <span class="module-status"><span class="status-dot"></span> ACTIVE</span>
+        </div>
+        <div class="module-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+        </div>
+        <h3 class="module-name" data-i18n="m01n">VOICE PIPELINE</h3>
+        <p class="module-desc" data-i18n="m01d">Wake-Word-Erkennung via openWakeWord. Spracherkennung mit faster-whisper. Antworten gesprochen durch Piper TTS. Sag „Hey Nox" und sprich natürlich.</p>
+        <div class="module-tags">
+          <span class="tag">openWakeWord</span>
+          <span class="tag">faster-whisper</span>
+          <span class="tag">Piper</span>
+        </div>
+      </div>
+      <div class="module-card" data-module="CONTEXT">
+        <div class="module-header">
+          <span class="module-id">M02</span>
+          <span class="module-status"><span class="status-dot"></span> ACTIVE</span>
+        </div>
+        <div class="module-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3 class="module-name" data-i18n="m02n">CONTEXT ENGINE</h3>
+        <p class="module-desc" data-i18n="m02d">Nox sieht, was du siehst. Aktive Fenster, UI-Elemente, OCR-Fallback. Antworten, die deinen aktuellen Kontext verstehen – ohne dass du ihn manuell übergeben musst.</p>
+        <div class="module-tags">
+          <span class="tag">UIAutomation</span>
+          <span class="tag">EasyOCR</span>
+          <span class="tag">SQLite FTS5</span>
+        </div>
+      </div>
+      <div class="module-card" data-module="CHAT">
+        <div class="module-header">
+          <span class="module-id">M03</span>
+          <span class="module-status"><span class="status-dot"></span> ACTIVE</span>
+        </div>
+        <div class="module-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </div>
+        <h3 class="module-name" data-i18n="m03n">STREAMING CHAT</h3>
+        <p class="module-desc" data-i18n="m03d">Token-für-Token Streaming via WebSocket. Markdown, Code-Blöcke, strukturierte Antworten. Genau wie ein moderner KI-Chat – nur dass alles auf deinem Rechner passiert.</p>
+        <div class="module-tags">
+          <span class="tag">Ollama</span>
+          <span class="tag">FastAPI</span>
+          <span class="tag">WebSocket</span>
+        </div>
+      </div>
+      <div class="module-card" data-module="MEMORY">
+        <div class="module-header">
+          <span class="module-id">M04</span>
+          <span class="module-status"><span class="status-dot"></span> ACTIVE</span>
+        </div>
+        <div class="module-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3 class="module-name" data-i18n="m04n">CONVERSATION MEMORY</h3>
+        <p class="module-desc" data-i18n="m04d">Nox merkt sich Gespräche und fasst sie zusammen. SQLite-basiertes lokales Gedächtnis mit konfigurierbarer Aufbewahrungszeit. Nichts wird synchronisiert.</p>
+        <div class="module-tags">
+          <span class="tag">SQLite</span>
+          <span class="tag">Embeddings</span>
+        </div>
+      </div>
+      <div class="module-card" data-module="ONBOARD">
+        <div class="module-header">
+          <span class="module-id">M05</span>
+          <span class="module-status"><span class="status-dot"></span> ACTIVE</span>
+        </div>
+        <div class="module-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <h3 class="module-name" data-i18n="m05n">ONBOARDING WIZARD</h3>
+        <p class="module-desc" data-i18n="m05d">Guided Setup: Ollama-Installation, Modell-Auswahl, GPU-Check, Mikrofon-Test, Wake-Word-Kalibrierung. Alles in einem geführten Wizard. Kein Vorwissen nötig.</p>
+        <div class="module-tags">
+          <span class="tag">Auto-Install</span>
+          <span class="tag">GPU Check</span>
+        </div>
+      </div>
+      <div class="module-card" data-module="TOOLS">
+        <div class="module-header">
+          <span class="module-id">M06</span>
+          <span class="module-status"><span class="status-dot"></span> ACTIVE</span>
+        </div>
+        <div class="module-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        </div>
+        <h3 class="module-name" data-i18n="m06n">TOOL CALLING</h3>
+        <p class="module-desc" data-i18n="m06d">Nox kann Werkzeuge aufrufen: Kontextsuche, Notizen speichern, Uhrzeit abfragen. Erweiterbar um eigene Tools. Fallback-Parsing wenn das LLM kein natives Tool-Calling unterstützt.</p>
+        <div class="module-tags">
+          <span class="tag">Context Search</span>
+          <span class="tag">Notes</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== PRIVACY ============== -->
+  <section id="privacy" class="section">
+    <div class="section-header">
+      <div class="section-prefix" data-i18n="priv_prefix">// PRIVACY SHIELD</div>
+      <h2 class="section-title" data-i18n="priv_title">0 Bytes übertragen</h2>
+      <p class="section-sub" data-i18n="priv_sub">Keine Cloud-APIs. Keine Telemetrie. Keine versteckten Verbindungen.</p>
+    </div>
+    <div class="privacy-layout">
+      <div class="privacy-diagram">
+        <div class="diagram-node diagram-local">
+          <div class="node-pulse"></div>
+          <div class="node-label" data-i18n="priv_yourpc">YOUR PC</div>
+          <div class="node-sub">GPU / CPU</div>
+        </div>
+        <div class="diagram-pipes">
+          <div class="pipe pipe-llm">
+            <span class="pipe-label">LLM</span>
+            <span class="pipe-flow"></span>
+            <span class="pipe-status" data-i18n="priv_local">LOCAL</span>
+          </div>
+          <div class="pipe pipe-stt">
+            <span class="pipe-label">STT</span>
+            <span class="pipe-flow"></span>
+            <span class="pipe-status" data-i18n="priv_local">LOCAL</span>
+          </div>
+          <div class="pipe pipe-tts">
+            <span class="pipe-label">TTS</span>
+            <span class="pipe-flow"></span>
+            <span class="pipe-status" data-i18n="priv_local">LOCAL</span>
+          </div>
+          <div class="pipe pipe-ctx">
+            <span class="pipe-label">CONTEXT</span>
+            <span class="pipe-flow"></span>
+            <span class="pipe-status" data-i18n="priv_local">LOCAL</span>
+          </div>
+          <div class="pipe pipe-cloud">
+            <span class="pipe-label">CLOUD</span>
+            <span class="pipe-flow pipe-flow-dead"></span>
+            <span class="pipe-status pipe-status-dead" data-i18n="priv_disabled">DISABLED</span>
+          </div>
+        </div>
+        <div class="diagram-node diagram-cloud">
+          <div class="node-label node-label-dead">CLOUD</div>
+          <div class="node-sub node-sub-dead" data-i18n="priv_noaccess">NO ACCESS</div>
+        </div>
+      </div>
+      <div class="privacy-list">
+        <div class="privacy-item">
+          <div class="privacy-check">✓</div>
+          <div>
+            <div class="privacy-item-title" data-i18n="pi1t">Lokale LLMs via Ollama</div>
+            <div class="privacy-item-desc" data-i18n="pi1d">Llama 3.1, Mistral, Phi-3, Qwen – direkt auf deinem Rechner. Keine API-Keys.</div>
+          </div>
+        </div>
+        <div class="privacy-item">
+          <div class="privacy-check">✓</div>
+          <div>
+            <div class="privacy-item-title" data-i18n="pi2t">Lokale Spracherkennung</div>
+            <div class="privacy-item-desc" data-i18n="pi2d">faster-whisper für STT, Piper für TTS. Keine Audio-Aufnahmen verlassen deinen PC.</div>
+          </div>
+        </div>
+        <div class="privacy-item">
+          <div class="privacy-check">✓</div>
+          <div>
+            <div class="privacy-item-title" data-i18n="pi3t">Keine Konten, keine Anmeldung</div>
+            <div class="privacy-item-desc" data-i18n="pi3d">Kein Login, keine Registrierung, keine Cloud-Synchronisation. Installieren und nutzen.</div>
+          </div>
+        </div>
+        <div class="privacy-item">
+          <div class="privacy-check">✓</div>
+          <div>
+            <div class="privacy-item-title" data-i18n="pi4t">Open-Source-Komponenten</div>
+            <div class="privacy-item-desc" data-i18n="pi4d">Ollama, openWakeWord, faster-whisper, Piper – alle Frameworks sind Open Source.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== INSTALL ============== -->
+  <section id="install" class="section">
+    <div class="section-header">
+      <div class="section-prefix" data-i18n="inst_prefix">// INSTALLATION</div>
+      <h2 class="section-title" data-i18n="inst_title">In 4 Schritten</h2>
+      <p class="section-sub" data-i18n="inst_sub">Nox führt dich durch den gesamten Prozess. Kein Vorwissen nötig.</p>
+    </div>
+    <div class="install-steps">
+      <div class="install-step">
+        <div class="step-num">01</div>
+        <div class="step-body">
+          <div class="step-title" data-i18n="s1t">INSTALLIEREN</div>
+          <div class="step-desc" data-i18n="s1d">Installer herunterladen und ausführen. Nox bringt alles mit – inklusive eingebettetem Python.</div>
+        </div>
+        <div class="step-line"></div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">02</div>
+        <div class="step-body">
+          <div class="step-title" data-i18n="s2t">OLLAMA EINRICHTEN</div>
+          <div class="step-desc" data-i18n="s2d">Der Wizard installiert Ollama automatisch oder erkennt eine bestehende Installation. Wähle ein Modell wie Llama 3.1.</div>
+        </div>
+        <div class="step-line"></div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">03</div>
+        <div class="step-body">
+          <div class="step-title" data-i18n="s3t">MIKROFON & WAKE-WORD</div>
+          <div class="step-desc" data-i18n="s3d">Mikrofon testen und „Hey Nox" kalibrieren. Oder überspringen und Text-Chat nutzen.</div>
+        </div>
+        <div class="step-line"></div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">04</div>
+        <div class="step-body">
+          <div class="step-title" data-i18n="s4t">LOSLEGEN</div>
+          <div class="step-desc" data-i18n="s4d">Sag „Hey Nox" oder drücke den Hotkey. Stelle Fragen, bitte um Hilfe, lass dir Code erklären.</div>
+        </div>
+      </div>
+    </div>
+    <div class="download-panel">
+      <div class="download-panel-header">
+        <span class="download-panel-prefix">nox@local:~$</span>
+        <span class="download-panel-cmd">./install.sh</span>
+      </div>
+      <div class="download-panel-body">
+        <img src="assets/nox-icon.png" alt="" class="download-icon" />
+        <div class="download-info">
+          <div class="download-name" data-i18n="dl_name">Nox Setup 0.5.0</div>
+          <div class="download-specs">
+            <span data-i18n="dl_win">Windows 11 (x64)</span>
+            <span class="dot-sep">·</span>
+            <span data-i18n="dl_size">~96 MB Installer</span>
+            <span class="dot-sep">·</span>
+            <span data-i18n="dl_private">Private Build</span>
+          </div>
+          <div class="download-note" data-i18n="dl_note1">
+            Der Installer ist nicht codesigniert. Windows SmartScreen zeigt eine Warnung.
+            Klicke <strong>„Weitere Informationen"</strong> → <strong>„Trotzdem ausführen"</strong>.
+          </div>
+          <div class="download-note" data-i18n="dl_note2">
+            Nach der Installation lädt Nox automatisch Ollama und ein KI-Modell herunter (~4 GB).
+          </div>
+        </div>
+        <a href="#" class="btn-primary btn-download" id="download-btn">
+          <span data-i18n="dl_btn">DOWNLOAD</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== TECH STACK ============== -->
+  <section id="tech" class="section">
+    <div class="section-header">
+      <div class="section-prefix" data-i18n="tech_prefix">// SYSTEM DEPENDENCIES</div>
+      <h2 class="section-title" data-i18n="tech_title">Gebaut mit Open Source</h2>
+    </div>
+    <div class="tech-terminal">
+      <div class="terminal-header">
+        <span class="terminal-dot terminal-dot-r"></span>
+        <span class="terminal-dot terminal-dot-y"></span>
+        <span class="terminal-dot terminal-dot-g"></span>
+        <span class="terminal-title">nox@local:~ — dependencies</span>
+      </div>
+      <div class="terminal-body">
+        <div class="terminal-line"><span class="term-prompt">$</span> nox --list-deps</div>
+        <div class="terminal-line"><span class="term-key">LLM INFERENCE</span> <span class="term-val">→ Ollama</span> <span class="term-note" data-i18n="tn1"># lokale Modell-Ausführung</span></div>
+        <div class="terminal-line"><span class="term-key">SPEECH TO TEXT</span> <span class="term-val">→ faster-whisper (CTranslate2)</span> <span class="term-note" data-i18n="tn2"># GPU-beschleunigt</span></div>
+        <div class="terminal-line"><span class="term-key">TEXT TO SPEECH</span> <span class="term-val">→ Piper TTS</span> <span class="term-note" data-i18n="tn3"># neuronale Stimmen</span></div>
+        <div class="terminal-line"><span class="term-key">WAKE WORD</span> <span class="term-val">→ openWakeWord (ONNX)</span> <span class="term-note" data-i18n="tn4"># offline Erkennung</span></div>
+        <div class="terminal-line"><span class="term-key">GPU RUNTIME</span> <span class="term-val">→ PyTorch + CUDA</span> <span class="term-note" data-i18n="tn5"># Beschleunigung</span></div>
+        <div class="terminal-line"><span class="term-key">FRONTEND</span> <span class="term-val">→ Electron + React + Tailwind</span></div>
+        <div class="terminal-line"><span class="term-key">BACKEND</span> <span class="term-val">→ Python + FastAPI + Uvicorn</span></div>
+        <div class="terminal-line"><span class="term-key">STORAGE</span> <span class="term-val">→ SQLite + FTS5 + Embeddings</span></div>
+        <div class="terminal-line"><span class="term-key">CONTEXT</span> <span class="term-val">→ UIAutomation + EasyOCR</span></div>
+        <div class="terminal-line"><span class="term-prompt">$</span> <span class="term-cursor">_</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== QUERIES / FAQ ============== -->
+  <section id="queries" class="section">
+    <div class="section-header">
+      <div class="section-prefix" data-i18n="q_prefix">// SYSTEM QUERIES</div>
+      <h2 class="section-title" data-i18n="q_title">Häufige Fragen</h2>
+    </div>
+    <div class="query-list">
+      <details class="query-item">
+        <summary><span class="query-prompt">Q01</span> <span data-i18n="q01q">Brauche ich eine Internetverbindung?</span></summary>
+        <div class="query-answer" data-i18n="q01a">Nur für die Installation und den ersten Modell-Download. Sobald Ollama und ein Modell installiert sind, funktioniert Nox vollständig offline.</div>
+      </details>
+      <details class="query-item">
+        <summary><span class="query-prompt">Q02</span> <span data-i18n="q02q">Brauche ich eine starke GPU?</span></summary>
+        <div class="query-answer" data-i18n="q02a">Eine GPU mit CUDA-Unterstützung wird empfohlen für schnelle Spracherkennung und KI-Antworten. Nox funktioniert auch im CPU-Modus, aber Voice-Pipeline und Antworten sind dann langsamer.</div>
+      </details>
+      <details class="query-item">
+        <summary><span class="query-prompt">Q03</span> <span data-i18n="q03q">Welche KI-Modelle funktionieren?</span></summary>
+        <div class="query-answer" data-i18n="q03a">Alle Modelle, die Ollama unterstützt: Llama 3.1, Mistral, Phi-3, Qwen, CodeLlama und mehr. Du kannst das Modell jederzeit in den Einstellungen wechseln.</div>
+      </details>
+      <details class="query-item">
+        <summary><span class="query-prompt">Q04</span> <span data-i18n="q04q">Sendet Nox Daten in die Cloud?</span></summary>
+        <div class="query-answer" data-i18n="q04a">Nein. Keine einzige Datenübertragung. Alle Inferenz – LLM, Spracherkennung, Wake-Word, TTS – läuft lokal auf deinem Rechner. Keine Telemetrie, keine Analytics.</div>
+      </details>
+      <details class="query-item">
+        <summary><span class="query-prompt">Q05</span> <span data-i18n="q05q">Was ist „Kontext-Bewusstsein"?</span></summary>
+        <div class="query-answer" data-i18n="q05a">Nox erfasst, welches Fenster du gerade offen hast, liest UI-Elemente und kann bei Bedarf OCR auf Screenshots anwenden. So kann Nox kontextbezogene Antworten geben – z.B. „Erkläre den Code, den ich gerade offen habe."</div>
+      </details>
+      <details class="query-item">
+        <summary><span class="query-prompt">Q06</span> <span data-i18n="q06q">Kann ich Nox per Sprache bedienen?</span></summary>
+        <div class="query-answer" data-i18n="q06a">Ja. Sag „Hey Nox" (wenn ein Wake-Word-Modell installiert ist) oder klicke das Mikrofon-Symbol. Nox transkribiert deine Sprache, denkt nach, und antwortet optional mit gesprochener Stimme via Piper TTS.</div>
+      </details>
+      <details class="query-item">
+        <summary><span class="query-prompt">Q07</span> <span data-i18n="q07q">Ist Nox Open Source?</span></summary>
+        <div class="query-answer" data-i18n="q07a">Nox selbst ist ein privates Projekt, aber alle Kernkomponenten sind Open Source: Ollama, faster-whisper, Piper, openWakeWord, PyTorch, Electron, React und FastAPI.</div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============== FOOTER ============== -->
+  <footer id="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <img src="assets/nox-logo-glowing.png" alt="NOX" class="footer-icon" />
+      </div>
+      <div class="footer-tagline" data-i18n="foot_tagline">Lokaler KI-Desktop-Assistent. Deine Daten. Dein Rechner. Deine KI.</div>
+      <div class="footer-links">
+        <a href="#modules" data-i18n="nav_modules">MODULES</a>
+        <a href="#privacy" data-i18n="nav_privacy">PRIVACY</a>
+        <a href="#install" data-i18n="nav_install">INSTALL</a>
+        <a href="#queries" data-i18n="nav_queries">QUERIES</a>
+      </div>
+      <div class="footer-lang">
+        <span class="lang-label" data-i18n="lang_label">LANGUAGE</span>
+        <div id="lang-switcher"></div>
+      </div>
+      <div class="footer-meta">
+        <span>NOX SYSTEM v0.5.0</span>
+        <span class="dot-sep">·</span>
+        <span>© 2025 NOX</span>
+        <span class="dot-sep">·</span>
+        <span><span class="status-dot"></span> <span data-i18n="foot_local">ALL SYSTEMS LOCAL</span></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="translations.js"></script>
+  <script src="i18n.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   CSS Variables – Theme tokens
+   --------------------------------------------------------------------------- */
+
+[data-theme="dark"] {
+  --nox-bg: rgba(13, 13, 15, 0.85);
+  --nox-surface: rgba(26, 26, 31, 0.90);
+  --nox-surface-hover: rgba(37, 37, 43, 0.95);
+  --nox-border: rgba(46, 46, 54, 0.80);
+  --nox-text: #e4e4e7;
+  --nox-text-dim: #71717a;
+  --nox-accent: #6366f1;
+  --nox-accent-hover: #818cf8;
+  --nox-scrollbar: rgba(46, 46, 54, 0.80);
+  --nox-scrollbar-hover: rgba(62, 62, 70, 0.90);
+}
+
+[data-theme="light"] {
+  --nox-bg: rgba(255, 255, 255, 0.88);
+  --nox-surface: rgba(244, 244, 245, 0.92);
+  --nox-surface-hover: rgba(228, 228, 231, 0.95);
+  --nox-border: rgba(212, 212, 216, 0.80);
+  --nox-text: #18181b;
+  --nox-text-dim: #71717a;
+  --nox-accent: #6366f1;
+  --nox-accent-hover: #4f46e5;
+  --nox-scrollbar: rgba(212, 212, 216, 0.80);
+  --nox-scrollbar-hover: rgba(180, 180, 184, 0.90);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+   Window background (transparent + blur)
+   --------------------------------------------------------------------------- */
+
+.nox-window-bg {
+  background: var(--nox-bg);
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbar
+   --------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nox-scrollbar);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--nox-scrollbar-hover);
+}
+
+/* ---------------------------------------------------------------------------
+   Animations
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes nox-slide-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+}
+
+@keyframes nox-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: nox-slide-in 200ms ease-out forwards;
+}
+
+.animate-slide-out {
+  animation: nox-slide-out 200ms ease-in forwards;
+}
+
+.animate-slide-in-right {
+  animation: nox-slide-in-right 200ms ease-out forwards;
+}
+
+/* ---------------------------------------------------------------------------
+   Thinking dots
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-thinking-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.thinking-dot {
+  animation: nox-thinking-bounce 1.4s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}

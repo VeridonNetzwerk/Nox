@@ -1,0 +1,18 @@
+{
+  "name": "nox-app",
+  "version": "0.5.0",
+  "description": "Nox – Local AI Desktop Assistant",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,ui -c blue,green \"npm:dev:backend\" \"npm:dev:ui\"",
+    "dev:backend": "cd backend && python -m uvicorn main:app --reload --host 127.0.0.1 --port 8420",
+    "dev:ui": "cd ui && npm run dev",
+    "build:backend": "cd backend && python build_backend.py",
+    "build:ui": "cd ui && npm run build",
+    "build": "npm run build:backend && npm run build:ui && cd ui && npx electron-builder",
+    "dist": "cd ui && npm run dist"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

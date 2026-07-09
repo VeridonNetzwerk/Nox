@@ -1,0 +1,7 @@
+﻿  ÔÇó electron-builder  version=25.1.8 os=10.0.26200
+  ÔÇó loaded configuration  file=package.json ("build" field)
+  ÔÇó author is missed in the package.json  appPackageFile=Z:\Projekte\Coding\Nox\nox-app\ui\package.json
+  ÔÇó executing @electron/rebuild  electronVersion=33.4.11 arch=x64 buildFromSource=false appDir=./
+  ÔÇó installing native dependencies  arch=x64
+  ÔÇó completed installing native dependencies
+  ÔÇó packaging       platform=win32 arch=x64 electron=33.4.11 appOutDir=Z:\Projekte\Coding\Nox\nox-app\dist\win-unpacked

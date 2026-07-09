@@ -1,0 +1,79 @@
+{
+  "name": "nox-ui",
+  "version": "0.5.0",
+  "description": "Nox – Electron + React Frontend",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -n vite,electron -c magenta,cyan \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.0.5",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.nox.assistant",
+    "productName": "Nox",
+    "copyright": "Copyright © 2026 Nox",
+    "directories": {
+      "output": "../dist",
+      "buildResources": "build-resources"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "../assets/branding/icon_1024.ico"
+    },
+    "nsis": {
+      "include": "nsis/installer.nsh",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nox",
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "../assets/branding/icon.ico",
+      "uninstallerIcon": "../assets/branding/icon.ico",
+      "installerHeaderIcon": "../assets/branding/icon.ico"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist-backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!__pycache__/**",
+          "!*.pyc",
+          "!.build-cache/**"
+        ]
+      },
+      {
+        "from": "../assets/branding/icon_1024x1024.png",
+        "to": "branding/icon_1024x1024.png"
+      },
+      {
+        "from": "../assets/branding/icon_non_glow_1024x1024.png",
+        "to": "branding/icon_non_glow_1024x1024.png"
+      }
+    ],
+    "publish": null
+  }
+}

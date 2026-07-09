@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Nox Configuration Schema",
+  "description": "Shared configuration schema for all Nox modules",
+  "type": "object",
+  "properties": {
+    "ollama_host": {
+      "type": "string",
+      "default": "http://localhost:11434",
+      "description": "Ollama REST API endpoint"
+    },
+    "ollama_model": {
+      "type": "string",
+      "default": "llama3.1",
+      "description": "Ollama model name to use for inference"
+    },
+    "ui_theme": {
+      "type": "string",
+      "enum": ["dark", "light"],
+      "default": "dark"
+    },
+    "wake_word_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "wake_word_model": {
+      "type": "string",
+      "default": "hey_nox.onnx"
+    },
+    "wake_word_threshold": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "stt_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "stt_model": {
+      "type": "string",
+      "default": "small"
+    },
+    "stt_language": {
+      "type": "string",
+      "default": "de"
+    },
+    "stt_device": {
+      "type": "string",
+      "default": "cuda"
+    },
+    "stt_compute_type": {
+      "type": "string",
+      "default": "float16"
+    },
+    "tts_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "tts_model": {
+      "type": "string",
+      "default": "de_DE-thorsten-medium"
+    },
+    "tts_sample_rate": {
+      "type": "integer",
+      "default": 22050
+    },
+    "nox_eye_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "nox_eye_interval": {
+      "type": "number",
+      "default": 5.0
+    },
+    "nox_eye_ocr_fallback": {
+      "type": "boolean",
+      "default": true
+    },
+    "memory_db_path": {
+      "type": "string",
+      "default": ""
+    },
+    "memory_embedding_model": {
+      "type": "string",
+      "default": "all-MiniLM-L6-v2"
+    },
+    "server_host": {
+      "type": "string",
+      "default": "127.0.0.1"
+    },
+    "server_port": {
+      "type": "integer",
+      "default": 8420
+    }
+  }
+}

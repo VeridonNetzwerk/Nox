@@ -1,0 +1,85 @@
+# Nox Backend Configuration
+# Override any of these by creating a config.local.yaml in the same directory.
+
+# First-run onboarding (set to true after wizard completes)
+onboarding_completed: false
+
+# Ollama
+ollama_host: "http://localhost:11434"
+ollama_model: "llama3.1"
+
+# UI
+ui_theme: "system"  # system | dark | light
+
+# Hotkey (global shortcut to toggle overlay)
+hotkey: "CommandOrControl+Shift+Space"
+
+# Audio Devices
+audio_input_device: "default"   # device name, index, or "default"
+audio_output_device: "default"  # device name, index, or "default"
+
+# Wake Word
+wake_word_enabled: true
+wake_word_model: "hey_jarvis"
+wake_word_threshold: 0.5
+
+# STT (faster-whisper)
+stt_enabled: true
+stt_model: "small"
+stt_language: "de"
+stt_device: "cuda"
+stt_compute_type: "float16"
+
+# VAD (Voice Activity Detection)
+vad_aggressiveness: 3  # 0-3, higher = more aggressive
+vad_silence_duration: 1.0  # seconds of silence to end recording (0.8-1.2 recommended)
+vad_speech_onset_frames: 3  # frames of continuous speech required to confirm start (prevents noise triggers)
+vad_timeout: 15.0  # max recording time
+vad_initial_silence_timeout: 3.0  # stop if no speech within this time
+
+# End-of-Turn Detection
+end_turn_enabled: true
+end_turn_silence_threshold: 1.0  # base silence duration (seconds) for end-of-turn
+end_turn_max_silence: 2.5  # maximum silence before forcing commit (seconds)
+end_turn_fillword_extension: 0.8  # extra silence allowed after fill words like "ähm", "also"
+end_turn_incomplete_sentence_extension: 1.0  # extra silence if sentence appears incomplete
+
+# TTS (Piper)
+tts_enabled: true
+tts_model: "de_DE-thorsten-medium"
+tts_sample_rate: 22050
+
+# Nox Eye (context capture)
+nox_eye_enabled: true
+nox_eye_ocr_fallback: true
+nox_eye_ocr_gpu: true
+nox_eye_ttl_days: 7
+log_context_content: false  # OPT-IN: log raw context/clipboard text (default off for privacy)
+nox_eye_excluded_apps:
+  - "keepass"
+  - "1password"
+  - "bitwarden"
+  - "lastpass"
+  - "enpass"
+  - "dashlane"
+
+# Memory
+memory_db_path: ""  # Empty = default %APPDATA%/Nox/data/nox.db
+memory_embedding_model: "paraphrase-multilingual-MiniLM-L12-v2"
+
+# Nox Files (local file search)
+nox_files_enabled: true
+nox_files_full_drive: false  # explicit opt-in for full drive indexing
+nox_files_custom_folders: []  # additional folders beyond user defaults
+nox_files_excluded_dirs: []  # additional excluded directory names
+nox_files_ocr_gpu: true  # use GPU for OCR on scanned PDFs
+nox_files_db_path: ""  # Empty = default %APPDATA%/Nox/data/nox_files.db
+
+# Server
+server_host: "127.0.0.1"
+server_port: 8420
+
+# Orchestrator
+max_context_tokens: 4096
+max_history_turns: 10
+summary_threshold: 0.75  # summarize when context reaches 75% of max

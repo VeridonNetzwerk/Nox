@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Build artifacts
+dist/
+dist-backend/
+build/
+*.exe
+*.msi
+*.nsis
+.build-cache/
+
+# Model files (large, not checked in)
+models/*.onnx
+models/*.pt
+models/*.bin
+models/*.gguf
+models/piper-models/
+models/whisper-models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Data
+data/
+*.db
+*.db-journal
+
+# Environment
+.env
+.env.local
+
+# Config overrides
+config.local.yaml

@@ -1,0 +1,296 @@
+"""Orchestrator – central coordination for chat processing.
+
+Pipeline per incoming message:
+1. Retrieve relevant context from nox_eye
+2. Load conversation history from SQLite
+3. Build structured prompt: system prompt + context + history + new message
+4. Stream Ollama response token-by-token via WebSocket
+5. In voice mode: pipe sentences to TTS as they complete
+6. Handle tool-calling (native or fallback parsing)
+7. Persist conversation turns
+8. Manage context window: summarize old turns when threshold exceeded
+"""
+
+import asyncio
+import json
+import logging
+import re
+import uuid
+from typing import Any, AsyncIterator, Callable, Optional
+
+import httpx
+
+from .conversation_store import ConversationStore
+from .system_prompt import build_system_prompt
+from .tool_handler import ToolHandler
+
+logger = logging.getLogger("nox.orchestrator")
+
+
+class SentenceBuffer:
+    """Accumulates streamed tokens and emits complete sentences for TTS."""
+
+    SENTENCE_END = re.compile(r'[.!?]\s')
+
+    def __init__(self):
+        self._buffer = ""
+
+    def feed(self, token: str) -> list[str]:
+        self._buffer += token
+        sentences = []
+        while True:
+            match = self.SENTENCE_END.search(self._buffer)
+            if match:
+                end = match.end()
+                sentence = self._buffer[:end].strip()
+                if sentence:
+                    sentences.append(sentence)
+                self._buffer = self._buffer[end:]
+            else:
+                break
+        return sentences
+
+    def flush(self) -> str:
+        remaining = self._buffer.strip()
+        self._buffer = ""
+        return remaining if remaining else ""
+
+
+class Orchestrator:
+    """Central orchestrator for processing chat messages."""
+
+    def __init__(
+        self,
+        config: dict[str, Any],
+        eye_manager=None,
+        voice_manager=None,
+        files_manager=None,
+        broadcast: Optional[Callable] = None,
+    ):
+        self.config = config
+        self.ollama_host = config.get("ollama_host", "http://localhost:11434")
+        self.ollama_model = config.get("ollama_model", "llama3.1")
+        self.max_context_tokens = config.get("max_context_tokens", 4096)
+        self.max_history_turns = config.get("max_history_turns", 10)
+
+        self.eye_manager = eye_manager
+        self.voice_manager = voice_manager
+        self.files_manager = files_manager
+        self._broadcast = broadcast or (lambda msg: None)
+
+        # Conversation store (shared nox.db)
+        self.conversation_store = ConversationStore(
+            db_path=config.get("memory_db_path", ""),
+            ollama_host=self.ollama_host,
+            ollama_model=self.ollama_model,
+            max_context_tokens=self.max_context_tokens,
+        )
+
+        # Tool handler
+        self.tool_handler = ToolHandler(
+            eye_manager=eye_manager,
+            files_manager=files_manager,
+        )
+
+        # Active conversation ID (could be session-based in future)
+        self._conversation_id = str(uuid.uuid4())
+
+        logger.info("Orchestrator initialized (model=%s, conv=%s)", self.ollama_model, self._conversation_id)
+
+    @property
+    def conversation_id(self) -> str:
+        return self._conversation_id
+
+    def set_broadcast(self, broadcast: Callable) -> None:
+        self._broadcast = broadcast
+
+    async def process_message(
+        self,
+        message: str,
+        voice_input: bool = False,
+        context_override: Optional[str] = None,
+    ) -> None:
+        """Process an incoming message end-to-end.
+
+        1. Retrieve context from nox_eye
+        2. Build messages with system prompt + history
+        3. Stream Ollama response
+        4. Pipe to TTS in voice mode
+        5. Handle tool calls
+        6. Persist turns
+        """
+        # 1. Retrieve context
+        context = context_override
+        if not context and self.eye_manager and not self.eye_manager.is_paused:
+            try:
+                context = self.eye_manager.get_relevant_context(message, k=5, hours=24.0)
+            except Exception as exc:
+                logger.debug("Context retrieval failed: %s", exc)
+
+        # 2. Build system prompt
+        system_prompt = build_system_prompt(
+            voice_mode=voice_input,
+            tools_enabled=True,
+            context=context or "",
+        )
+
+        # 3. Build messages (system + summary + history + new message)
+        messages = self.conversation_store.build_messages(
+            conversation_id=self._conversation_id,
+            system_prompt=system_prompt,
+            new_message=message,
+            context=None,  # context already in system prompt
+            max_turns=self.max_history_turns,
+        )
+
+        # 4. Persist user turn
+        self.conversation_store.add_turn(
+            self._conversation_id, "user", message,
+            token_count=len(message) // 4,
+            voice_input=voice_input,
+        )
+
+        logger.info("Processing message: voice=%s, len=%d, msgs=%d", voice_input, len(message), len(messages))
+
+        # 5. Stream response
+        sentence_buffer = SentenceBuffer()
+        full_response = ""
+        tool_executed = False
+
+        try:
+            async for token in self._stream_ollama(messages):
+                full_response += token
+
+                # Check for tool calls in fallback mode
+                tool_match = self.tool_handler.parse_fallback(full_response)
+                if tool_match and not tool_executed:
+                    tool_name, tool_params = tool_match
+                    if self.tool_handler.has_tool(tool_name):
+                        # Map params to the correct argument key per tool
+                        if tool_name == "datei_lesen":
+                            tool_args = {"pfad": tool_params}
+                        elif tool_name == "dateien_suchen":
+                            tool_args = {"query": tool_params}
+                        else:
+                            tool_args = {"query": tool_params, "text": tool_params}
+                        tool_result = self.tool_handler.execute(tool_name, tool_args)
+                        tool_executed = True
+                        # Broadcast tool result
+                        await self._broadcast({
+                            "type": "tool_result",
+                            "tool": tool_name,
+                            "result": tool_result,
+                        })
+                        # Inject tool result and continue generation
+                        messages.append({"role": "assistant", "content": full_response})
+                        messages.append({"role": "user", "content": f"Werkzeug-Ergebnis: {tool_result}\n\nBitte antworte basierend auf diesem Ergebnis."})
+                        # Re-stream with tool result
+                        full_response = ""
+                        async for token2 in self._stream_ollama(messages):
+                            full_response += token2
+                            await self._broadcast({"type": "token", "content": token2})
+                            if voice_input:
+                                for sentence in sentence_buffer.feed(token2):
+                                    self.voice_manager.speak_sentence(sentence)
+                        continue
+
+                # Stream token to UI
+                await self._broadcast({"type": "token", "content": token})
+
+                # Pipe to TTS in voice mode
+                if voice_input and self.voice_manager:
+                    for sentence in sentence_buffer.feed(token):
+                        self.voice_manager.speak_sentence(sentence)
+
+            # Flush remaining TTS text
+            if voice_input and self.voice_manager:
+                remaining = sentence_buffer.flush()
+                if remaining:
+                    self.voice_manager.speak_sentence(remaining)
+
+            # Strip tool markers from final response for storage
+            clean_response = self.tool_handler.strip_tool_marker(full_response) if tool_executed else full_response
+
+            # 6. Persist assistant turn
+            self.conversation_store.add_turn(
+                self._conversation_id, "assistant", clean_response,
+                token_count=len(clean_response) // 4,
+            )
+
+            # 7. Check if summarization is needed
+            if self.conversation_store.needs_summarization(self._conversation_id):
+                asyncio.create_task(
+                    self.conversation_store.summarize_old_turns(self._conversation_id)
+                )
+
+            # 8. Broadcast done
+            await self._broadcast({"type": "done", "content": clean_response})
+            logger.info("Response complete: len=%d", len(clean_response))
+
+        except httpx.ConnectError:
+            logger.error("Ollama not reachable")
+            await self._broadcast({
+                "type": "error",
+                "content": f"Ollama ist nicht erreichbar unter {self.ollama_host}. Bitte Ollama starten.",
+            })
+        except Exception as exc:
+            logger.error("Orchestrator error: %s", exc, exc_info=True)
+            await self._broadcast({"type": "error", "content": f"Fehler: {exc}"})
+
+    async def _stream_ollama(
+        self,
+        messages: list[dict[str, str]],
+    ) -> AsyncIterator[str]:
+        """Stream tokens from Ollama /api/chat endpoint.
+
+        Uses the chat API (not generate) for proper multi-turn support.
+        """
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.ollama_host}/api/chat",
+                json={
+                    "model": self.ollama_model,
+                    "messages": messages,
+                    "stream": True,
+                },
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    msg = chunk.get("message", {})
+                    token = msg.get("content", "")
+                    if token:
+                        yield token
+                    if chunk.get("done", False):
+                        break
+
+    async def get_available_models(self) -> list[str]:
+        """Fetch available models from Ollama."""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{self.ollama_host}/api/tags")
+                resp.raise_for_status()
+                data = resp.json()
+                return [m.get("name", "") for m in data.get("models", [])]
+        except Exception as exc:
+            logger.error("Failed to fetch models: %s", exc)
+            return []
+
+    def set_model(self, model: str) -> None:
+        """Change the active Ollama model at runtime."""
+        self.ollama_model = model
+        self.conversation_store.ollama_model = model
+        logger.info("Model changed to: %s", model)
+
+    def new_conversation(self) -> str:
+        """Start a new conversation session."""
+        self._conversation_id = str(uuid.uuid4())
+        logger.info("New conversation: %s", self._conversation_id)
+        return self._conversation_id
+
+    def close(self) -> None:
+        self.conversation_store.close()
+        logger.info("Orchestrator closed")

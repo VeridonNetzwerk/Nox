@@ -1,0 +1,9 @@
+# Model files directory
+# Place downloaded model files here. These are NOT checked into git.
+#
+# Expected files:
+#   hey_nox.onnx          - openWakeWord custom model (placeholder until trained)
+#   whisper-small/        - faster-whisper model cache
+#   piper-models/         - Piper TTS voice models
+#
+# Use download_models.py to fetch placeholder/example models.

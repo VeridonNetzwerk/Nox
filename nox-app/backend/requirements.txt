@@ -1,0 +1,49 @@
+# Nox Backend – Pinned Dependencies
+# Python 3.11+
+
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+websockets==14.1
+pyyaml==6.0.2
+httpx==0.28.1
+
+# Voice pipeline – wake word
+openwakeword==0.6.0
+onnxruntime>=1.17.0
+sounddevice==0.5.1
+numpy>=1.26.0
+
+# Voice pipeline – VAD
+# webrtcvad-wheels installed separately in build_backend.py (optional, --only-binary)
+# webrtcvad-wheels==2.0.10.post2
+
+# Voice pipeline – STT
+faster-whisper==1.1.0
+
+# Voice pipeline – TTS (installed separately, piper-phonemize has no Windows wheels on PyPI)
+# piper-tts==1.2.0  → see build_backend.py install_piper_tts()
+
+# Context capture (nox_eye) – window monitoring
+pywin32>=306
+uiautomation>=2.0.20
+psutil>=5.9.0
+
+# Context capture – OCR fallback
+easyocr>=1.7.1
+Pillow>=10.0.0
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Context capture – embeddings
+sentence-transformers>=2.7.0
+
+# File search (nox_files) – document text extraction
+python-docx>=1.1.0
+PyMuPDF>=1.24.0
+
+# Testing
+pytest>=8.0.0
+
+# Build (optional – for PyInstaller freeze attempts; embedded Python is the primary strategy)
+# pyinstaller>=6.0.0
