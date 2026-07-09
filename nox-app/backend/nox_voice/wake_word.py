@@ -108,10 +108,11 @@ class WakeWordListener:
                 self._model_name = os.path.splitext(os.path.basename(self.model_path))[0]
             else:
                 # Try built-in model by name (e.g. "hey_jarvis")
-                model_name = self.model_path.rstrip("/\\")
-                if os.path.basename(model_name) == model_name:
-                    self._model = OWWModel(wakeword_model_paths=[model_name])
-                    self._model_name = model_name
+                # If the basename has no file extension, treat it as a built-in model name
+                basename = os.path.basename(self.model_path.rstrip("/\\"))
+                if "." not in basename:
+                    self._model = OWWModel(wakeword_model_paths=[basename])
+                    self._model_name = basename
                 else:
                     logger.error(
                         "Wake word model not found at %s – cannot start wake word listener. "
