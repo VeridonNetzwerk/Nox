@@ -104,14 +104,14 @@ class WakeWordListener:
         try:
             _ensure_oww_resources()
             if os.path.exists(self.model_path):
-                self._model = OWWModel(wakeword_model_paths=[self.model_path])
+                self._model = OWWModel(wakeword_models=[self.model_path])
                 self._model_name = os.path.splitext(os.path.basename(self.model_path))[0]
             else:
                 # Try built-in model by name (e.g. "hey_jarvis")
                 # If the basename has no file extension, treat it as a built-in model name
                 basename = os.path.basename(self.model_path.rstrip("/\\"))
                 if "." not in basename:
-                    self._model = OWWModel(wakeword_model_paths=[basename])
+                    self._model = OWWModel(wakeword_models=[basename])
                     self._model_name = basename
                 else:
                     logger.error(
