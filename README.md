@@ -2,8 +2,6 @@
 
 <img src="img/Nox_text_logo_2350x1024.png" height="128" alt="Nox Logo">
 
-# 🌙 Nox
-
 **Local AI Desktop Assistant for Windows — Voice-enabled, private, and fully offline.**
 
 <p>
