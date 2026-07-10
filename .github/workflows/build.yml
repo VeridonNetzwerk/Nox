@@ -1,0 +1,64 @@
+name: Build Nox
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: nox-app/ui/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install root dependencies
+        working-directory: nox-app
+        run: npm install
+
+      - name: Install UI dependencies
+        working-directory: nox-app/ui
+        run: npm install
+
+      - name: Build backend
+        working-directory: nox-app
+        run: npm run build:backend
+
+      - name: Build UI
+        working-directory: nox-app/ui
+        run: npm run build
+
+      - name: Package Electron app
+        working-directory: nox-app/ui
+        run: npx electron-builder --win nsis
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nox-Installer
+          path: nox-app/dist/*.exe
+          if-no-files-found: warn
+
+      - name: Upload unpacked app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nox-Unpacked
+          path: nox-app/dist/win-unpacked/**
+          if-no-files-found: warn
