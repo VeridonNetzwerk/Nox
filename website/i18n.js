@@ -50,14 +50,22 @@ function nox_detectLang(cb){
     else tryBrowser();
   };
 
-  fetch('https://ipapi.co/json/')
-    .then(r=>r.json())
-    .then(d=>applyCountry((d.country_code||'').toUpperCase()))
+  fetch('https://get.geojs.io/v1/ip/country.json')
+    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d=>applyCountry((d.country||'').toUpperCase()))
     .catch(()=>{
       fetch('https://ipwho.is/')
-        .then(r=>r.json())
-        .then(d=>applyCountry((d.country_code||'').toUpperCase()))
-        .catch(()=>tryBrowser());
+        .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+        .then(d=>{
+          if(!d.success) throw new Error('ipwho failed');
+          applyCountry((d.country_code||'').toUpperCase());
+        })
+        .catch(()=>{
+          fetch('https://ipapi.co/json/')
+            .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+            .then(d=>applyCountry((d.country_code||'').toUpperCase()))
+            .catch(()=>tryBrowser());
+        });
     });
 }
 
