@@ -585,7 +585,7 @@ async def system_status() -> dict[str, Any]:
         mic_available = False
 
     # Wake word model — check file path or built-in model name
-    wake_model_name = config.get("wake_word_model", "hey_jarvis")
+    wake_model_name = config.get("wake_word_model", "hey_nox.onnx")
     env_models = os.environ.get("NOX_MODELS_DIR")
     if env_models:
         wake_model_path = Path(env_models) / wake_model_name

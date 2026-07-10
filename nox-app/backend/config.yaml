@@ -20,7 +20,7 @@ audio_output_device: "default"  # device name, index, or "default"
 
 # Wake Word
 wake_word_enabled: true
-wake_word_model: "hey_jarvis"
+wake_word_model: "hey_nox.onnx"
 wake_word_threshold: 0.5
 
 # STT (faster-whisper)

@@ -25,7 +25,7 @@ BUNDLED_CONFIG = Path(__file__).parent / "config.yaml"
 # Keys that must be overwritten in existing user configs when the bundled
 # default changed (e.g. bug-fixes to default values). Use sparingly.
 _FORCED_OVERRIDES = {
-    "wake_word_model": "hey_jarvis",
+    "wake_word_model": "hey_nox.onnx",
 }
 
 

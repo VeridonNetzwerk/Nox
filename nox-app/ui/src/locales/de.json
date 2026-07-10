@@ -97,12 +97,12 @@
     "noAudioDevices": "Keine Audio-Geräte gefunden. Du kannst Nox per Text bedienen.",
     "wakeCalibration": "Wake-Word-Kalibrierung",
     "wakeTitle": "Wake-Word-Kalibrierung",
-    "wakeHint": "Sage 3× 'Hey Jarvis', um die Erkennung zu testen.",
+    "wakeHint": "Sage 3× 'Hey Nox', um die Erkennung zu testen.",
     "wakeModelFound": "Wake-Word-Modell gefunden",
     "wakeModelMissing": "Wake-Word-Modell nicht gefunden",
     "wakeModelHint": "Das Wake-Word-Modell ist integriert. Du kannst diesen Schritt überspringen und Nox per Text oder Mic-Button nutzen.",
     "wakeAttempts": "Erkennungen:",
-    "wakeSay": "Sage 'Hey Jarvis' in dein Mikrofon…",
+    "wakeSay": "Sage 'Hey Nox' in dein Mikrofon…",
     "wakeCalibrated": "Kalibrierung erfolgreich!",
     "done": "Fertig",
     "setupComplete": "Einrichtung abgeschlossen",
@@ -125,7 +125,7 @@
     "downloading": "Lade herunter…",
     "downloadFailed": "Download fehlgeschlagen",
     "downloadComplete": "Download abgeschlossen! Wake-Word-Modell ist bereit.",
-    "wakeWordBuiltin": "Wake-Word-Modell ist integriert (Hey Jarvis). Du kannst die Kalibrierung im nächsten Schritt testen.",
+    "wakeWordBuiltin": "Wake-Word-Modell ist integriert (Hey Nox). Du kannst die Kalibrierung im nächsten Schritt testen.",
     "pullFailed": "Download fehlgeschlagen"
   },
   "mic": {

@@ -506,7 +506,7 @@ function OnboardingWizard({ locale, onComplete }) {
                 {s.voiceModels || "Voice-Modelle"}
               </h4>
               <p className="text-xs text-nox-textDim">
-                {s.wakeWordBuiltin || "Wake-Word-Modell ist integriert (Hey Jarvis). Du kannst die Kalibrierung im nächsten Schritt testen."}
+                {s.wakeWordBuiltin || "Wake-Word-Modell ist integriert (Hey Nox). Du kannst die Kalibrierung im nächsten Schritt testen."}
               </p>
             </div>
           </div>
@@ -568,7 +568,7 @@ function OnboardingWizard({ locale, onComplete }) {
           <div className="flex flex-col gap-4">
             <h3 className="text-base font-semibold text-nox-text">{s.wakeTitle || "Wake-Word-Kalibrierung"}</h3>
             <p className="text-sm text-nox-textDim">
-              {s.wakeHint || "Sage 3× 'Hey Jarvis', um die Erkennung zu testen."}
+              {s.wakeHint || "Sage 3× 'Hey Nox', um die Erkennung zu testen."}
             </p>
             <div className="px-3 py-4 rounded-lg bg-nox-surface">
               {wakeOk === null ? (
@@ -585,7 +585,7 @@ function OnboardingWizard({ locale, onComplete }) {
                   </div>
                   {wakeAttempts < 3 ? (
                     <p className="text-xs text-nox-textDim">
-                      {s.wakeSay || "Sage 'Hey Jarvis' in dein Mikrofon…"}
+                      {s.wakeSay || "Sage 'Hey Nox' in dein Mikrofon…"}
                     </p>
                   ) : (
                     <p className="text-xs text-green-500">
