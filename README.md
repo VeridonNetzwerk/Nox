@@ -19,6 +19,9 @@
   <a href="https://github.com/VeridonNetzwerk/Nox/actions">
     <img src="https://img.shields.io/github/actions/workflow/status/VeridonNetzwerk/Nox/build.yml?style=flat-square&label=build" alt="Build Status">
   </a>
+  <a href="https://veridonnetzwerk.github.io/Nox/">
+    <img src="https://img.shields.io/badge/website-online-green" alt="Website">
+  </a>
   <img src="https://img.shields.io/badge/Windows%2011-supported-blue" alt="Windows 11">
   <img src="https://img.shields.io/badge/Python-3.11-yellow" alt="Python 3.11">
   <img src="https://img.shields.io/badge/Electron-33-blue" alt="Electron 33">
@@ -96,7 +99,7 @@ This starts:
 
 ---
 
-## 🖼️ Screenshots
+## 🖼️ Screenshots & Website
 
 <div align="center">
 
@@ -104,7 +107,7 @@ This starts:
 
 </div>
 
-> 💡 *Add screenshots of the chat overlay, onboarding wizard, and tray menu here.*
+Visit the project website: **[veridonnetzwerk.github.io/Nox](https://veridonnetzwerk.github.io/Nox/)**
 
 ---
 
