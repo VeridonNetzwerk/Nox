@@ -174,17 +174,4 @@ document.querySelectorAll(
 });
 
 // ============== DOWNLOAD BUTTON ==============
-
-const dlBtn = document.getElementById('download-btn');
-if (dlBtn) {
-  dlBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    const original = dlBtn.innerHTML;
-    dlBtn.innerHTML = '<span>DEMNAECHST VERFUEGBAR</span>';
-    dlBtn.style.opacity = '0.6';
-    setTimeout(() => {
-      dlBtn.innerHTML = original;
-      dlBtn.style.opacity = '1';
-    }, 2000);
-  });
-}
+// Download button now links directly to GitHub releases — no JS intercept needed.

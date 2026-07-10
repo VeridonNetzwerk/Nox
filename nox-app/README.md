@@ -213,4 +213,4 @@ persisted immediately. For dev overrides, use `backend/config.local.yaml`.
 
 ## License
 
-Private project.
+MIT License — see [LICENSE](../LICENSE) for details.
