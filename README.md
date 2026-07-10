@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="img/icon_1024x1024.png" width="128" height="128" alt="Nox Logo">
+<img src="img/Nox_text_logo_2350x1024.png" width="128" height="128" alt="Nox Logo">
 
 # 🌙 Nox
 
