@@ -178,8 +178,8 @@ function createWindow() {
     mainWindow.loadFile(indexPath);
   }
 
-  // Open DevTools in debug mode
-  if (isDebug) {
+  // Open DevTools only when debug flag file exists
+  if (fs.existsSync(debugFlag)) {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 

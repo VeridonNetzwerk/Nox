@@ -58,6 +58,20 @@
 
 > **Note**: Nox runs entirely locally. You don't need an internet connection after installation — all AI models (LLM, STT, TTS, wake word) run on your machine.
 
+### 🎯 Smart Model Selection
+
+Nox automatically selects the best Ollama model based on your GPU's VRAM. **Gemma** models are preferred for their strong context support and multimodal (image) capabilities, which power Nox's screen-aware context pipeline.
+
+| GPU VRAM | Recommended Model | Use Case |
+|----------|-------------------|----------|
+| < 8 GB | Gemma 4b | Low-end GPUs, still capable |
+| 8–12 GB | Gemma 4b | Mid-range, safe choice |
+| 12–16 GB | Gemma 8b | Balanced performance + speed |
+| 16–20 GB | Gemma 12b | High-quality responses |
+| ≥ 20 GB | Gemma 16b | Maximum quality |
+
+If no Gemma model is installed, Nox falls back to any available model with a matching size, or the first available model as a last resort. You can always switch models in **Settings**.
+
 ---
 
 ## 🚀 Quick Start
@@ -133,7 +147,7 @@ nox-app/
 |-------|-----------|
 | Frontend | Electron 33, React 18, Tailwind CSS 3, Vite 6 |
 | Backend | Python 3.11, FastAPI, uvicorn |
-| LLM | Ollama (llama3.1, mistral, etc.) |
+| LLM | Ollama (Gemma preferred, auto-selected by VRAM) |
 | Wake Word | openWakeWord (custom "Hey Nox" ONNX model) |
 | STT | faster-whisper (CTranslate2, CUDA) |
 | TTS | Piper TTS (German voice, sentence streaming) |

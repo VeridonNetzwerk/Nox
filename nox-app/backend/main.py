@@ -205,6 +205,26 @@ async def startup_event() -> None:
     eye_manager.start()
     files_manager.start()
     orchestrator.set_broadcast(manager.broadcast)
+
+    # Auto-select best Ollama model if configured model is missing
+    configured_model = config.get("ollama_model", "llama3.1")
+    try:
+        available = await orchestrator.get_available_models()
+        if available and configured_model not in available:
+            vram_mb = _get_gpu_vram()
+            new_model = _select_model_by_vram(available, vram_mb)
+            if new_model:
+                logger.warning(
+                    "Configured model '%s' not found in Ollama. Available: %s. VRAM: %dMB. Auto-selecting '%s'.",
+                    configured_model, available, vram_mb, new_model,
+                )
+                config["ollama_model"] = new_model
+                orchestrator.set_model(new_model)
+                settings_mgr.save(config)
+                logger.info("Switched active model to '%s'", new_model)
+    except Exception as exc:
+        logger.warning("Could not verify Ollama models at startup: %s", exc)
+
     logger.info("Backend startup complete")
 
 
@@ -634,12 +654,74 @@ OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 ONBOARDING_STATE: dict[str, Any] = {}
 
 
+def _get_gpu_vram() -> int:
+    """Query GPU VRAM in MB via nvidia-smi. Returns 0 if unavailable."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip().splitlines()[0].strip())
+    except Exception:
+        pass
+    return 0
+
+
+def _select_model_by_vram(available_models: list[str], vram_mb: int) -> str | None:
+    """Select the best Gemma model based on GPU VRAM.
+
+    Preference order (Gemma first, then fallback):
+      <8GB  VRAM -> 4b model
+      <12GB VRAM -> 4b model (safe)
+      <16GB VRAM -> 8b model
+      <20GB VRAM -> 12b model
+      >=20GB VRAM -> 16b model (or largest available)
+    """
+    if vram_mb <= 0:
+        # No GPU info — pick smallest Gemma
+        target_sizes = ["4b", "8b", "12b", "16b", "2b", "1b"]
+    elif vram_mb < 8000:
+        target_sizes = ["4b", "2b", "1b"]
+    elif vram_mb < 12000:
+        target_sizes = ["4b", "8b", "2b", "1b"]
+    elif vram_mb < 16000:
+        target_sizes = ["8b", "4b", "12b", "2b"]
+    elif vram_mb < 20000:
+        target_sizes = ["12b", "8b", "4b", "16b"]
+    else:
+        target_sizes = ["16b", "12b", "8b", "4b"]
+
+    # Try Gemma variants first, then any model with the target size
+    for size in target_sizes:
+        # Prefer gemma3
+        for m in available_models:
+            if "gemma" in m.lower() and size in m.lower():
+                return m
+        # Then any gemma variant
+        for m in available_models:
+            if "gemma" in m.lower() and size in m.lower():
+                return m
+
+    # Fallback: any model with the target size
+    for size in target_sizes:
+        for m in available_models:
+            if size in m.lower():
+                return m
+
+    # Last resort: first available model
+    if available_models:
+        return available_models[0]
+    return None
+
+
 @app.get("/api/onboarding/gpu-check")
 async def gpu_check() -> dict[str, Any]:
     """Check if CUDA is actually available (not just if an NVIDIA card exists)."""
     cuda_available = False
     gpu_name = ""
     torch_version = ""
+    vram_mb = 0
 
     try:
         import torch
@@ -652,24 +734,36 @@ async def gpu_check() -> dict[str, Any]:
     except Exception as exc:
         logger.debug("GPU check error: %s", exc)
 
-    # Also check via nvidia-smi as fallback
+    # Also check via nvidia-smi as fallback (includes VRAM)
     nvidia_smi = False
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             nvidia_smi = True
+            parts = result.stdout.strip().splitlines()[0].split(",")
             if not gpu_name:
-                gpu_name = result.stdout.strip().splitlines()[0]
+                gpu_name = parts[0].strip()
+            if len(parts) > 1:
+                vram_str = parts[1].strip().replace(" MiB", "").replace(" MiB", "")
+                try:
+                    vram_mb = int(vram_str)
+                except ValueError:
+                    pass
     except Exception:
         pass
+
+    # If torch CUDA gave us a name but no VRAM, try nvidia-smi for VRAM only
+    if cuda_available and vram_mb == 0:
+        vram_mb = _get_gpu_vram()
 
     return {
         "status": "ok",
         "cuda_available": cuda_available,
         "gpu_name": gpu_name,
+        "vram_mb": vram_mb,
         "torch_version": torch_version,
         "nvidia_driver_present": nvidia_smi,
         "mode": "gpu" if cuda_available else ("cpu_fallback" if nvidia_smi else "cpu"),
