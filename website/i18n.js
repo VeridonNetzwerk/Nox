@@ -36,26 +36,27 @@ function nox_detectLang(cb){
   const saved = localStorage.getItem('nox-lang');
   if(saved && NOX_I18N[saved]){ cb(saved); return; }
 
+  let resolved = false;
+  const done = (lang)=>{ if(!resolved){ resolved=true; cb(lang); } };
+
   const tryBrowser = ()=>{
     const bl = (navigator.language||'en').slice(0,2).toLowerCase();
-    cb(NOX_I18N[bl]?bl:'en');
+    done(NOX_I18N[bl]?bl:'en');
   };
 
-  fetch('http://ip-api.com/json/?fields=countryCode')
+  const applyCountry = (cc)=>{
+    const lang = NOX_COUNTRY_LANG[cc];
+    if(lang && NOX_I18N[lang]) done(lang);
+    else tryBrowser();
+  };
+
+  fetch('https://ipapi.co/json/')
     .then(r=>r.json())
-    .then(d=>{
-      const cc = (d.countryCode||'').toUpperCase();
-      const lang = NOX_COUNTRY_LANG[cc];
-      cb(NOX_I18N[lang]?lang:tryBrowser());
-    })
+    .then(d=>applyCountry((d.country_code||'').toUpperCase()))
     .catch(()=>{
-      fetch('https://ipapi.co/json/')
+      fetch('https://ipwho.is/')
         .then(r=>r.json())
-        .then(d=>{
-          const cc = (d.country_code||'').toUpperCase();
-          const lang = NOX_COUNTRY_LANG[cc] || (d.languages||'en').split(',')[0].slice(0,2).toLowerCase();
-          cb(NOX_I18N[lang]?lang:tryBrowser());
-        })
+        .then(d=>applyCountry((d.country_code||'').toUpperCase()))
         .catch(()=>tryBrowser());
     });
 }
