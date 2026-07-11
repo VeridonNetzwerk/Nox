@@ -94,6 +94,7 @@ let isQuitting = false;
 let suppressBlur = false;
 let lastShowTime = 0;
 let isThinking = false; // Don't hide window while Nox is generating a response
+let isOnboardingActive = false; // Don't hide window while onboarding wizard is showing
 
 // ---------------------------------------------------------------------------
 // Screen positioning
@@ -203,6 +204,8 @@ function createWindow() {
     if (suppressBlur || isQuitting || !mainWindow) return;
     // Don't hide while Nox is thinking/generating a response
     if (isThinking) return;
+    // Don't hide while onboarding wizard is active
+    if (isOnboardingActive) return;
     // Ignore blur within 1s of showWindow (tray menu close delay)
     if (Date.now() - lastShowTime < 1000) return;
     hideWindow();
@@ -471,6 +474,18 @@ const MAX_ONBOARDING_RETRIES = 30; // 30 × 3s = 90s max wait for sandbox scanni
 const userDataDir = app.getPath("userData");
 const firstRunFlag = path.join(userDataDir, "onboarding-done");
 
+// In dev mode, always delete the onboarding flag so the wizard shows every start
+if (!app.isPackaged) {
+  try {
+    if (fs.existsSync(firstRunFlag)) {
+      fs.unlinkSync(firstRunFlag);
+      console.log("Dev mode: onboarding-done flag deleted");
+    }
+  } catch (err) {
+    console.error("Failed to delete onboarding flag:", err);
+  }
+}
+
 function isFirstRun() {
   return !fs.existsSync(firstRunFlag);
 }
@@ -587,7 +602,12 @@ app.whenReady().then(async () => {
   ipcMain.on("show-window", () => showWindow());
   ipcMain.on("onboarding-complete", () => {
     markOnboardingDone();
+    isOnboardingActive = false;
     console.log("Onboarding completed — flag written");
+  });
+  ipcMain.on("onboarding-active", () => {
+    isOnboardingActive = true;
+    console.log("Onboarding active — window will stay visible");
   });
   ipcMain.on("thinking-state", (_e, thinking) => {
     isThinking = thinking;

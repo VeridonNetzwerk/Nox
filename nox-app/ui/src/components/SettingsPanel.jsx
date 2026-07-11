@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import noxLogo from "../assets/nox-logo.png";
+import { useToast } from "./Toast.jsx";
 
 const API_BASE = "http://127.0.0.1:8420";
 
 function SettingsPanel({ locale, onClose }) {
+  const { addToast } = useToast();
   const s = locale.settings;
   const [settings, setSettings] = useState({});
   const [models, setModels] = useState([]);
@@ -11,6 +13,9 @@ function SettingsPanel({ locale, onClose }) {
   const [saving, setSaving] = useState(false);
   const [newExcludedApp, setNewExcludedApp] = useState("");
   const [audioDevices, setAudioDevices] = useState({ input: [], output: [] });
+  const [installedVoices, setInstalledVoices] = useState([]);
+  const [previewPlaying, setPreviewPlaying] = useState(null);
+  const previewAudioRef = useRef(null);
   const [testingInput, setTestingInput] = useState(false);
   const [testingOutput, setTestingOutput] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -20,25 +25,28 @@ function SettingsPanel({ locale, onClose }) {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const [settingsRes, modelsRes, autostartRes, audioRes, filesRes] = await Promise.all([
+      const [settingsRes, modelsRes, autostartRes, audioRes, filesRes, voicesRes] = await Promise.all([
         fetch(`${API_BASE}/api/settings`),
         fetch(`${API_BASE}/api/models`),
         fetch(`${API_BASE}/api/autostart`),
         fetch(`${API_BASE}/api/audio/devices`),
         fetch(`${API_BASE}/health/files`),
+        fetch(`${API_BASE}/api/voices/installed`),
       ]);
       const settingsData = await settingsRes.json();
       const modelsData = await modelsRes.json();
       const autostartData = await autostartRes.json();
       const audioData = await audioRes.json();
       const filesData = await filesRes.json();
+      const voicesData = await voicesRes.json();
       if (settingsData.status === "ok") setSettings(settingsData.settings);
       if (modelsData.status === "ok") setModels(modelsData.available_models || []);
       setAutostart(autostartData.enabled || false);
       if (audioData.status === "ok") setAudioDevices({ input: audioData.input || [], output: audioData.output || [] });
       setFilesHealth(filesData);
+      if (voicesData.status === "ok") setInstalledVoices(voicesData.installed || []);
     } catch (err) {
-      console.error("Failed to load settings:", err);
+      addToast({ type: "error", title: "Einstellungen", message: "Einstellungen konnten nicht geladen werden", detail: String(err), reportable: true });
     }
   }, []);
 
@@ -56,14 +64,57 @@ function SettingsPanel({ locale, onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      // Hotkey changes also need Electron IPC to re-register the global shortcut
       if (key === "hotkey" && window.nox?.updateHotkey) {
         window.nox.updateHotkey(value);
       }
     } catch (err) {
-      console.error("Failed to save setting:", err);
+      addToast({ type: "error", title: "Einstellungen", message: "Einstellung konnte nicht gespeichert werden", detail: String(err), reportable: true });
     }
     setSaving(false);
+  };
+
+  const playVoicePreview = async (voiceName) => {
+    if (!voiceName) return;
+    const parts = voiceName.split("-");
+    if (parts.length < 3) return;
+    const langCode = parts[0];
+    const quality = parts[parts.length - 1];
+    const voiceNamePart = parts.slice(1, -1).join("-");
+
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    if (previewPlaying === voiceName) {
+      setPreviewPlaying(null);
+      return;
+    }
+
+    setPreviewPlaying(voiceName);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/voices/demo/${langCode}/${voiceNamePart}/${quality}`
+      );
+      if (!res.ok) throw new Error("Preview failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      previewAudioRef.current = audio;
+      audio.onended = () => {
+        setPreviewPlaying(null);
+        URL.revokeObjectURL(url);
+        previewAudioRef.current = null;
+      };
+      audio.onerror = () => {
+        setPreviewPlaying(null);
+        URL.revokeObjectURL(url);
+        previewAudioRef.current = null;
+      };
+      await audio.play();
+    } catch (err) {
+      console.error("Preview failed:", err);
+      setPreviewPlaying(null);
+    }
   };
 
   const toggleAutostart = async () => {
@@ -76,7 +127,7 @@ function SettingsPanel({ locale, onClose }) {
         body: JSON.stringify({ enabled: newVal }),
       });
     } catch (err) {
-      console.error("Failed to toggle autostart:", err);
+      addToast({ type: "error", title: "Autostart", message: "Autostart konnte nicht geändert werden", detail: String(err), reportable: true });
     }
   };
 
@@ -110,7 +161,7 @@ function SettingsPanel({ locale, onClose }) {
         setTestResult({ type: "input", ok: false, error: data.error });
       }
     } catch (err) {
-      setTestResult({ type: "input", ok: false, error: String(err) });
+      addToast({ type: "error", title: "Audio-Test", message: "Audio-Test fehlgeschlagen", detail: String(err), reportable: true });
     }
     setTestingInput(false);
     setTimeout(() => setTestResult(null), 5000);
@@ -132,7 +183,7 @@ function SettingsPanel({ locale, onClose }) {
         setTestResult({ type: "output", ok: false, error: data.error });
       }
     } catch (err) {
-      setTestResult({ type: "output", ok: false, error: String(err) });
+      addToast({ type: "error", title: "Audio-Test", message: "Audio-Test fehlgeschlagen", detail: String(err), reportable: true });
     }
     setTestingOutput(false);
     setTimeout(() => setTestResult(null), 5000);
@@ -173,7 +224,7 @@ function SettingsPanel({ locale, onClose }) {
       await fetch(`${API_BASE}/files/reindex`, { method: "POST" });
       setTimeout(fetchSettings, 2000);
     } catch (err) {
-      console.error("Reindex failed:", err);
+      addToast({ type: "error", title: "Dateisuche", message: "Neu-Indexierung fehlgeschlagen", detail: String(err), reportable: true });
     }
   };
 
@@ -402,13 +453,34 @@ function SettingsPanel({ locale, onClose }) {
             />
           </Row>
           <Row label={s.ttsVoice}>
-            <input
-              type="text"
-              className={inputClass + " w-44 text-right"}
-              value={settings.tts_model || ""}
-              onChange={(e) => updateSetting("tts_model", e.target.value)}
-              placeholder="de_DE-thorsten-medium"
-            />
+            <div className="flex items-center gap-2">
+              <select
+                className={inputClass + " w-48 text-right"}
+                value={settings.tts_model || ""}
+                onChange={(e) => updateSetting("tts_model", e.target.value)}
+              >
+                {installedVoices.length > 0 ? (
+                  installedVoices.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))
+                ) : (
+                  <option value="">— keine Stimme —</option>
+                )}
+              </select>
+              {settings.tts_model && (
+                <button
+                  onClick={() => playVoicePreview(settings.tts_model)}
+                  className={`px-2.5 py-1.5 rounded-md text-sm transition-colors ${
+                    previewPlaying === settings.tts_model
+                      ? "bg-nox-accent text-white"
+                      : "bg-nox-surfaceHover hover:bg-nox-accent/20 text-nox-text"
+                  }`}
+                  title="Demo abspielen"
+                >
+                  {previewPlaying === settings.tts_model ? "⏸" : "🔊"}
+                </button>
+              )}
+            </div>
           </Row>
         </Section>
 

@@ -10,7 +10,6 @@ import json
 import logging
 import logging.handlers
 import os
-import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,12 +32,14 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 logger = logging.getLogger("nox.backend")
 logger.setLevel(logging.DEBUG)
 
-# Size-based rotation: 5MB, 3 backups
+# Size-based rotation: 10MB, 3 backups
+# delay=True opens the file lazily on first write to avoid Windows file lock issues
 _file_handler = logging.handlers.RotatingFileHandler(
-    LOG_DIR / "backend.log",
-    maxBytes=5 * 1024 * 1024,
+    LOG_DIR / "nox_backend.log",
+    maxBytes=10 * 1024 * 1024,
     backupCount=3,
     encoding="utf-8",
+    delay=True,
 )
 _file_handler.setFormatter(
     logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -47,11 +48,12 @@ logger.addHandler(_file_handler)
 
 # Age-based rotation: daily, keep 7 days
 _timed_handler = logging.handlers.TimedRotatingFileHandler(
-    LOG_DIR / "nox.log",
+    LOG_DIR / "nox_timed.log",
     when="midnight",
     interval=1,
     backupCount=7,
     encoding="utf-8",
+    delay=True,
 )
 _timed_handler.setFormatter(
     logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -65,9 +67,43 @@ _console_handler.setFormatter(
 )
 logger.addHandler(_console_handler)
 
+# Wire voice/orchestrator loggers to the same handlers
+for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt", "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation", "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye", "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store", "nox.eye.clipboard", "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings"):
+    _l = logging.getLogger(_name)
+    _l.setLevel(logging.DEBUG)
+    _l.addHandler(_file_handler)
+    _l.addHandler(_timed_handler)
+    _l.addHandler(_console_handler)
+    _l.propagate = False
+
 # ---------------------------------------------------------------------------
 # Config loading – persistent in %APPDATA%\Nox\config.yaml
 # ---------------------------------------------------------------------------
+
+# In dev mode, reset config to bundled defaults on every start
+import sys as _sys
+_is_dev_mode = (
+    "--reload" in _sys.argv
+    or any("--reload" in str(a) for a in _sys.argv)
+    or not (Path(__file__).parent / ".prod").exists()  # source tree without .prod marker
+)
+if _is_dev_mode:
+    import shutil as _shutil
+    _bundled = Path(__file__).parent / "config.yaml"
+    _user_config = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "config.yaml"
+    if _bundled.exists():
+        _user_config.parent.mkdir(parents=True, exist_ok=True)
+        _shutil.copy2(_bundled, _user_config)
+        logger.info("Dev mode: config reset to bundled defaults")
+    # Also ensure onboarding_completed is false so onboarding shows every dev start
+    if _user_config.exists():
+        import yaml as _yaml_dev
+        with open(_user_config, "r", encoding="utf-8") as _f:
+            _dev_cfg = _yaml_dev.safe_load(_f) or {}
+        _dev_cfg["onboarding_completed"] = False
+        with open(_user_config, "w", encoding="utf-8") as _f:
+            _yaml_dev.dump(_dev_cfg, _f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        logger.info("Dev mode: onboarding_completed reset to false")
 
 settings_mgr = SettingsManager()
 config = settings_mgr.load()
@@ -200,7 +236,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event() -> None:
     """Start voice pipeline on server startup."""
-    voice_manager.set_event_loop(asyncio.get_event_loop())
+    voice_manager.set_event_loop(asyncio.get_running_loop())
     voice_manager.start()
     eye_manager.start()
     files_manager.start()
@@ -223,7 +259,7 @@ async def startup_event() -> None:
                 settings_mgr.save(config)
                 logger.info("Switched active model to '%s'", new_model)
     except Exception as exc:
-        logger.warning("Could not verify Ollama models at startup: %s", exc)
+        logger.warning("Could not verify Ollama models at startup: %s", exc, exc_info=True)
 
     logger.info("Backend startup complete")
 
@@ -427,6 +463,7 @@ async def update_settings(body: dict[str, Any]) -> dict[str, Any]:
     if "wake_word_threshold" in updates:
         voice_manager.wake_word.threshold = updates["wake_word_threshold"]
     if "wake_word_enabled" in updates:
+        voice_manager._enabled = updates["wake_word_enabled"]
         if updates["wake_word_enabled"]:
             voice_manager.start()
         else:
@@ -440,6 +477,10 @@ async def update_settings(body: dict[str, Any]) -> dict[str, Any]:
     if "tts_model" in updates:
         voice_manager.tts.model_name = updates["tts_model"]
         voice_manager.tts._voice = None  # force reload on next use
+    if "tts_engine" in updates:
+        voice_manager.tts_engine = updates["tts_engine"]
+        # tts_model holds the voice_id for edge/kokoro engines
+        voice_manager.tts_voice_id = updates.get("tts_model", voice_manager.tts_voice_id)
 
     # Audio device hot-reload
     if "audio_input_device" in updates or "audio_output_device" in updates:
@@ -576,6 +617,32 @@ async def tts_stop() -> dict[str, Any]:
     return {"status": "ok"}
 
 
+@app.post("/api/log/ui-error")
+async def log_ui_error(body: dict[str, Any]) -> dict[str, Any]:
+    """Receive error reports from the UI and log them to nox_backend.log.
+
+    This allows the backend to capture UI-side errors (React crashes,
+    fetch failures, etc.) in the same log file for easier debugging
+    and GitHub issue creation.
+    """
+    error = body.get("error", "Unknown UI error")
+    stack = body.get("stack", "")
+    component_stack = body.get("componentStack", "")
+    url = body.get("url", "")
+    timestamp = body.get("timestamp", "")
+
+    logger.error(
+        "[UI-ERROR] %s | url=%s | ts=%s\n  Stack: %s\n  ComponentStack: %s",
+        error,
+        url,
+        timestamp,
+        stack[:500],
+        component_stack[:500],
+    )
+
+    return {"status": "ok"}
+
+
 @app.get("/api/status")
 async def system_status() -> dict[str, Any]:
     """Comprehensive system status for UI error states.
@@ -632,7 +699,7 @@ async def system_status() -> dict[str, Any]:
             "available": mic_available,
         },
         "wake_word": {
-            "model_exists": wake_model_exists,
+            "model_exists": wake_model_exists or voice_health.get("wake_word", {}).get("available", False),
             "model_path": str(wake_model_path),
             "available": voice_health.get("wake_word", {}).get("available", False),
             "running": voice_health.get("wake_word", {}).get("running", False),
@@ -694,9 +761,9 @@ def _select_model_by_vram(available_models: list[str], vram_mb: int) -> str | No
 
     # Try Gemma variants first, then any model with the target size
     for size in target_sizes:
-        # Prefer gemma3
+        # Prefer gemma3 specifically
         for m in available_models:
-            if "gemma" in m.lower() and size in m.lower():
+            if "gemma3" in m.lower() and size in m.lower():
                 return m
         # Then any gemma variant
         for m in available_models:
@@ -747,7 +814,7 @@ async def gpu_check() -> dict[str, Any]:
             if not gpu_name:
                 gpu_name = parts[0].strip()
             if len(parts) > 1:
-                vram_str = parts[1].strip().replace(" MiB", "").replace(" MiB", "")
+                vram_str = parts[1].strip().replace(" MiB", "")
                 try:
                     vram_mb = int(vram_str)
                 except ValueError:
@@ -910,6 +977,235 @@ async def pull_status() -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Voice catalog endpoints – TTS engine selection (Kokoro, Edge)
+# ---------------------------------------------------------------------------
+
+from nox_voice.voice_catalog import (
+    get_sample_sentence,
+    detect_system_language,
+    get_default_voice,
+    SAMPLE_SENTENCES,
+)
+
+from nox_voice.supported_languages import SUPPORTED_LANGUAGES, get_supported_languages
+
+from nox_voice.tts_edge import (
+    _EDGE_AVAILABLE,
+    edge_tts_to_wav,
+)
+from nox_voice.tts_kokoro import (
+    is_kokoro_available,
+    get_kokoro_lang_code,
+    get_kokoro_voices_for_lang,
+    kokoro_to_wav,
+    KOKORO_LANGUAGES,
+)
+
+
+@app.get("/api/voices/catalog")
+async def voices_catalog() -> dict[str, Any]:
+    """Return the full voice catalog (languages) for UI selection.
+    Only languages supported by Kokoro or Edge TTS are listed."""
+    return {"status": "ok", "catalog": get_supported_languages()}
+
+
+@app.get("/api/voices/installed")
+async def voices_installed() -> dict[str, Any]:
+    """List installed voice models (Kokoro voices are built-in, no download needed)."""
+    return {"status": "ok", "installed": []}
+
+
+@app.get("/api/voices/system-language")
+async def voices_system_language() -> dict[str, Any]:
+    """Detect the system language for voice selection."""
+    lang = detect_system_language()
+    info = SUPPORTED_LANGUAGES.get(lang, ("German", "Deutsch"))
+    default = get_default_voice(lang)
+    return {
+        "status": "ok",
+        "language_code": lang,
+        "language_name": info[0],
+        "language_native": info[1],
+        "default_voice": default[0] if default else None,
+        "default_engine": default[1] if default else None,
+    }
+
+
+@app.get("/api/voices/default/{lang_code}")
+async def voices_default_for_lang(lang_code: str) -> dict[str, Any]:
+    """Get the default voice and engine for a specific language."""
+    default = get_default_voice(lang_code)
+    if default is None:
+        return {"status": "error", "error": f"No default voice for {lang_code}"}
+    return {
+        "status": "ok",
+        "language_code": lang_code,
+        "default_voice": default[0],
+        "default_engine": default[1],
+    }
+
+
+@app.get("/api/voices/engines")
+async def voices_engines() -> dict[str, Any]:
+    """List all available TTS engines and their status."""
+    return {
+        "status": "ok",
+        "engines": {
+            "kokoro": {
+                "available": is_kokoro_available(),
+                "name": "Kokoro-82M",
+                "description": "Lokal, hohe Qualität, sehr schnell, Apache 2.0",
+                "offline": True,
+            },
+            "edge": {
+                "available": _EDGE_AVAILABLE,
+                "name": "Edge TTS (Microsoft)",
+                "description": "Cloud, exzellente Qualität, neuronale Stimmen",
+                "offline": False,
+            },
+        },
+    }
+
+
+@app.get("/api/voices/edge/catalog")
+async def voices_edge_catalog() -> dict[str, Any]:
+    """Return Edge TTS voice catalog organized by language."""
+    from nox_voice.tts_edge import EDGE_VOICES_BY_LANG
+
+    result = {}
+    for lang_code, voices in EDGE_VOICES_BY_LANG.items():
+        result[lang_code] = {
+            "voices": [
+                {
+                    "id": v[0],
+                    "name": v[1],
+                    "gender": v[2],
+                    "description": v[3],
+                }
+                for v in voices
+            ],
+            "sample_sentence": SAMPLE_SENTENCES.get(lang_code, "Hello."),
+        }
+    return {"status": "ok", "catalog": result}
+
+
+@app.get("/api/voices/kokoro/catalog")
+async def voices_kokoro_catalog() -> dict[str, Any]:
+    """Return Kokoro-82M voice catalog organized by language."""
+    result = {}
+    for lang_code, voices in KOKORO_LANGUAGES.items():
+        voice_list = get_kokoro_voices_for_lang(lang_code)
+        result[lang_code] = {
+            "voices": [
+                {
+                    "id": v[0],
+                    "name": v[1],
+                    "gender": v[2],
+                    "description": v[3],
+                }
+                for v in voice_list
+            ],
+            "sample_sentence": SAMPLE_SENTENCES.get(lang_code, "Hello."),
+        }
+    return {"status": "ok", "catalog": result}
+
+
+@app.get("/api/voices/demo/edge/{lang_code}/{voice_id}")
+async def voices_demo_edge(lang_code: str, voice_id: str, text: str = ""):
+    """Generate a TTS demo using Edge TTS. Returns WAV audio."""
+    from fastapi.responses import Response
+
+    if not _EDGE_AVAILABLE:
+        logger.error("Edge TTS: library not installed")
+        return {"status": "error", "error": "edge-tts not installed. Run: pip install edge-tts"}
+
+    if not text:
+        text = get_sample_sentence(lang_code)
+
+    logger.info("Edge TTS: synthesizing demo with voice '%s'", voice_id)
+    try:
+        wav_bytes = await edge_tts_to_wav(voice_id, text)
+    except Exception as exc:
+        logger.error("Edge TTS: demo failed for voice '%s': %s", voice_id, exc, exc_info=True)
+        return {"status": "error", "error": f"Edge TTS Fehler: {exc}"}
+
+    if wav_bytes is None:
+        logger.error("Edge TTS: synthesis returned None for voice '%s'", voice_id)
+        return {"status": "error", "error": "Edge TTS konnte keine Audio generieren. Pruefe Internetverbindung."}
+
+    logger.info("Edge TTS: demo complete, %d bytes", len(wav_bytes))
+    return Response(content=wav_bytes, media_type="audio/wav")
+
+
+async def _edge_fallback_demo(lang_code: str, text: str):
+    """Fall back to Edge TTS for languages not supported by local engines.
+    Uses Katja (de-DE-KatjaNeural) for German, first available voice for other languages.
+    """
+    from fastapi.responses import Response
+    from nox_voice.tts_edge import EDGE_VOICES_BY_LANG
+
+    if not _EDGE_AVAILABLE:
+        return {"status": "error", "error": "Edge TTS nicht verfügbar und lokale Engine fehlgeschlagen"}
+
+    # Pick a default Edge voice for the language
+    edge_voices = EDGE_VOICES_BY_LANG.get(lang_code, [])
+    if not edge_voices:
+        # Fall back to German Katja as ultimate default
+        edge_voices = EDGE_VOICES_BY_LANG.get("de_DE", [])
+    if not edge_voices:
+        return {"status": "error", "error": "Keine Edge TTS Stimme verfügbar"}
+
+    voice_id = edge_voices[0][0]  # First voice in the list
+    logger.info("Edge TTS fallback: using voice '%s' for lang '%s'", voice_id, lang_code)
+
+    if not text:
+        text = get_sample_sentence(lang_code)
+
+    try:
+        wav_bytes = await edge_tts_to_wav(voice_id, text)
+    except Exception as exc:
+        logger.error("Edge TTS fallback failed: %s", exc, exc_info=True)
+        return {"status": "error", "error": f"Edge TTS Fallback fehlgeschlagen: {exc}"}
+
+    if wav_bytes is None:
+        return {"status": "error", "error": "Edge TTS Fallback konnte keine Audio generieren"}
+
+    logger.info("Edge TTS fallback complete, %d bytes", len(wav_bytes))
+    return Response(content=wav_bytes, media_type="audio/wav")
+
+
+@app.get("/api/voices/demo/kokoro/{lang_code}/{voice_id}")
+async def voices_demo_kokoro(lang_code: str, voice_id: str, text: str = ""):
+    """Generate a TTS demo using Kokoro-82M. Returns WAV audio.
+    Falls back to Edge TTS (Katja for German) if language is not supported by Kokoro.
+    """
+    from fastapi.responses import Response
+
+    if not text:
+        text = get_sample_sentence(lang_code)
+
+    # If Kokoro doesn't support this language, fall back to Edge TTS
+    if not is_kokoro_available() or get_kokoro_lang_code(lang_code) is None:
+        logger.info("Kokoro: language '%s' not supported, falling back to Edge TTS", lang_code)
+        return await _edge_fallback_demo(lang_code, text)
+
+    logger.info("Kokoro: synthesizing demo with voice '%s' in '%s'", voice_id, lang_code)
+    loop = asyncio.get_event_loop()
+    try:
+        wav_bytes = await loop.run_in_executor(None, kokoro_to_wav, text, voice_id, lang_code)
+    except Exception as exc:
+        logger.error("Kokoro: demo failed: %s", exc, exc_info=True)
+        return {"status": "error", "error": f"Kokoro Synthese-Fehler: {exc}"}
+
+    if wav_bytes is None:
+        logger.error("Kokoro: synthesis returned None, falling back to Edge TTS")
+        return await _edge_fallback_demo(lang_code, text)
+
+    logger.info("Kokoro: demo complete, %d bytes", len(wav_bytes))
+    return Response(content=wav_bytes, media_type="audio/wav")
+
+
 @app.post("/api/onboarding/download-model")
 async def download_model(body: dict[str, Any]) -> dict[str, Any]:
     """Download a model file (Whisper or Piper) with progress tracking.
@@ -1018,6 +1314,9 @@ async def test_wake_word_stop() -> dict[str, Any]:
     voice_manager.wake_word.stop()
     # Restore original callback
     voice_manager.wake_word.on_wake = voice_manager._on_wake_detected
+    # Restart listener if wake word is enabled in config
+    if config.get("wake_word_enabled", False) and voice_manager._enabled:
+        voice_manager.start()
     return {"status": "ok"}
 
 
@@ -1048,13 +1347,26 @@ async def ws_chat(websocket: WebSocket) -> None:
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except WebSocketDisconnect:
+                raise
+            except Exception as json_exc:
+                # Invalid JSON from client — log and skip, don't disconnect
+                logger.warning("Invalid JSON from WebSocket client: %s", json_exc)
+                continue
 
             # Manual voice trigger from UI mic button
             if data.get("type") == "voice_trigger":
                 logger.info("Manual voice trigger received")
+                # Broadcast listening state immediately so UI shows feedback
+                await manager.broadcast({"type": "voice_event", "state": "listening"})
                 # Run the wake callback path (record + transcribe)
-                voice_manager._on_wake_detected()
+                try:
+                    voice_manager._on_wake_detected()
+                except Exception as exc:
+                    logger.error("voice_trigger failed: %s", exc, exc_info=True)
+                    await manager.broadcast({"type": "voice_event", "state": "idle"})
                 continue
 
             message: str = data.get("message", "")
@@ -1065,7 +1377,12 @@ async def ws_chat(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "content": "Empty message"})
                 continue
 
-            await orchestrator.process_message(message, voice_input=voice_input, context_override=context)
+            try:
+                await orchestrator.process_message(message, voice_input=voice_input, context_override=context)
+            except Exception as exc:
+                logger.error("Orchestrator error: %s", exc, exc_info=True)
+                await websocket.send_json({"type": "error", "content": f"Interner Fehler: {exc}"})
+                await websocket.send_json({"type": "done"})
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)

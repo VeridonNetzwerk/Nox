@@ -12,6 +12,8 @@ import os
 import re
 import threading
 import time
+import io
+import wave
 from pathlib import Path
 from typing import Optional, Union
 
@@ -165,17 +167,15 @@ class TTSEngine:
 
             audio_chunks = []
             for chunk in self._voice.synthesize(text):
-                audio_chunks.append(chunk.audio)
+                audio_chunks.append(chunk.audio_float_array)
 
             if not audio_chunks:
                 return
 
             audio = np.concatenate(audio_chunks)
-            # Piper outputs int16 at the voice's sample rate
-            audio_float = audio.astype(np.float32) / 32767.0
 
             self._resolve_device()
-            sd.play(audio_float, self.sample_rate, device=self._device_index)
+            sd.play(audio, self.sample_rate, device=self._device_index)
             sd.wait()
         except Exception as exc:
             logger.error("Synthesis/playback error: %s", exc, exc_info=True)
@@ -192,3 +192,121 @@ class TTSEngine:
             except Exception:
                 pass
         self._is_speaking = False
+
+    def synthesize_to_wav(self, text: str) -> Optional[bytes]:
+        """Synthesize text and return WAV-encoded audio bytes.
+
+        Uses the currently configured voice model.
+        Returns None on error.
+        """
+        if not text.strip():
+            return None
+
+        if not _PIPER_AVAILABLE:
+            logger.warning("Piper not available for synthesis")
+            return None
+
+        try:
+            self._ensure_voice()
+            import numpy as np
+
+            audio_chunks = []
+            for chunk in self._voice.synthesize(text):
+                audio_chunks.append(chunk.audio_float_array)
+
+            if not audio_chunks:
+                return None
+
+            audio = np.concatenate(audio_chunks)
+            # Convert float32 to int16
+            audio_int16 = (audio * 32767).astype(np.int16)
+
+            # Write to WAV in-memory
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(self.sample_rate)
+                wav.writeframes(audio_int16.tobytes())
+            return buf.getvalue()
+
+        except Exception as exc:
+            logger.error("synthesize_to_wav error: %s", exc, exc_info=True)
+            return None
+
+
+def preview_voice_to_wav(model_name: str, text: str, models_dir: str = "") -> Optional[bytes]:
+    """Synthesize text with a specific voice model and return WAV bytes.
+
+    This loads a voice model temporarily (without changing the main TTSEngine)
+    and is used for the voice preview/demo feature.
+
+    Args:
+        model_name: e.g. "de_DE-thorsten-medium"
+        text: Text to synthesize
+        models_dir: Optional models directory path
+
+    Returns:
+        WAV bytes or None on error.
+    """
+    if not _PIPER_AVAILABLE:
+        logger.warning("Piper not available for preview")
+        return None
+
+    # Resolve model path
+    model_path = None
+
+    if models_dir:
+        candidate = Path(models_dir) / f"{model_name}.onnx"
+        if candidate.exists():
+            model_path = str(candidate)
+
+    if not model_path:
+        env_models = os.environ.get("NOX_MODELS_DIR")
+        if env_models:
+            candidate = Path(env_models) / "piper-models" / f"{model_name}.onnx"
+            if candidate.exists():
+                model_path = str(candidate)
+
+    if not model_path:
+        project_models = Path(__file__).parent.parent.parent / "models" / "piper-models"
+        candidate = project_models / f"{model_name}.onnx"
+        if candidate.exists():
+            model_path = str(candidate)
+
+    if not model_path:
+        logger.warning("Preview: model not found: %s", model_name)
+        return None
+
+    config_path = model_path.replace(".onnx", ".onnx.json")
+
+    try:
+        import numpy as np
+
+        logger.info("Preview: loading voice %s", model_path)
+        voice = piper.PiperVoice.load(
+            model_path,
+            config_path=config_path if os.path.exists(config_path) else None,
+        )
+
+        audio_chunks = []
+        for chunk in voice.synthesize(text):
+            audio_chunks.append(chunk.audio_float_array)
+
+        if not audio_chunks:
+            return None
+
+        audio = np.concatenate(audio_chunks)
+        audio_int16 = (audio * 32767).astype(np.int16)
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(22050)
+            wav.writeframes(audio_int16.tobytes())
+        return buf.getvalue()
+
+    except Exception as exc:
+        logger.error("Preview synthesis error: %s", exc, exc_info=True)
+        return None

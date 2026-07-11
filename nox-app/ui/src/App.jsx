@@ -1,25 +1,61 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import SettingsPanel from "./components/SettingsPanel.jsx";
 import OnboardingWizard from "./components/OnboardingWizard.jsx";
-import localeData from "./locales/de.json";
+import { useToast } from "./components/Toast.jsx";
 import noxIcon from "./assets/nox-icon.png";
+import deLocale from "./locales/de.json";
+
+const LOCALE_MAP = {
+  "de_DE": () => Promise.resolve({ default: deLocale }),
+  "en_US": () => import("./locales/en_US.json"),
+  "en_GB": () => import("./locales/en_GB.json"),
+  "fr_FR": () => import("./locales/fr_FR.json"),
+  "es_ES": () => import("./locales/es_ES.json"),
+  "es_MX": () => import("./locales/es_MX.json"),
+  "it_IT": () => import("./locales/it_IT.json"),
+  "ja_JP": () => import("./locales/ja_JP.json"),
+  "zh_CN": () => import("./locales/zh_CN.json"),
+  "nl_NL": () => import("./locales/nl_NL.json"),
+  "pl_PL": () => import("./locales/pl_PL.json"),
+  "pt_BR": () => import("./locales/pt_BR.json"),
+  "pt_PT": () => import("./locales/pt_PT.json"),
+  "ru_RU": () => import("./locales/ru_RU.json"),
+  "tr_TR": () => import("./locales/tr_TR.json"),
+  "sv_SE": () => import("./locales/sv_SE.json"),
+  "da_DK": () => import("./locales/da_DK.json"),
+  "cs_CZ": () => import("./locales/cs_CZ.json"),
+  "fi_FI": () => import("./locales/fi_FI.json"),
+  "uk_UA": () => import("./locales/uk_UA.json"),
+  "vi_VN": () => import("./locales/vi_VN.json"),
+  "ar_JO": () => import("./locales/ar_JO.json"),
+  "hu_HU": () => import("./locales/hu_HU.json"),
+  "ro_RO": () => import("./locales/ro_RO.json"),
+  "sk_SK": () => import("./locales/sk_SK.json"),
+  "el_GR": () => import("./locales/el_GR.json"),
+  "hi": () => import("./locales/hi.json"),
+};
 
 const WS_URL = "ws://127.0.0.1:8420/ws/chat";
 const API_BASE = "http://127.0.0.1:8420";
 
-async function speakText(text) {
+async function speakText(text, addToast) {
   try {
-    await fetch(`${API_BASE}/api/tts/speak`, {
+    const resp = await fetch(`${API_BASE}/api/tts/speak`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
+    const data = await resp.json();
+    if (data.status === "error") {
+      addToast?.({ type: "error", title: "TTS", message: data.error || "Text-to-Speech fehlgeschlagen" });
+    }
   } catch (err) {
-    console.error("TTS speak failed:", err);
+    addToast?.({ type: "error", title: "TTS", message: "Text-to-Speech fehlgeschlagen", detail: String(err), reportable: true });
   }
 }
 
 function App() {
+  const { addToast } = useToast();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -31,9 +67,34 @@ function App() {
   const [animState, setAnimState] = useState("visible"); // hidden | animating-in | visible | animating-out
   const [systemStatus, setSystemStatus] = useState(null); // null = not fetched yet
   const [backendReady, setBackendReady] = useState(false);
+  const [localeData, setLocaleData] = useState(deLocale);
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
+
+  // Load locale based on system language from backend
+  useEffect(() => {
+    const loadLocale = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/voices/system-language`);
+        const data = await res.json();
+        if (data.status === "ok" && data.language_code) {
+          const loader = LOCALE_MAP[data.language_code];
+          if (loader) {
+            const mod = await loader();
+            setLocaleData(mod.default);
+            return;
+          }
+        }
+      } catch {
+        // Backend not available yet
+      }
+      // Fallback to German
+      const mod = await LOCALE_MAP["de_DE"]();
+      setLocaleData(mod.default);
+    };
+    loadLocale();
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,6 +106,7 @@ function App() {
 
   // WebSocket connection
   const wsReconnectRef = useRef(0);
+  const hasConnectedOnceRef = useRef(false);
   useEffect(() => {
     let destroyed = false;
     const connect = () => {
@@ -55,19 +117,37 @@ function App() {
         setConnectionStatus("connected");
         setBackendReady(true);
         wsReconnectRef.current = 0;
+        hasConnectedOnceRef.current = true;
       };
       ws.onclose = () => {
         if (destroyed) return;
         setConnectionStatus("disconnected");
-        // Exponential backoff: 2s, 4s, 8s, max 15s
-        const delay = Math.min(2000 * Math.pow(2, wsReconnectRef.current), 15000);
+        // Only show toast if we had a real connection before (not during startup)
+        if (hasConnectedOnceRef.current && wsReconnectRef.current === 0) {
+          addToast({ type: "warning", title: "Verbindung", message: "Verbindung zum Backend getrennt. Versuche erneut zu verbinden…", duration: 4000 });
+        }
+        // Exponential backoff: 1s, 2s, 4s, 8s, max 15s
+        const delay = Math.min(1000 * Math.pow(2, wsReconnectRef.current), 15000);
         wsReconnectRef.current++;
         setTimeout(connect, delay);
       };
-      ws.onerror = () => setConnectionStatus("error");
+      ws.onerror = () => {
+        setConnectionStatus("error");
+        // Only show toast if we had a real connection before (not during startup)
+        if (hasConnectedOnceRef.current && wsReconnectRef.current === 0) {
+          addToast({ type: "error", title: "Verbindung", message: "Verbindungsfehler zum Backend", reportable: true });
+        }
+      };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+        if (destroyed) return;
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          console.error("Invalid WebSocket message:", e);
+          return;
+        }
 
         // Voice state events from backend
         if (data.type === "voice_event") {
@@ -96,6 +176,19 @@ function App() {
           ]);
           setIsStreaming(true);
           window.nox?.setThinkingState?.(true);
+          return;
+        }
+
+        if (data.type === "tool_start") {
+          // Clear the current streaming assistant message (tool-call text)
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              updated.pop();
+            }
+            return [...updated];
+          });
           return;
         }
 
@@ -130,6 +223,7 @@ function App() {
           ]);
           setIsStreaming(false);
           window.nox?.setThinkingState?.(false);
+          addToast({ type: "error", title: "Nox", message: data.content, reportable: true });
         }
       };
     };
@@ -138,20 +232,32 @@ function App() {
     return () => {
       destroyed = true;
       if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onmessage = null;
         wsRef.current.close();
+        wsRef.current = null;
       }
     };
   }, []);
 
   // Fetch system status on mount + periodically
   useEffect(() => {
+    let lastErrorTime = 0;
     const fetchStatus = async () => {
       try {
         const res = await fetch("http://127.0.0.1:8420/api/status");
         const data = await res.json();
         if (data.status === "ok") setSystemStatus(data);
-      } catch (err) {
-        console.error("Status fetch failed:", err);
+      } catch {
+        // Only toast if backend was previously connected (not during startup)
+        if (!hasConnectedOnceRef.current) return;
+        const now = Date.now();
+        if (now - lastErrorTime > 30000) {
+          lastErrorTime = now;
+          addToast({ type: "warning", title: "Status", message: "System-Status konnte nicht abgerufen werden", duration: 5000 });
+        }
       }
     };
     fetchStatus();
@@ -175,9 +281,12 @@ function App() {
           // Make sure window is visible when onboarding shows
           window.nox?.showWindow?.();
         }
-      } catch (err) {
+      } catch {
         if (cancelled) return;
-        console.error("Onboarding check failed:", err);
+        // Silent retry — toast only after many failures AND only if we never connected
+        if (retries === 10 && !hasConnectedOnceRef.current) {
+          addToast({ type: "warning", title: "Backend", message: "Backend reagiert nicht. Nox versucht weiterhin eine Verbindung herzustellen…", duration: 6000 });
+        }
         // Retry if backend is not yet reachable (e.g. AV sandbox delay)
         if (retries < MAX_RETRIES) {
           retries++;
@@ -261,6 +370,8 @@ function App() {
       if (micState === "idle") {
         wsRef.current.send(JSON.stringify({ type: "voice_trigger" }));
       }
+    } else {
+      addToast({ type: "warning", title: "Mikrofon", message: "Nicht mit Backend verbunden. Bitte warte bis Nox verbunden ist.", duration: 4000 });
     }
   };
 
@@ -276,7 +387,7 @@ function App() {
       const data = await res.json();
       setSystemStatus((prev) => ({ ...prev, ollama: { status: data.status === "ok" ? "ok" : "error", host: data.ollama_host, error: data.error } }));
     } catch (err) {
-      console.error("Ollama status check failed:", err);
+      addToast({ type: "warning", title: "Ollama", message: "Ollama-Status konnte nicht geprüft werden", detail: String(err), duration: 4000 });
     }
   };
 
@@ -317,7 +428,13 @@ function App() {
     >
       <div className="flex flex-col h-full">
         {showOnboarding ? (
-          <OnboardingWizard locale={t} onComplete={() => {
+          <OnboardingWizard locale={t} onLocaleChange={async (langCode) => {
+            const loader = LOCALE_MAP[langCode];
+            if (loader) {
+              const mod = await loader();
+              setLocaleData(mod.default);
+            }
+          }} onComplete={() => {
             setShowOnboarding(false);
             window.nox?.onboardingComplete?.();
           }} />
@@ -413,7 +530,7 @@ function App() {
                     )}
                     {msg.role === "assistant" && !msg.streaming && msg.content && (
                       <button
-                        onClick={() => speakText(msg.content)}
+                        onClick={() => speakText(msg.content, addToast)}
                         className="ml-2 inline-flex items-center gap-1 text-xs text-nox-textDim hover:text-nox-accent transition-colors align-middle"
                         title="Vorlesen"
                       >

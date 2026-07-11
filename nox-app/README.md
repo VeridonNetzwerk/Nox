@@ -18,9 +18,8 @@ nox-app/
 │   ├── nox_voice/   # Wake word, STT, TTS pipeline
 │   ├── nox_eye/     # Context capture (window, UIA, OCR, clipboard)
 │   ├── orchestrator/  # Central coordination, conversation memory, tools
-│   └── tests/       # Unit tests (pytest)
+├── tests/          # All tests (pytest + manual test plan)
 ├── models/          # Wake-Word ONNX model, Piper voices
-├── Testplan.md      # Manual E2E test scenarios
 ├── ARCHITECTURE.md  # Full architecture documentation
 └── package.json     # Root monorepo scripts
 ```
@@ -101,12 +100,10 @@ Download a German Piper voice from [piper voices](https://github.com/rhasspy/pip
 ## Running Tests
 
 ```bash
-cd backend
-.venv\Scripts\activate
 python -m pytest tests/ -v
 ```
 
-See `Testplan.md` for manual end-to-end test scenarios.
+See `tests/Testplan.md` for manual end-to-end test scenarios.
 
 ## Production Build
 

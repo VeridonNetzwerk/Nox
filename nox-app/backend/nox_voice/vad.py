@@ -237,6 +237,11 @@ class VADRecorder:
                         now = time.time()
                         if now - last_partial_time > 1.0:
                             last_partial_time = now
+                            try:
+                                partial_audio = np.concatenate(audio_chunks[-50:]).flatten() if len(audio_chunks) >= 50 else np.concatenate(audio_chunks).flatten()
+                                self.on_partial_transcript(partial_audio)
+                            except Exception:
+                                pass
 
         except Exception as exc:
             logger.error("Recording error: %s", exc, exc_info=True)

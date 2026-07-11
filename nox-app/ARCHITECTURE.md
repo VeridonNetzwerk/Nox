@@ -47,11 +47,12 @@ nox-app/
 │   │   ├── conversation_store.py # SQLite conversation history + summarization
 │   │   ├── system_prompt.py     # Persona "Nox" + voice/text mode directives
 │   │   └── tool_handler.py      # Tool-calling interface + fallback parsing
-│   └── tests/          # Unit tests (pytest)
-│       ├── conftest.py
-│       ├── test_context_ranking.py  # Context retrieval ranking
-│       ├── test_prompt_construction.py  # System prompt + message assembly
-│       └── test_config_loading.py  # SettingsManager persistence
+├── tests/              # All tests (pytest + manual test plan)
+│   ├── conftest.py
+│   ├── test_context_ranking.py  # Context retrieval ranking
+│   ├── test_prompt_construction.py  # System prompt + message assembly
+│   ├── test_config_loading.py  # SettingsManager persistence
+│   └── Testplan.md             # Manual E2E test scenarios
 ├── ui/
 │   ├── package.json      # Electron + React + Vite + Tailwind
 │   ├── electron/
@@ -346,18 +347,18 @@ The `listening → thinking` transition happens only when the end-of-turn detect
 
 ### Testing
 
-**Unit Tests (`backend/tests/`, pytest):**
+**Unit Tests (`tests/`, pytest):**
 - `test_context_ranking.py`: Recency weighting, FTS keyword matching, combined ranking, k-limit, clipboard inclusion
 - `test_prompt_construction.py`: System prompt (text/voice mode, tools, time), ConversationStore message assembly, summary injection, conversation isolation
 - `test_config_loading.py`: SettingsManager first-run copy, load/save, partial merge, list persistence
 
-**Manual E2E Tests (`Testplan.md`):**
+**Manual E2E Tests (`tests/Testplan.md`):**
 - Wake-Word → Answer, Text-Chat, Kontext-Injection, Settings-Änderung, Neustart-Verhalten, Multi-Monitor, Pause/Resume, Onboarding, Fehlerzustände
 
 ### Logging
 
-- **Size rotation:** `backend.log` – 5MB, 3 backups
-- **Age rotation:** `nox.log` – daily, 7 days retention
+- **Size rotation:** `nox_backend.log` – 10MB, 3 backups
+- **Age rotation:** `nox_timed.log` – daily, 7 days retention
 - **Privacy:** Raw context/clipboard text only logged when `log_context_content: true` (opt-in, default off). Default logs only metadata (char count, app name, content type).
 - **Location:** `%APPDATA%\Nox\logs\`
 

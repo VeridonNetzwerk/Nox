@@ -15,7 +15,7 @@ import yaml
 
 # We test SettingsManager by patching the APPDATA path
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from settings_manager import SettingsManager
 
@@ -30,7 +30,7 @@ def temp_appdata(tmp_path, monkeypatch):
     monkeypatch.setattr(settings_manager, "NOX_DIR", tmp_path / "Nox")
     monkeypatch.setattr(settings_manager, "CONFIG_PATH", tmp_path / "Nox" / "config.yaml")
     # Also patch BUNDLED_CONFIG to point to the real config.yaml
-    bundled = Path(__file__).parent.parent / "config.yaml"
+    bundled = Path(__file__).parent.parent / "backend" / "config.yaml"
     monkeypatch.setattr(settings_manager, "BUNDLED_CONFIG", bundled)
     return tmp_path
 

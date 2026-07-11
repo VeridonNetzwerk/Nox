@@ -16,7 +16,7 @@ import yaml
 
 # We can import system_prompt directly since it has no heavy deps
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from orchestrator.system_prompt import build_system_prompt
 from orchestrator.conversation_store import ConversationStore
@@ -41,7 +41,9 @@ class TestSystemPrompt:
     def test_voice_mode_directive(self):
         prompt = build_system_prompt(voice_mode=True, tools_enabled=False)
         assert "SPRACHE" in prompt
-        assert "Markdown" not in prompt.split("SPRACHE")[1].split("Aktuelle")[0]
+        voice_section = prompt.split("SPRACHE")[1].split("Aktuelle")[0]
+        # Voice mode should forbid Markdown (not use it as formatting)
+        assert "KEIN Markdown" in voice_section or "kein Markdown" in voice_section
         assert "kurzen" in prompt or "kurz" in prompt
 
     def test_tools_directive_present_when_enabled(self):

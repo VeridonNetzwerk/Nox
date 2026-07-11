@@ -175,6 +175,8 @@ class Orchestrator:
                             tool_args = {"query": tool_params, "text": tool_params}
                         tool_result = self.tool_handler.execute(tool_name, tool_args)
                         tool_executed = True
+                        # Tell UI to clear the streamed tool-call text
+                        await self._broadcast({"type": "tool_start", "tool": tool_name})
                         # Broadcast tool result
                         await self._broadcast({
                             "type": "tool_result",
@@ -186,16 +188,19 @@ class Orchestrator:
                         messages.append({"role": "user", "content": f"Werkzeug-Ergebnis: {tool_result}\n\nBitte antworte basierend auf diesem Ergebnis."})
                         # Re-stream with tool result
                         full_response = ""
+                        sentence_buffer = SentenceBuffer()
                         async for token2 in self._stream_ollama(messages):
                             full_response += token2
                             await self._broadcast({"type": "token", "content": token2})
                             if voice_input:
                                 for sentence in sentence_buffer.feed(token2):
                                     self.voice_manager.speak_sentence(sentence)
-                        continue
+                        # Break outer loop — outer stream is done (model stops after tool call)
+                        break
 
-                # Stream token to UI
-                await self._broadcast({"type": "token", "content": token})
+                # Stream token to UI (only if no tool was executed)
+                if not tool_executed:
+                    await self._broadcast({"type": "token", "content": token})
 
                 # Pipe to TTS in voice mode
                 if voice_input and self.voice_manager:
@@ -233,9 +238,11 @@ class Orchestrator:
                 "type": "error",
                 "content": f"Ollama ist nicht erreichbar unter {self.ollama_host}. Bitte Ollama starten.",
             })
+            await self._broadcast({"type": "done"})
         except Exception as exc:
             logger.error("Orchestrator error: %s", exc, exc_info=True)
             await self._broadcast({"type": "error", "content": f"Fehler: {exc}"})
+            await self._broadcast({"type": "done"})
 
     async def _stream_ollama(
         self,
@@ -259,7 +266,11 @@ class Orchestrator:
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
-                    chunk = json.loads(line)
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning("Invalid JSON from Ollama stream: %s", line[:200])
+                        continue
                     msg = chunk.get("message", {})
                     token = msg.get("content", "")
                     if token:
