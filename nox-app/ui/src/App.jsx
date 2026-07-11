@@ -172,6 +172,8 @@ function App() {
           const newMicState = stateMap[data.state] || "idle";
           setMicState(newMicState);
           if (data.state === "wake_detected") {
+            setShowSettings(false);
+            setShowOnboarding(false);
             window.nox?.showWindow?.();
           }
           return;

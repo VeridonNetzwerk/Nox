@@ -175,6 +175,61 @@ class FileStore:
                 logger.error("Upsert failed for %s: %s", file_path, exc, exc_info=True)
                 return -1
 
+    def upsert_file_meta(
+        self,
+        file_path: str,
+        file_name: str,
+        file_ext: str,
+        file_size: int,
+        modified_time: str,
+    ) -> int:
+        """Fast insert/update: filename and metadata only, no content extraction.
+
+        Used in Phase 1 of two-phase indexing. Stores empty content_text
+        so the file is searchable by filename via FTS immediately.
+        Returns row id, or -1 on failure.
+        """
+        indexed_time = datetime.now().isoformat()
+
+        with self._lock:
+            try:
+                existing = self._conn.execute(
+                    "SELECT id, content_text FROM file_index WHERE file_path = ?", (file_path,)
+                ).fetchone()
+
+                if existing:
+                    row_id = existing[0]
+                    # Only update meta if content hasn't been extracted yet
+                    # (avoid overwriting full content with empty placeholder)
+                    if existing[1] and existing[1].strip():
+                        # Content already extracted — just update meta
+                        self._conn.execute(
+                            "UPDATE file_index SET file_name=?, file_ext=?, file_size=?, "
+                            "modified_time=? WHERE id=?",
+                            (file_name, file_ext, file_size, modified_time, row_id),
+                        )
+                    else:
+                        # No content yet — update with empty placeholder
+                        self._conn.execute(
+                            "UPDATE file_index SET file_name=?, file_ext=?, file_size=?, "
+                            "modified_time=?, indexed_time=?, content_text=? WHERE id=?",
+                            (file_name, file_ext, file_size, modified_time, indexed_time, "", row_id),
+                        )
+                else:
+                    cursor = self._conn.execute(
+                        "INSERT INTO file_index (file_path, file_name, file_ext, file_size, "
+                        "modified_time, indexed_time, content_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (file_path, file_name, file_ext, file_size, modified_time, indexed_time, ""),
+                    )
+                    row_id = cursor.lastrowid
+
+                self._conn.commit()
+                return row_id
+
+            except Exception as exc:
+                logger.error("upsert_file_meta failed for %s: %s", file_path, exc)
+                return -1
+
     def needs_reindex(self, file_path: str, modified_time: str) -> bool:
         """Check if a file needs re-indexing (new or modified)."""
         with self._lock:
@@ -223,7 +278,9 @@ class FileStore:
     ) -> list[dict[str, Any]]:
         """Search indexed files by query.
 
-        Combines semantic similarity and FTS5 keyword matching.
+        Combines semantic similarity, FTS5 keyword matching, and filename search.
+        Files indexed in Phase 1 (filename only, no content) are still searchable
+        by filename via LIKE matching.
 
         Args:
             query: Search query.
@@ -249,6 +306,16 @@ class FileStore:
         if not results:
             with self._lock:
                 results = self._fts_search(query, k * 3, folder_filter)
+
+        # Always also search by filename (catches Phase 1 files without content)
+        with self._lock:
+            fname_results = self._filename_search(query, k * 3, folder_filter)
+
+        # Merge: add filename results that aren't already in results
+        existing_ids = {r.get("id") for r in results}
+        for r in fname_results:
+            if r.get("id") not in existing_ids:
+                results.append(r)
 
         results.sort(key=lambda x: x.get("score", 0), reverse=True)
         return results[:k]
@@ -343,6 +410,46 @@ class FileStore:
 
         except Exception as exc:
             logger.debug("FTS search failed: %s", exc)
+            return []
+
+    def _filename_search(
+        self, query: str, limit: int, folder_filter: Optional[str]
+    ) -> list[dict[str, Any]]:
+        """Search by filename — catches Phase 1 files (no content extracted yet)."""
+        try:
+            safe_query = f"%{query.replace('%', '\\%').replace('_', '\\_')}%"
+            if folder_filter:
+                rows = self._conn.execute(
+                    "SELECT id, file_path, file_name, file_ext, content_text "
+                    "FROM file_index "
+                    "WHERE file_path LIKE ? AND (file_name LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\') "
+                    "ORDER BY modified_time DESC LIMIT ?",
+                    (folder_filter + "%", safe_query, safe_query, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT id, file_path, file_name, file_ext, content_text "
+                    "FROM file_index "
+                    "WHERE file_name LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' "
+                    "ORDER BY modified_time DESC LIMIT ?",
+                    (safe_query, safe_query, limit),
+                ).fetchall()
+
+            results = []
+            for row in rows:
+                entry = {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "file_name": row[2],
+                    "file_ext": row[3],
+                    "content_text": row[4],
+                    "score": 0.5,  # lower score than semantic/FTS matches
+                }
+                results.append(entry)
+            return results
+
+        except Exception as exc:
+            logger.debug("Filename search failed: %s", exc)
             return []
 
     def get_file_content(self, file_path: str) -> Optional[str]:

@@ -490,7 +490,7 @@ function SettingsPanel({ locale, onClose }) {
   );
 
   const selectClass =
-    "bg-nox-bg/80 text-nox-text text-sm rounded-lg px-3 py-1.5 border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors";
+    "bg-nox-surface text-nox-text text-sm rounded-lg px-3 py-1.5 border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors";
   const inputClass = selectClass;
 
   return (
@@ -677,7 +677,7 @@ function SettingsPanel({ locale, onClose }) {
           {/* Voice selection button — opens modal */}
           <div className="px-3 py-3 rounded-lg bg-nox-surface/40">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-nox-textDim text-sm">{s.ttsVoice}</span>
+              <span className="text-nox-textDim text-sm">Stimme & Sprache</span>
               {settings.tts_model && (
                 <span className="text-xs text-nox-textDim truncate max-w-32">
                   {settings.tts_model}
@@ -691,7 +691,7 @@ function SettingsPanel({ locale, onClose }) {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" />
               </svg>
-              {so.selectVoice || "Stimme wählen"}
+              Stimme & Sprache wählen
             </button>
           </div>
         </Section>

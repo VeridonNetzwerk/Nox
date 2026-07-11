@@ -22,7 +22,7 @@ from .file_store import FileStore
 logger = logging.getLogger("nox.files.manager")
 
 # Default scan interval (re-scan every 30 minutes)
-SCAN_INTERVAL = 1800
+SCAN_INTERVAL = 600  # re-scan every 10 minutes
 
 # Default user folders to index
 DEFAULT_FOLDERS = [
@@ -75,7 +75,7 @@ class FilesManager:
         return self.file_store is not None
 
     def _get_scan_folders(self) -> list[Path]:
-        """Determine which folders to scan."""
+        """Determine which folders to scan, prioritized for speed."""
         folders: list[Path] = []
         home = Path.home()
 
@@ -87,19 +87,100 @@ class FilesManager:
                 if drive.exists():
                     folders.append(drive)
         else:
-            # Default user folders
-            for folder_name in DEFAULT_FOLDERS:
+            # Phase 1: High-priority user folders (Documents, Desktop, Downloads)
+            priority_names = ["Documents", "Desktop", "Downloads"]
+            for folder_name in priority_names:
                 folder = home / folder_name
                 if folder.exists():
                     folders.append(folder)
 
-            # Custom folders
+            # Phase 2: Other default user folders
+            for folder_name in DEFAULT_FOLDERS:
+                if folder_name in priority_names:
+                    continue
+                folder = home / folder_name
+                if folder.exists():
+                    folders.append(folder)
+
+            # Phase 3: Custom folders
             for custom in self._custom_folders:
                 p = Path(custom)
                 if p.exists() and p.is_dir():
                     folders.append(p)
 
+            # Phase 4: Network drives (NAS, UNC paths)
+            folders.extend(self._detect_network_drives())
+
         return folders
+
+    def _detect_network_drives(self) -> list[Path]:
+        """Detect network drives — mapped drives and UNC paths with NAS in name."""
+        drives: list[Path] = []
+        try:
+            import subprocess
+            # Use 'net use' to find mapped network drives
+            result = subprocess.run(
+                ["net", "use"],
+                capture_output=True, text=True, timeout=10,
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # Lines with network drives look like: "Z:    \\NAS\Share"
+                # or "    \\NAS\Share"
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                # Check for drive letter (Z:) or UNC path (\\server\share)
+                drive_letter = None
+                unc_path = None
+                for part in parts:
+                    if len(part) == 2 and part[1] == ":":
+                        drive_letter = part
+                    elif part.startswith("\\\\"):
+                        unc_path = part
+
+                if drive_letter:
+                    p = Path(f"{drive_letter}\\")
+                    if p.exists():
+                        drives.append(p)
+                        logger.info("Found network drive: %s", p)
+                elif unc_path:
+                    p = Path(unc_path)
+                    if p.exists():
+                        drives.append(p)
+                        logger.info("Found UNC network path: %s", p)
+        except Exception as exc:
+            logger.debug("Network drive detection failed: %s", exc)
+
+        # Also check all drive letters for NAS-like names
+        try:
+            import string
+            for letter in string.ascii_uppercase:
+                drive_path = Path(f"{letter}:\\")
+                if not drive_path.exists():
+                    continue
+                if drive_path in drives:
+                    continue
+                # Check if it's a network/removable drive by trying to read the label
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ["fsutil", "fsinfo", "volumeinfo", f"{letter}:"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    output = result.stdout.lower()
+                    # Network drives often have "remote" or specific drive types
+                    if "remote" in output or "nas" in output:
+                        drives.append(drive_path)
+                        logger.info("Found NAS-like drive: %s", drive_path)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return drives
 
     def start(self) -> None:
         if not self._enabled:
@@ -148,7 +229,13 @@ class FilesManager:
             time.sleep(SCAN_INTERVAL)
 
     def _do_index(self) -> None:
-        """Run a single indexing pass."""
+        """Run a two-phase indexing pass.
+
+        Phase 1 (fast): Scan all folders and index filenames/metadata only.
+                        This makes files searchable by name immediately.
+        Phase 2 (background): Extract text content and update entries.
+                              Files become full-text searchable.
+        """
         if self._indexing:
             logger.debug("Indexing already in progress, skipping")
             return
@@ -156,16 +243,19 @@ class FilesManager:
         self._indexing = True
         try:
             folders = self._get_scan_folders()
-            total_indexed = 0
+
+            # --- Phase 1: Fast filename scan ---
+            phase1_count = 0
+            pending_files: list[tuple[Path, str, int]] = []  # (path, modified_time, size)
 
             for folder in folders:
                 if not self._running or self._paused:
                     break
 
-                logger.info("Indexing folder: %s", folder)
+                logger.info("Phase 1 scanning: %s", folder)
 
-                def on_file(path: Path, modified_time: str):
-                    nonlocal total_indexed
+                def on_file_fast(path: Path, modified_time: str):
+                    nonlocal phase1_count
                     if not self._running or self._paused:
                         return
 
@@ -173,28 +263,55 @@ class FilesManager:
                     if not self.file_store.needs_reindex(str(path), modified_time):
                         return
 
-                    # Extract text
+                    try:
+                        size = path.stat().st_size if path.exists() else 0
+                    except OSError:
+                        size = 0
+
+                    # Fast insert: filename only, empty content for now
+                    self.file_store.upsert_file_meta(
+                        file_path=str(path),
+                        file_name=path.name,
+                        file_ext=path.suffix.lower(),
+                        file_size=size,
+                        modified_time=modified_time,
+                    )
+                    pending_files.append((path, modified_time, size))
+                    phase1_count += 1
+
+                self.indexer.scan_folder(
+                    root=folder,
+                    on_file=on_file_fast,
+                    should_stop=lambda: (not self._running) or self._paused,
+                )
+
+            logger.info("Phase 1 complete: %d files indexed by name", phase1_count)
+
+            # --- Phase 2: Content extraction (background) ---
+            phase2_count = 0
+            for path, modified_time, size in pending_files:
+                if not self._running or self._paused:
+                    break
+
+                try:
                     content = self.indexer.extract_text(path)
                     if content and content.strip():
                         self.file_store.upsert_file(
                             file_path=str(path),
                             file_name=path.name,
                             file_ext=path.suffix.lower(),
-                            file_size=path.stat().st_size if path.exists() else 0,
+                            file_size=size,
                             modified_time=modified_time,
                             content_text=content,
                         )
-                        total_indexed += 1
+                        phase2_count += 1
+                except Exception as exc:
+                    logger.debug("Content extraction failed for %s: %s", path, exc)
 
-                self.indexer.scan_folder(
-                    root=folder,
-                    on_file=on_file,
-                    should_stop=lambda: (not self._running) or self._paused,
-                )
-
-            self._file_count = total_indexed
+            self._file_count = phase1_count
             self._last_index_time = time.time()
-            logger.info("Indexing complete: %d files indexed/updated", total_indexed)
+            logger.info("Phase 2 complete: %d files with content. Total indexed: %d",
+                        phase2_count, phase1_count)
 
         except Exception as exc:
             logger.error("Indexing error: %s", exc, exc_info=True)
@@ -222,7 +339,10 @@ class FilesManager:
         # Build snippets for display
         for entry in results:
             text = entry.get("content_text", "")
-            if len(text) > 300:
+            if not text or not text.strip():
+                # Phase 1 file — no content extracted yet, use filename as snippet
+                entry["snippet"] = f"[Dateiname: {entry.get('file_name', '')}]"
+            elif len(text) > 300:
                 # Find query-relevant snippet
                 query_lower = query.lower()
                 text_lower = text.lower()
