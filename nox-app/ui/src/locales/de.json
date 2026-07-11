@@ -28,6 +28,7 @@
     "themeDark": "Dunkel",
     "themeLight": "Hell",
     "autostart": "Mit Windows starten",
+    "language": "Sprache",
     "wakeWord": "Wake Word aktiv",
     "wakeSensitivity": "Empfindlichkeit",
     "ttsVoice": "TTS-Stimme",

@@ -143,6 +143,16 @@ class ToolHandler:
             handler=self._tool_read_file,
         ))
 
+        # fast_context
+        self.register(Tool(
+            name="fast_context",
+            description="Erfasse sofort den aktuellen Bildschirminhalt (Fast Context). "
+                        "Liest den Text des aktuell aktiven Fensters über UI-Automation oder OCR. "
+                        "Verwende dies, wenn du wissen musst, was der Nutzer gerade sieht.",
+            parameters={"type": "object", "properties": {}},
+            handler=self._tool_fast_context,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         logger.debug("Tool registered: %s", tool.name)
@@ -257,3 +267,10 @@ class ToolHandler:
         except Exception as exc:
             logger.error("datei_lesen error: %s", exc, exc_info=True)
             return f"Fehler beim Lesen der Datei: {exc}"
+
+    def _tool_fast_context(self, args: dict[str, Any]) -> str:
+        """Capture current screen content on-demand (Fast Context)."""
+        if not self._eye_manager:
+            return "Kontext-Erfassung nicht verfügbar."
+        result = self._eye_manager.get_fast_context()
+        return result if result else "Kein Bildschirminhalt erfasst (Fenster leer oder geschützt)."

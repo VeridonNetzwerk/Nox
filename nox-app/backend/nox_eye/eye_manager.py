@@ -193,6 +193,41 @@ class EyeManager:
         if self._log_content:
             logger.debug("Clipboard content (opt-in): %s", text[:200])
 
+    def get_fast_context(self) -> str:
+        """Capture the current active window content on-demand (Fast Context).
+
+        Unlike get_relevant_context which searches stored history,
+        this immediately captures what's currently on screen.
+        """
+        if not self.is_available:
+            return ""
+
+        info = self.window_monitor.get_active_window()
+        if not info:
+            return ""
+
+        # Check excluded apps
+        if self.window_monitor._is_excluded(info):
+            return ""
+
+        # Try UI Automation first
+        content_text = None
+        if self.uia_reader.is_available:
+            content_text = self.uia_reader.extract_text(info.hwnd)
+
+        # Fallback to OCR
+        if not content_text and self.config.get("nox_eye_ocr_fallback", True):
+            content_text = self.ocr_fallback.extract_text(info.hwnd)
+
+        if not content_text:
+            return ""
+
+        # Truncate for tool output
+        if len(content_text) > 2000:
+            content_text = content_text[:2000] + "..."
+
+        return f"Aktuelles Fenster: {info.title} (App: {info.app_name})\nInhalt:\n{content_text}"
+
     def get_relevant_context(
         self,
         query: str,

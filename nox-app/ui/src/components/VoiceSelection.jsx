@@ -113,7 +113,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
   );
 }
 
-function VoiceSelection({ locale, currentVoice, currentEngine, onClose }) {
+function VoiceSelection({ locale, currentVoice, currentEngine, lockedLang, onClose }) {
   const so = locale.onboarding || {};
   const [voiceCatalog, setVoiceCatalog] = useState(null);
   const [edgeCatalog, setEdgeCatalog] = useState(null);
@@ -139,7 +139,7 @@ function VoiceSelection({ locale, currentVoice, currentEngine, onClose }) {
         const edgeData = await edgeRes.json();
         const kokoroData = await kokoroRes.json();
         if (catData.status === "ok") setVoiceCatalog(catData.catalog);
-        if (langData.status === "ok") setSelectedLang(langData.language_code);
+        if (langData.status === "ok") setSelectedLang(lockedLang || langData.language_code);
         if (edgeData.status === "ok") setEdgeCatalog(edgeData.catalog);
         if (kokoroData.status === "ok") setKokoroCatalog(kokoroData.catalog);
       } catch (err) {
@@ -252,14 +252,6 @@ function VoiceSelection({ locale, currentVoice, currentEngine, onClose }) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* Language dropdown */}
-          <LanguageDropdown
-            voiceCatalog={voiceCatalog}
-            selectedLang={selectedLang}
-            onSelect={(code) => setSelectedLang(code)}
-            label={so.selectLanguage || "Sprache wählen"}
-          />
-
           {/* Voice cards */}
           {voiceCatalog && selectedLang && (() => {
             const allVoices = [

@@ -588,6 +588,11 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                   setSelectedVoice("");
                   if (onLocaleChange) onLocaleChange(code);
                   try {
+                    await fetch(`${API_BASE}/api/settings`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ system_language: code }),
+                    });
                     const res = await fetch(`${API_BASE}/api/voices/default/${code}`);
                     const data = await res.json();
                     if (data.status === "ok") {

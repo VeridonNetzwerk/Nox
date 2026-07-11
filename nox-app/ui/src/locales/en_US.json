@@ -28,6 +28,7 @@
     "themeDark": "Dark",
     "themeLight": "Light",
     "autostart": "Start with Windows",
+    "language": "Language",
     "wakeWord": "Wake Word active",
     "wakeSensitivity": "Sensitivity",
     "ttsVoice": "TTS Voice",

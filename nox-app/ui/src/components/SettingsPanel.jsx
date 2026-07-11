@@ -115,7 +115,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
   );
 }
 
-function SettingsPanel({ locale, onClose }) {
+function SettingsPanel({ locale, onClose, onLocaleChange }) {
   const { addToast } = useToast();
   const s = locale.settings;
   const so = locale.onboarding || {};
@@ -536,6 +536,30 @@ function SettingsPanel({ locale, onClose }) {
       </Row>
       <Row label={s.autostart}>
         <Toggle checked={autostart} onChange={toggleAutostart} />
+      </Row>
+      <Row label={s.language || "Sprache"}>
+        <div className="w-48">
+          <LanguageDropdown
+            voiceCatalog={voiceCatalog}
+            selectedLang={selectedLang}
+            onSelect={async (code) => {
+              setSelectedLang(code);
+              await updateSetting("system_language", code);
+              if (onLocaleChange) onLocaleChange(code);
+              try {
+                const res = await fetch(`${API_BASE}/api/voices/default/${code}`);
+                const data = await res.json();
+                if (data.status === "ok") {
+                  await updateSetting("tts_model", data.default_voice);
+                  await updateSetting("tts_engine", data.default_engine);
+                }
+              } catch (err) {
+                console.error("Failed to fetch default voice:", err);
+              }
+            }}
+            label={null}
+          />
+        </div>
       </Row>
     </>
   );
@@ -1051,6 +1075,7 @@ function SettingsPanel({ locale, onClose }) {
           locale={locale}
           currentVoice={settings.tts_model}
           currentEngine={settings.tts_engine}
+          lockedLang={selectedLang}
           onClose={() => {
             setShowVoiceSelection(false);
             fetchSettings();

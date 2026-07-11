@@ -1068,8 +1068,19 @@ async def voices_installed() -> dict[str, Any]:
 
 @app.get("/api/voices/system-language")
 async def voices_system_language() -> dict[str, Any]:
-    """Detect the system language for voice selection."""
-    lang = detect_system_language()
+    """Detect the system language for voice selection.
+
+    Checks config system_language first, then falls back to OS detection.
+    """
+    config_lang = config.get("system_language", "")
+    if config_lang:
+        from nox_voice.supported_languages import SUPPORTED_LANGUAGES
+        if config_lang in SUPPORTED_LANGUAGES:
+            lang = config_lang
+        else:
+            lang = detect_system_language()
+    else:
+        lang = detect_system_language()
     info = SUPPORTED_LANGUAGES.get(lang, ("German", "Deutsch"))
     default = get_default_voice(lang)
     return {

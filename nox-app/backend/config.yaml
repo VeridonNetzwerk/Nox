@@ -12,6 +12,7 @@ ollama_preload_mode: "vram"  # "vram" = load into VRAM, "ram" = load into RAM on
 
 # UI
 ui_theme: "system"  # system | dark | light
+system_language: ""  # empty = auto-detect from OS, e.g. "de_DE", "en_US"
 
 # Hotkey (global shortcut to toggle overlay)
 hotkey: "CommandOrControl+Shift+Space"

@@ -498,7 +498,13 @@ function App() {
         </div>
       ) : showSettings ? (
         <div className="h-full w-full rounded-2xl overflow-hidden nox-window-bg backdrop-blur-xl border border-nox-border">
-          <SettingsPanel locale={t} onClose={() => setShowSettings(false)} />
+          <SettingsPanel locale={t} onClose={() => setShowSettings(false)} onLocaleChange={async (langCode) => {
+          const loader = LOCALE_MAP[langCode];
+          if (loader) {
+            const mod = await loader();
+            setLocaleData(mod.default);
+          }
+        }} />
         </div>
       ) : backendStarting ? (
         <div className="flex flex-col items-center justify-end h-full pb-6 gap-3">
