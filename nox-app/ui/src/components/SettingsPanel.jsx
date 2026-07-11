@@ -232,9 +232,9 @@ function SettingsPanel({ locale, onClose }) {
     <button
       onClick={() => !disabled && onChange(!checked)}
       disabled={disabled}
-      className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-        checked ? "bg-nox-accent" : "bg-nox-border"
-      } ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+      className={`relative w-11 h-6 rounded-full transition-all duration-200 ${
+        checked ? "bg-nox-accent shadow-sm shadow-nox-accent/30" : "bg-nox-border"
+      } ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:scale-105"}`}
     >
       <span
         className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
@@ -245,44 +245,42 @@ function SettingsPanel({ locale, onClose }) {
   );
 
   const Section = ({ icon, label, children }) => (
-    <div className="glass-card p-3">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-base">{icon}</span>
+    <div className="glass-card p-4">
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className="flex items-center justify-center w-7 h-7 rounded-full bg-nox-accent/15 text-nox-accent text-sm">
+          {icon}
+        </div>
         <h3 className="text-xs font-semibold text-nox-text uppercase tracking-wide">{label}</h3>
       </div>
-      <div className="space-y-1.5">{children}</div>
+      <div className="space-y-2">{children}</div>
     </div>
   );
 
   const Row = ({ label, children }) => (
-    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-nox-surface/60 text-sm gap-2">
+    <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-nox-surface/40 text-sm gap-2">
       <span className="text-nox-textDim shrink-0">{label}</span>
       <div className="flex items-center gap-2 min-w-0">{children}</div>
     </div>
   );
 
   const selectClass =
-    "bg-nox-bg text-nox-text text-sm rounded px-2 py-1 border border-nox-border focus:outline-none focus:border-nox-accent";
+    "bg-nox-bg/80 text-nox-text text-sm rounded-lg px-3 py-1.5 border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors";
   const inputClass = selectClass;
 
   return (
     <div className="flex flex-col h-full animate-slide-in-right">
       {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-2.5 border-b border-nox-border/50"
-        style={{ WebkitAppRegion: "drag" }}
-      >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border/50">
         <div className="flex items-center gap-2">
-          <img src={noxLogo} alt="Nox" className="h-5 w-auto" />
-          <span className="text-xs font-medium text-nox-text">{s.title}</span>
+          <img src={noxLogo} alt="Nox" className="h-6 w-6 rounded-full" />
+          <span className="text-sm font-semibold text-nox-text">{s.title}</span>
         </div>
         <button
           onClick={onClose}
-          className="text-nox-textDim hover:text-nox-text transition-colors p-1 rounded-full hover:bg-nox-surface"
-          style={{ WebkitAppRegion: "no-drag" }}
+          className="flex items-center justify-center w-8 h-8 rounded-full text-nox-textDim hover:text-nox-text hover:bg-nox-surface transition-all hover:scale-105"
           aria-label={s.back}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
@@ -361,7 +359,7 @@ function SettingsPanel({ locale, onClose }) {
               step="0.05"
               value={settings.wake_word_threshold || 0.5}
               onChange={(e) => updateSetting("wake_word_threshold", parseFloat(e.target.value))}
-              className="w-24"
+              className="w-24 accent-nox-accent"
             />
             <span className="text-nox-textDim text-xs w-8 text-right">
               {(settings.wake_word_threshold || 0.5).toFixed(2)}
@@ -383,8 +381,7 @@ function SettingsPanel({ locale, onClose }) {
             <button
               onClick={testInputDevice}
               disabled={testingInput}
-              className="px-2 py-1 rounded bg-nox-accent text-white text-xs whitespace-nowrap disabled:opacity-50"
-              style={{ WebkitAppRegion: "no-drag" }}
+              className="px-3 py-1.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105"
             >
               {testingInput ? s.testing : s.testInput}
             </button>
@@ -414,8 +411,7 @@ function SettingsPanel({ locale, onClose }) {
             <button
               onClick={testOutputDevice}
               disabled={testingOutput}
-              className="px-2 py-1 rounded bg-nox-accent text-white text-xs whitespace-nowrap disabled:opacity-50"
-              style={{ WebkitAppRegion: "no-drag" }}
+              className="px-3 py-1.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105"
             >
               {testingOutput ? s.testing : s.testOutput}
             </button>
@@ -437,7 +433,7 @@ function SettingsPanel({ locale, onClose }) {
               step="0.1"
               value={settings.end_turn_silence_threshold || 1.0}
               onChange={(e) => updateSetting("end_turn_silence_threshold", parseFloat(e.target.value))}
-              className="w-24"
+              className="w-24 accent-nox-accent"
             />
             <span className="text-nox-textDim text-xs w-8 text-right">
               {(settings.end_turn_silence_threshold || 1.0).toFixed(1)}s
@@ -470,10 +466,10 @@ function SettingsPanel({ locale, onClose }) {
               {settings.tts_model && (
                 <button
                   onClick={() => playVoicePreview(settings.tts_model)}
-                  className={`px-2.5 py-1.5 rounded-md text-sm transition-colors ${
+                  className={`flex items-center justify-center w-8 h-8 rounded-full text-sm transition-all hover:scale-105 ${
                     previewPlaying === settings.tts_model
                       ? "bg-nox-accent text-white"
-                      : "bg-nox-surfaceHover hover:bg-nox-accent/20 text-nox-text"
+                      : "bg-nox-border/50 text-nox-textDim hover:bg-nox-accent/20 hover:text-nox-text"
                   }`}
                   title="Demo abspielen"
                 >
@@ -496,11 +492,11 @@ function SettingsPanel({ locale, onClose }) {
               onChange={(e) => updateSetting("nox_eye_ttl_days", parseInt(e.target.value) || 7)}
             />
           </Row>
-          <div className="px-3 py-2 rounded-lg bg-nox-surface space-y-2">
+          <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-nox-textDim text-sm">{s.excludedApps}</span>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 className={inputClass + " flex-1"}
@@ -511,21 +507,21 @@ function SettingsPanel({ locale, onClose }) {
               />
               <button
                 onClick={addExcludedApp}
-                className="px-2 py-1 rounded bg-nox-accent text-white text-sm"
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
               >
                 +
               </button>
             </div>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {(settings.nox_eye_excluded_apps || []).map((app) => (
                 <span
                   key={app}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-nox-bg text-nox-textDim text-xs"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs"
                 >
                   {app}
                   <button
                     onClick={() => removeExcludedApp(app)}
-                    className="text-nox-textDim hover:text-red-500"
+                    className="text-nox-textDim hover:text-red-500 transition-colors"
                   >
                     ×
                   </button>
@@ -554,11 +550,11 @@ function SettingsPanel({ locale, onClose }) {
               ⚠ {s.fileSearchFullDriveWarn}
             </div>
           )}
-          <div className="px-3 py-2 rounded-lg bg-nox-surface space-y-2">
+          <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-nox-textDim text-sm">{s.fileSearchFolders}</span>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 className={inputClass + " flex-1"}
@@ -569,22 +565,21 @@ function SettingsPanel({ locale, onClose }) {
               />
               <button
                 onClick={addFolder}
-                className="px-2 py-1 rounded bg-nox-accent text-white text-sm"
-                style={{ WebkitAppRegion: "no-drag" }}
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
               >
                 +
               </button>
             </div>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {(settings.nox_files_custom_folders || []).map((folder) => (
                 <span
                   key={folder}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-nox-bg text-nox-textDim text-xs max-w-full"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs max-w-full"
                 >
                   <span className="truncate max-w-32">{folder}</span>
                   <button
                     onClick={() => removeFolder(folder)}
-                    className="text-nox-textDim hover:text-red-500"
+                    className="text-nox-textDim hover:text-red-500 transition-colors"
                   >
                     ×
                   </button>
@@ -592,11 +587,11 @@ function SettingsPanel({ locale, onClose }) {
               ))}
             </div>
           </div>
-          <div className="px-3 py-2 rounded-lg bg-nox-surface space-y-2">
+          <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-nox-textDim text-sm">{s.fileSearchExcluded}</span>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1.5">
               <input
                 type="text"
                 className={inputClass + " flex-1"}
@@ -607,22 +602,21 @@ function SettingsPanel({ locale, onClose }) {
               />
               <button
                 onClick={addExcludedDir}
-                className="px-2 py-1 rounded bg-nox-accent text-white text-sm"
-                style={{ WebkitAppRegion: "no-drag" }}
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
               >
                 +
               </button>
             </div>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {(settings.nox_files_excluded_dirs || []).map((dir) => (
                 <span
                   key={dir}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-nox-bg text-nox-textDim text-xs"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs"
                 >
                   {dir}
                   <button
                     onClick={() => removeExcludedDir(dir)}
-                    className="text-nox-textDim hover:text-red-500"
+                    className="text-nox-textDim hover:text-red-500 transition-colors"
                   >
                     ×
                   </button>
@@ -639,8 +633,7 @@ function SettingsPanel({ locale, onClose }) {
             <button
               onClick={triggerReindex}
               disabled={filesHealth?.indexing}
-              className="px-3 py-1.5 rounded bg-nox-accent text-white text-sm w-full disabled:opacity-50"
-              style={{ WebkitAppRegion: "no-drag" }}
+              className="px-4 py-2 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm w-full disabled:opacity-50 transition-all hover:scale-[1.02]"
             >
               {filesHealth?.indexing ? s.fileSearchIndexing : s.fileSearchReindex}
             </button>
@@ -648,7 +641,7 @@ function SettingsPanel({ locale, onClose }) {
         </Section>
 
         {/* About */}
-        <div className="pt-4 border-t border-nox-border">
+        <div className="pt-2 border-t border-nox-border/50">
           <Section icon="ℹ️" label={s.about}>
             <Row label={s.version}>
               <span className="text-nox-text font-medium">0.5.0</span>
@@ -662,7 +655,11 @@ function SettingsPanel({ locale, onClose }) {
         </div>
 
         {saving && (
-          <div className="text-center text-xs text-nox-textDim animate-pulse">
+          <div className="flex items-center justify-center gap-2 py-2 text-xs text-nox-textDim animate-pulse">
+            <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4" />
+              <path className="opacity-75" strokeWidth="4" strokeLinecap="round" d="M4 12a8 8 0 018-8" />
+            </svg>
             {s.saving}
           </div>
         )}
