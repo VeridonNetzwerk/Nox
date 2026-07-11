@@ -104,7 +104,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label, onOpenC
                 >
                   <FlagIcon code={code} size={18} />
                   <span className="font-medium">{info.language_native}</span>
-                  <span className="ml-auto text-[10px] text-nox-textDim/60 uppercase">{code}</span>
+                  <span className="ml-auto text-[10px] text-nox-textDim uppercase">{code}</span>
                   {isSelected && (
                     <svg className="w-4 h-4 text-nox-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -686,108 +686,82 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
         {/* Step 1: Voice selection */}
         {step === 1 && (
           <div className="flex flex-col gap-4">
-            <h3 className="text-base font-semibold text-nox-text">{s.selectVoice || "Stimme wählen"}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-nox-text">{s.selectVoice || "Stimme wählen"}</h3>
+              {selectedLang && voiceCatalog && (
+                <span className="flex items-center gap-1.5 text-xs text-nox-textDim">
+                  <FlagIcon code={selectedLang} size={14} />
+                  {voiceCatalog[selectedLang]?.language_native}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-nox-textDim">
               {s.voiceHintOnly || "Wähle eine Stimme für Nox."}
             </p>
 
-            {/* Voice list — combined Kokoro + Edge, no tabs */}
+            {/* Voice list — single list, cloud badge for Edge */}
             {voiceCatalog && selectedLang && (
-              <div className="space-y-3">
-                <label className="text-xs font-medium text-nox-textDim uppercase tracking-wide">
-                  {s.selectVoice || "Stimme wählen"}
-                </label>
-
-                <div className="space-y-1.5">
-                  {/* Kokoro voices */}
-                  {kokoroCatalog && kokoroCatalog[selectedLang] && kokoroCatalog[selectedLang].voices.map((v) => {
-                    const isPreviewing = previewPlaying === `kokoro:${v.id}`;
-                    const isSelected = selectedVoice === v.id && selectedEngine === "kokoro";
-                    return (
-                      <div
-                        key={`kokoro:${v.id}`}
-                        className={`px-3 py-2.5 rounded-lg text-sm transition-colors border cursor-pointer ${
-                          isSelected
-                            ? "bg-nox-accent/15 border-nox-accent"
-                            : "bg-nox-surface border-nox-border hover:border-nox-accent/50"
-                        }`}
-                        onClick={() => {
-                          setSelectedVoice(v.id);
-                          setSelectedEngine("kokoro");
-                          saveVoiceSetting(v.id, "kokoro");
-                        }}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <span className="font-medium text-nox-text">{v.name}</span>
-                            <span className="text-nox-textDim ml-2 text-xs">({v.gender})</span>
-                            {isSelected && <span className="text-green-500 ml-2 text-xs">✓</span>}
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); playKokoroPreview(selectedLang, v.id); }}
-                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
-                              isPreviewing ? "bg-nox-accent text-white" : "bg-nox-surfaceHover text-nox-text hover:bg-nox-accent/20"
-                            }`}
-                          >
-                            {isPreviewing ? "⏸" : "🔊"}
-                          </button>
+              <div className="space-y-1.5">
+                {[
+                  ...(kokoroCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "kokoro" })),
+                  ...(edgeCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "edge" })),
+                ].map((v) => {
+                  const isPreviewing = previewPlaying === `${v._engine}:${v.id}`;
+                  const isSelected = selectedVoice === v.id && selectedEngine === v._engine;
+                  const isCloud = v._engine === "edge";
+                  return (
+                    <div
+                      key={`${v._engine}:${v.id}`}
+                      className={`px-3 py-2.5 rounded-lg text-sm transition-all border cursor-pointer ${
+                        isSelected
+                          ? "bg-nox-accent/10 border-nox-accent shadow-sm shadow-nox-accent/20"
+                          : "bg-nox-surface border-nox-border hover:border-nox-accent/40 hover:bg-nox-surface/80"
+                      }`}
+                      onClick={() => {
+                        setSelectedVoice(v.id);
+                        setSelectedEngine(v._engine);
+                        saveVoiceSetting(v.id, v._engine);
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                          <span className="font-medium text-nox-text">{v.name}</span>
+                          <span className="text-nox-textDim text-xs">{v.gender}</span>
+                          {isCloud && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium leading-none">Cloud</span>
+                          )}
+                          {isSelected && (
+                            <svg className="w-4 h-4 text-nox-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
                         </div>
-                        <p className="text-xs text-nox-textDim mt-1">{v.description}</p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isCloud) playEdgePreview(selectedLang, v.id);
+                            else playKokoroPreview(selectedLang, v.id);
+                          }}
+                          className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors shrink-0 ${
+                            isPreviewing ? "bg-nox-accent text-white" : "bg-nox-border/50 text-nox-textDim hover:bg-nox-accent/20 hover:text-nox-text"
+                          }`}
+                        >
+                          {isPreviewing ? (
+                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" /></svg>
+                          )}
+                        </button>
                       </div>
-                    );
-                  })}
-
-                  {/* Edge voices — with cloud icon */}
-                  {edgeCatalog && edgeCatalog[selectedLang] && edgeCatalog[selectedLang].voices.map((v) => {
-                    const isPreviewing = previewPlaying === `edge:${v.id}`;
-                    const isSelected = selectedVoice === v.id && selectedEngine === "edge";
-                    return (
-                      <div
-                        key={`edge:${v.id}`}
-                        className={`px-3 py-2.5 rounded-lg text-sm transition-colors border cursor-pointer ${
-                          isSelected
-                            ? "bg-nox-accent/15 border-nox-accent"
-                            : "bg-nox-surface border-nox-border hover:border-nox-accent/50"
-                        }`}
-                        onClick={() => {
-                          setSelectedVoice(v.id);
-                          setSelectedEngine("edge");
-                          saveVoiceSetting(v.id, "edge");
-                        }}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                            <span
-                              title="Cloud-basierte Stimme – benötigt Internetverbindung"
-                              className="text-nox-textDim text-xs cursor-help"
-                            >
-                              ☁
-                            </span>
-                            <span className="font-medium text-nox-text">{v.name}</span>
-                            <span className="text-nox-textDim ml-1 text-xs">({v.gender})</span>
-                            {isSelected && <span className="text-green-500 ml-1 text-xs">✓</span>}
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); playEdgePreview(selectedLang, v.id); }}
-                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
-                              isPreviewing ? "bg-nox-accent text-white" : "bg-nox-surfaceHover text-nox-text hover:bg-nox-accent/20"
-                            }`}
-                          >
-                            {isPreviewing ? "⏸" : "🔊"}
-                          </button>
-                        </div>
-                        <p className="text-xs text-nox-textDim mt-1">{v.description}</p>
-                      </div>
-                    );
-                  })}
-
-                  {/* No voices available */}
-                  {(!edgeCatalog || !edgeCatalog[selectedLang]) && (!kokoroCatalog || !kokoroCatalog[selectedLang]) && (
-                    <div className="px-3 py-4 rounded-lg bg-nox-surface border border-nox-border text-center">
-                      <p className="text-sm text-nox-textDim">Keine Stimmen für diese Sprache.</p>
+                      {v.description && <p className="text-xs text-nox-textDim mt-1">{v.description}</p>}
                     </div>
-                  )}
-                </div>
+                  );
+                })}
+                {(!kokoroCatalog?.[selectedLang]?.voices?.length && !edgeCatalog?.[selectedLang]?.voices?.length) && (
+                  <div className="px-3 py-4 rounded-lg bg-nox-surface border border-nox-border text-center">
+                    <p className="text-sm text-nox-textDim">Keine Stimmen für diese Sprache.</p>
+                  </div>
+                )}
               </div>
             )}
 
