@@ -197,37 +197,33 @@ function App() {
         if (data.type === "tool_start") {
           // Clear the current streaming assistant message (tool-call text)
           setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
+            const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && last.streaming) {
-              updated.pop();
+              return prev.slice(0, -1);
             }
-            return [...updated];
+            return prev;
           });
           return;
         }
 
         if (data.type === "token") {
           setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
+            const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && last.streaming) {
-              last.content += data.content;
-              return [...updated];
+              return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
             }
             return [
-              ...updated,
+              ...prev,
               { role: "assistant", content: data.content, streaming: true },
             ];
           });
         } else if (data.type === "done") {
           setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
+            const last = prev[prev.length - 1];
             if (last && last.role === "assistant") {
-              last.streaming = false;
+              return [...prev.slice(0, -1), { ...last, streaming: false }];
             }
-            return [...updated];
+            return prev;
           });
           setIsStreaming(false);
           window.nox?.setThinkingState?.(false);
