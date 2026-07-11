@@ -110,6 +110,15 @@ function App() {
   useEffect(() => {
     let destroyed = false;
     const connect = () => {
+      // Close any existing connection before creating a new one
+      if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 

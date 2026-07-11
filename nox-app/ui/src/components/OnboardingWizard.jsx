@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import noxLogoGlowing from "../assets/nox-logo-glowing.png";
+import noxIcon from "../assets/nox-icon.png";
 import { useToast } from "./Toast.jsx";
 
 const API_BASE = "http://127.0.0.1:8420";
@@ -161,7 +162,6 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const [pullModel, setPullModel] = useState("");
 
   const pollRef = useRef(null);
-  const wsRef = useRef(null);
   const wakeTestActiveRef = useRef(false);
 
   const steps = [
@@ -173,23 +173,27 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     s.done || "Fertig",
   ];
 
-  // WebSocket listener for wake_detected events during onboarding
+  // Notify Electron to keep window visible during onboarding
   useEffect(() => {
-    // Notify Electron to keep window visible during onboarding
     window.nox?.onboardingActive?.();
+  }, []);
 
-    const ws = new WebSocket("ws://127.0.0.1:8420/ws/chat");
-    wsRef.current = ws;
-    ws.onmessage = (e) => {
+  // Poll wake detection status during onboarding step 4
+  useEffect(() => {
+    if (step !== 4 || !wakeOk) return;
+    let lastCount = 0;
+    const interval = setInterval(async () => {
       try {
-        const data = JSON.parse(e.data);
-        if (data.type === "voice_event" && data.state === "wake_detected") {
-          setWakeAttempts((prev) => prev + 1);
+        const res = await fetch(`${API_BASE}/api/onboarding/wake-status`);
+        const data = await res.json();
+        if (data.count > lastCount) {
+          lastCount = data.count;
+          setWakeAttempts(data.count);
         }
       } catch {}
-    };
-    return () => { ws.close(); };
-  }, []);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [step, wakeOk]);
 
   // Start/stop wake word test when entering/leaving step 4
   useEffect(() => {
@@ -547,7 +551,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border">
         <div className="flex items-center gap-2">
-          <img src={noxLogoGlowing} alt="Nox" className="w-5 h-5 rounded-full" />
+          <img src={noxIcon} alt="Nox" className="w-6 h-6 rounded-md" />
           <h2 className="text-sm font-semibold text-nox-text">{s.title || "Nox einrichten"}</h2>
         </div>
         <span className="text-xs text-nox-textDim">
@@ -699,70 +703,85 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               {s.voiceHintOnly || "Wähle eine Stimme für Nox."}
             </p>
 
-            {/* Voice list — single list, cloud badge for Edge */}
-            {voiceCatalog && selectedLang && (
-              <div className="space-y-1.5">
-                {[
-                  ...(kokoroCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "kokoro" })),
-                  ...(edgeCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "edge" })),
-                ].map((v) => {
-                  const isPreviewing = previewPlaying === `${v._engine}:${v.id}`;
-                  const isSelected = selectedVoice === v.id && selectedEngine === v._engine;
-                  const isCloud = v._engine === "edge";
-                  return (
-                    <div
-                      key={`${v._engine}:${v.id}`}
-                      className={`px-3 py-2.5 rounded-lg text-sm transition-all border cursor-pointer ${
-                        isSelected
-                          ? "bg-nox-accent/10 border-nox-accent shadow-sm shadow-nox-accent/20"
-                          : "bg-nox-surface border-nox-border hover:border-nox-accent/40 hover:bg-nox-surface/80"
-                      }`}
-                      onClick={() => {
-                        setSelectedVoice(v.id);
-                        setSelectedEngine(v._engine);
-                        saveVoiceSetting(v.id, v._engine);
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <span className="font-medium text-nox-text">{v.name}</span>
-                          {isCloud && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium leading-none">Cloud</span>
-                          )}
-                          {isSelected && (
-                            <svg className="w-4 h-4 text-nox-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isCloud) playEdgePreview(selectedLang, v.id);
-                            else playKokoroPreview(selectedLang, v.id);
-                          }}
-                          className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors shrink-0 ${
-                            isPreviewing ? "bg-nox-accent text-white" : "bg-nox-border/50 text-nox-textDim hover:bg-nox-accent/20 hover:text-nox-text"
+            {/* Voice list — grouped by gender */}
+            {voiceCatalog && selectedLang && (() => {
+              const allVoices = [
+                ...(kokoroCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "kokoro" })),
+                ...(edgeCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "edge" })),
+              ];
+              const female = allVoices.filter((v) => v.gender === "female").sort((a, b) => a.name.localeCompare(b.name));
+              const male = allVoices.filter((v) => v.gender === "male").sort((a, b) => a.name.localeCompare(b.name));
+              const renderGroup = (label, voices) => voices.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-nox-textDim uppercase tracking-wide">{label}</span>
+                    <div className="flex-1 h-px bg-nox-border" />
+                  </div>
+                  <div className="space-y-1.5">
+                    {voices.map((v) => {
+                      const isPreviewing = previewPlaying === `${v._engine}:${v.id}`;
+                      const isSelected = selectedVoice === v.id && selectedEngine === v._engine;
+                      const isCloud = v._engine === "edge";
+                      const desc = v.description ? v.description.replace(/^Female\s+/i, "").replace(/^Male\s+/i, "").replace(/^Weiblich,\s*/i, "").replace(/^Männlich,\s*/i, "") : "";
+                      return (
+                        <div
+                          key={`${v._engine}:${v.id}`}
+                          className={`px-3 py-2.5 rounded-lg text-sm transition-all border cursor-pointer ${
+                            isSelected
+                              ? "bg-nox-accent/10 border-nox-accent shadow-sm shadow-nox-accent/20"
+                              : "bg-nox-surface border-nox-border hover:border-nox-accent/40 hover:bg-nox-surface/80"
                           }`}
+                          onClick={() => {
+                            setSelectedVoice(v.id);
+                            setSelectedEngine(v._engine);
+                            saveVoiceSetting(v.id, v._engine);
+                          }}
                         >
-                          {isPreviewing ? (
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
-                          ) : (
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" /></svg>
-                          )}
-                        </button>
-                      </div>
-                      {v.description && <p className="text-xs text-nox-textDim mt-1">{v.description}</p>}
-                    </div>
-                  );
-                })}
-                {(!kokoroCatalog?.[selectedLang]?.voices?.length && !edgeCatalog?.[selectedLang]?.voices?.length) && (
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0 flex items-center gap-2">
+                              <span className="font-medium text-nox-text">{v.name}</span>
+                              {isCloud && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium leading-none">Cloud</span>
+                              )}
+                              {isSelected && (
+                                <svg className="w-4 h-4 text-nox-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isCloud) playEdgePreview(selectedLang, v.id);
+                                else playKokoroPreview(selectedLang, v.id);
+                              }}
+                              className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors shrink-0 ${
+                                isPreviewing ? "bg-nox-accent text-white" : "bg-nox-border/50 text-nox-textDim hover:bg-nox-accent/20 hover:text-nox-text"
+                              }`}
+                            >
+                              {isPreviewing ? (
+                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" /></svg>
+                              )}
+                            </button>
+                          </div>
+                          {desc && <p className="text-xs text-nox-textDim mt-1">{desc}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+              if (!female.length && !male.length) {
+                return (
                   <div className="px-3 py-4 rounded-lg bg-nox-surface border border-nox-border text-center">
                     <p className="text-sm text-nox-textDim">Keine Stimmen für diese Sprache.</p>
                   </div>
-                )}
-              </div>
-            )}
+                );
+              }
+              return <div className="space-y-4">{renderGroup("Weiblich", female)}{renderGroup("Männlich", male)}</div>;
+            })()}
 
             {previewError && (
               <div className="px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30">

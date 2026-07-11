@@ -1276,7 +1276,7 @@ async def test_wake_word_start(body: dict[str, Any] = None) -> dict[str, Any]:
     """Start wake word listener for onboarding calibration test.
 
     Uses the current audio_input_device from settings or request body.
-    Broadcasts 'wake_detected' via WebSocket when the wake word is detected.
+    Sets a pollable counter when wake word is detected.
     """
     if not voice_manager.wake_word.is_available:
         return {"status": "error", "error": "Wake word dependencies not available"}
@@ -1284,19 +1284,17 @@ async def test_wake_word_start(body: dict[str, Any] = None) -> dict[str, Any]:
     # Stop existing listener if running
     voice_manager.wake_word.stop()
 
+    # Reset wake detection counter
+    app.state.wake_detected_count = 0
+
     # Update input device if provided
     if body and "input_device" in body:
         voice_manager.wake_word.input_device = body["input_device"]
 
-    # Set callback to broadcast wake detection via WebSocket
-    async def _on_wake_test():
-        await manager.broadcast({"type": "voice_event", "state": "wake_detected"})
-
     original_callback = voice_manager.wake_word.on_wake
 
     def _wake_sync():
-        if voice_manager._loop:
-            asyncio.run_coroutine_threadsafe(_on_wake_test(), voice_manager._loop)
+        app.state.wake_detected_count = getattr(app.state, "wake_detected_count", 0) + 1
 
     voice_manager.wake_word.on_wake = _wake_sync
     voice_manager.wake_word.start()
@@ -1306,6 +1304,12 @@ async def test_wake_word_start(body: dict[str, Any] = None) -> dict[str, Any]:
         return {"status": "error", "error": "Failed to load wake word model"}
 
     return {"status": "ok", "model": config.get("wake_word_model", "hey_jarvis")}
+
+
+@app.get("/api/onboarding/wake-status")
+async def wake_status() -> dict[str, Any]:
+    """Poll wake word detection count for onboarding."""
+    return {"status": "ok", "count": getattr(app.state, "wake_detected_count", 0)}
 
 
 @app.post("/api/onboarding/stop-wake-word-test")
