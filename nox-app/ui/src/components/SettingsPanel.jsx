@@ -141,6 +141,8 @@ function SettingsPanel({ locale, onClose }) {
   const [newExcludedDir, setNewExcludedDir] = useState("");
   const [filesHealth, setFilesHealth] = useState(null);
   const [showVoiceSelection, setShowVoiceSelection] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -493,13 +495,451 @@ function SettingsPanel({ locale, onClose }) {
     "bg-nox-surface text-nox-text text-sm rounded-lg px-3 py-1.5 border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors";
   const inputClass = selectClass;
 
+  const categories = [
+    { id: "general", icon: "⚙️", label: s.general, keywords: ["hotkey", "theme", "autostart", "tastenkombination", "design", "start"] },
+    { id: "ai", icon: "🤖", label: s.aiModel, keywords: ["ollama", "model", "host", "preload", "vram", "ram", "ki", "künstliche intelligenz"] },
+    { id: "voice", icon: "🎤", label: s.voice, keywords: ["wake", "audio", "input", "output", "tts", "stimme", "sprache", "mikrofon", "lautsprecher", "silence"] },
+    { id: "context", icon: "👁️", label: s.context, keywords: ["eye", "ttl", "excluded", "apps", "kontext", "erfassung", "ausschließen"] },
+    { id: "files", icon: "📁", label: s.fileSearch, keywords: ["file", "search", "drive", "folders", "index", "datei", "suche", "ordner", "laufwerk"] },
+    { id: "about", icon: "ℹ️", label: s.about, keywords: ["version", "config", "path", "info", "über"] },
+  ];
+
+  const filteredCategories = searchQuery.trim()
+    ? categories.filter(c => {
+        const q = searchQuery.toLowerCase();
+        return c.label.toLowerCase().includes(q) ||
+               c.keywords.some(k => k.includes(q));
+      })
+    : categories;
+
+  const renderGeneralSettings = () => (
+    <>
+      <Row label={s.hotkey}>
+        <input
+          type="text"
+          className={inputClass + " w-40 text-right"}
+          value={settings.hotkey || ""}
+          onChange={(e) => updateSetting("hotkey", e.target.value)}
+          placeholder="CommandOrControl+Shift+Space"
+        />
+      </Row>
+      <Row label={s.theme}>
+        <select
+          className={selectClass}
+          value={settings.ui_theme || "system"}
+          onChange={(e) => updateSetting("ui_theme", e.target.value)}
+        >
+          <option value="system">{s.themeSystem}</option>
+          <option value="dark">{s.themeDark}</option>
+          <option value="light">{s.themeLight}</option>
+        </select>
+      </Row>
+      <Row label={s.autostart}>
+        <Toggle checked={autostart} onChange={toggleAutostart} />
+      </Row>
+    </>
+  );
+
+  const renderAISettings = () => (
+    <>
+      <Row label={s.ollamaHost}>
+        <input
+          type="text"
+          className={inputClass + " w-44 text-right"}
+          value={settings.ollama_host || ""}
+          onChange={(e) => updateSetting("ollama_host", e.target.value)}
+          placeholder="http://localhost:11434"
+        />
+      </Row>
+      <Row label={s.model}>
+        <select
+          className={selectClass}
+          value={settings.ollama_model || ""}
+          onChange={(e) => updateSetting("ollama_model", e.target.value)}
+        >
+          {models.length > 0 ? (
+            models.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))
+          ) : (
+            <option value="">{s.noModels}</option>
+          )}
+        </select>
+      </Row>
+      <Row label={"Modell vorab laden"}>
+        <Toggle
+          checked={settings.ollama_preload || false}
+          onChange={(v) => updateSetting("ollama_preload", v)}
+        />
+      </Row>
+      {settings.ollama_preload && (
+        <>
+          <Row label={"Preload-Modus"}>
+            <select
+              className={selectClass}
+              value={settings.ollama_preload_mode || "vram"}
+              onChange={(e) => updateSetting("ollama_preload_mode", e.target.value)}
+            >
+              <option value="vram">VRAM (GPU)</option>
+              <option value="ram">RAM (CPU, schneller Wechsel)</option>
+            </select>
+          </Row>
+          <div className="px-3 py-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+            <div className="flex items-start gap-2">
+              <span className="text-yellow-400 text-sm flex-shrink-0">⚠</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-yellow-300 break-words">
+                  <strong>Warnung:</strong> Das Vorabladen des Modells verbraucht erheblich RAM bzw. VRAM und hält diese Ressourcen dauerhaft reserviert. Bei großen Modellen kann das System verlangsmt werden oder andere Anwendungen können abstürzen. Nur aktivieren, wenn genügend Arbeitsspeicher verfügbar ist!
+                </p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  const renderVoiceSettings = () => (
+    <>
+      <Row label={s.wakeWord}>
+        <Toggle
+          checked={settings.wake_word_enabled || false}
+          onChange={(v) => updateSetting("wake_word_enabled", v)}
+        />
+      </Row>
+      <Row label={s.wakeSensitivity}>
+        <input
+          type="range"
+          min="0.1"
+          max="0.9"
+          step="0.05"
+          value={settings.wake_word_threshold || 0.5}
+          onChange={(e) => updateSetting("wake_word_threshold", parseFloat(e.target.value))}
+          className="w-24 accent-nox-accent"
+        />
+        <span className="text-nox-textDim text-xs w-8 text-right">
+          {(settings.wake_word_threshold || 0.5).toFixed(2)}
+        </span>
+      </Row>
+      <Row label={s.audioInput}>
+        <div className="flex flex-col items-end gap-1.5 min-w-0">
+          <select
+            className={selectClass + " max-w-44 w-full"}
+            value={settings.audio_input_device || "default"}
+            onChange={(e) => updateSetting("audio_input_device", e.target.value)}
+          >
+            <option value="default">{s.audioDefault}</option>
+            {audioDevices.input.map((d) => (
+              <option key={d.index} value={d.name}>
+                {d.name}{d.is_default ? " ★" : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={testInputDevice}
+            disabled={testingInput}
+            className="px-3 py-1 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105 self-end"
+          >
+            {testingInput ? s.testing : s.testInput}
+          </button>
+        </div>
+      </Row>
+      {testResult?.type === "input" && (
+        <div className="px-3 py-1 text-xs">
+          {testResult.ok ? (
+            <span className="text-green-400">{s.testOk}{(testResult.rms * 1000).toFixed(1)}m)</span>
+          ) : (
+            <span className="text-red-400">{s.testFail}: {testResult.error}</span>
+          )}
+        </div>
+      )}
+      <Row label={s.audioOutput}>
+        <div className="flex flex-col items-end gap-1.5 min-w-0">
+          <select
+            className={selectClass + " max-w-44 w-full"}
+            value={settings.audio_output_device || "default"}
+            onChange={(e) => updateSetting("audio_output_device", e.target.value)}
+          >
+            <option value="default">{s.audioDefault}</option>
+            {audioDevices.output.map((d) => (
+              <option key={d.index} value={d.name}>
+                {d.name}{d.is_default ? " ★" : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={testOutputDevice}
+            disabled={testingOutput}
+            className="px-3 py-1 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105 self-end"
+          >
+            {testingOutput ? s.testing : s.testOutput}
+          </button>
+        </div>
+      </Row>
+      {testResult?.type === "output" && (
+        <div className="px-3 py-1 text-xs">
+          {testResult.ok ? (
+            <span className="text-green-400">✓</span>
+          ) : (
+            <span className="text-red-400">{s.testFail}: {testResult.error}</span>
+          )}
+        </div>
+      )}
+      <Row label={s.silenceThreshold}>
+        <input
+          type="range"
+          min="0.5"
+          max="2.5"
+          step="0.1"
+          value={settings.end_turn_silence_threshold || 1.0}
+          onChange={(e) => updateSetting("end_turn_silence_threshold", parseFloat(e.target.value))}
+          className="w-24 accent-nox-accent"
+        />
+        <span className="text-nox-textDim text-xs w-8 text-right">
+          {(settings.end_turn_silence_threshold || 1.0).toFixed(1)}s
+        </span>
+      </Row>
+      <div className="px-3 text-xs text-nox-textDim">
+        {s.silenceThresholdHint}
+      </div>
+      <Row label={s.endTurnDetection}>
+        <Toggle
+          checked={settings.end_turn_enabled !== false}
+          onChange={(v) => updateSetting("end_turn_enabled", v)}
+        />
+      </Row>
+      {/* Voice selection button — opens modal */}
+      <div className="px-3 py-3 rounded-lg bg-nox-surface/40">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-nox-textDim text-sm">Stimme & Sprache</span>
+          {settings.tts_model && (
+            <span className="text-xs text-nox-textDim truncate max-w-32">
+              {settings.tts_model}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setShowVoiceSelection(true)}
+          className="w-full px-3 py-2.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm font-medium transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" />
+          </svg>
+          Stimme & Sprache wählen
+        </button>
+      </div>
+    </>
+  );
+
+  const renderContextSettings = () => (
+    <>
+      <Row label={s.retentionDays}>
+        <input
+          type="number"
+          min="1"
+          max="90"
+          className={inputClass + " w-16 text-right"}
+          value={settings.nox_eye_ttl_days || 7}
+          onChange={(e) => updateSetting("nox_eye_ttl_days", parseInt(e.target.value) || 7)}
+        />
+      </Row>
+      <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-nox-textDim text-sm">{s.excludedApps}</span>
+        </div>
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            className={inputClass + " flex-1"}
+            value={newExcludedApp}
+            onChange={(e) => setNewExcludedApp(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addExcludedApp()}
+            placeholder={s.addAppPlaceholder}
+          />
+          <button
+            onClick={addExcludedApp}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
+          >
+            +
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(settings.nox_eye_excluded_apps || []).map((app) => (
+            <span
+              key={app}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs"
+            >
+              {app}
+              <button
+                onClick={() => removeExcludedApp(app)}
+                className="text-nox-textDim hover:text-red-500 transition-colors"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
+  const renderFilesSettings = () => (
+    <>
+      <Row label={s.fileSearchEnabled}>
+        <Toggle
+          checked={settings.nox_files_enabled || false}
+          onChange={(v) => updateSetting("nox_files_enabled", v)}
+        />
+      </Row>
+      <Row label={s.fileSearchFullDrive}>
+        <Toggle
+          checked={settings.nox_files_full_drive || false}
+          onChange={(v) => updateSetting("nox_files_full_drive", v)}
+        />
+      </Row>
+      {settings.nox_files_full_drive && (
+        <div className="px-3 py-1 text-xs text-yellow-400">
+          ⚠ {s.fileSearchFullDriveWarn}
+        </div>
+      )}
+      <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-nox-textDim text-sm">{s.fileSearchFolders}</span>
+        </div>
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            className={inputClass + " flex-1"}
+            value={newFolderPath}
+            onChange={(e) => setNewFolderPath(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addFolder()}
+            placeholder={s.fileSearchAddFolder}
+          />
+          <button
+            onClick={addFolder}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
+          >
+            +
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(settings.nox_files_custom_folders || []).map((folder) => (
+            <span
+              key={folder}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs max-w-full"
+            >
+              <span className="truncate max-w-32">{folder}</span>
+              <button
+                onClick={() => removeFolder(folder)}
+                className="text-nox-textDim hover:text-red-500 transition-colors"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-nox-textDim text-sm">{s.fileSearchExcluded}</span>
+        </div>
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            className={inputClass + " flex-1"}
+            value={newExcludedDir}
+            onChange={(e) => setNewExcludedDir(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addExcludedDir()}
+            placeholder={s.fileSearchAddExcluded}
+          />
+          <button
+            onClick={addExcludedDir}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
+          >
+            +
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(settings.nox_files_excluded_dirs || []).map((dir) => (
+            <span
+              key={dir}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs"
+            >
+              {dir}
+              <button
+                onClick={() => removeExcludedDir(dir)}
+                className="text-nox-textDim hover:text-red-500 transition-colors"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+      <Row label={s.fileSearchFiles}>
+        <span className="text-nox-textDim text-xs">
+          {filesHealth?.files_indexed ?? "—"}
+        </span>
+      </Row>
+      <div className="px-3">
+        <button
+          onClick={triggerReindex}
+          disabled={filesHealth?.indexing}
+          className="px-4 py-2 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm w-full disabled:opacity-50 transition-all hover:scale-[1.02]"
+        >
+          {filesHealth?.indexing ? s.fileSearchIndexing : s.fileSearchReindex}
+        </button>
+      </div>
+    </>
+  );
+
+  const renderAboutSettings = () => (
+    <>
+      <Row label={s.version}>
+        <span className="text-nox-text font-medium">0.5.0</span>
+      </Row>
+      <Row label={s.configPath}>
+        <span className="text-nox-textDim text-xs truncate max-w-40">
+          %APPDATA%\Nox\config.yaml
+        </span>
+      </Row>
+    </>
+  );
+
+  const renderCategoryContent = (catId) => {
+    switch (catId) {
+      case "general": return renderGeneralSettings();
+      case "ai": return renderAISettings();
+      case "voice": return renderVoiceSettings();
+      case "context": return renderContextSettings();
+      case "files": return renderFilesSettings();
+      case "about": return renderAboutSettings();
+      default: return null;
+    }
+  };
+
+  const activeCat = categories.find(c => c.id === activeCategory);
+
   return (
     <div className="flex flex-col h-full animate-slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border/50">
         <div className="flex items-center gap-2">
-          <img src={noxLogo} alt="Nox" className="h-6 w-6 rounded-full" />
-          <span className="text-sm font-semibold text-nox-text">{s.title}</span>
+          {activeCat ? (
+            <button
+              onClick={() => setActiveCategory(null)}
+              className="flex items-center justify-center w-8 h-8 rounded-full text-nox-textDim hover:text-nox-text hover:bg-nox-surface transition-all hover:scale-105"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+            </button>
+          ) : (
+            <img src={noxLogo} alt="Nox" className="h-6 w-6 rounded-full" />
+          )}
+          <span className="text-sm font-semibold text-nox-text">
+            {activeCat ? activeCat.label : s.title}
+          </span>
         </div>
         <button
           onClick={onClose}
@@ -507,402 +947,93 @@ function SettingsPanel({ locale, onClose }) {
           aria-label={s.back}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
+            <path d="M6 6L18 18M6 18L18 6" />
           </svg>
         </button>
       </div>
 
-      {/* Settings sections */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-        {/* General */}
-        <Section icon="⚙️" label={s.general}>
-          <Row label={s.hotkey}>
+      {/* Search bar (only on main page) */}
+      {!activeCategory && (
+        <div className="px-4 py-2 border-b border-nox-border/50">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nox-textDim" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
+            </svg>
             <input
               type="text"
-              className={inputClass + " w-40 text-right"}
-              value={settings.hotkey || ""}
-              onChange={(e) => updateSetting("hotkey", e.target.value)}
-              placeholder="CommandOrControl+Shift+Space"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Einstellungen durchsuchen..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-nox-surface text-nox-text text-sm border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors"
             />
-          </Row>
-          <Row label={s.theme}>
-            <select
-              className={selectClass}
-              value={settings.ui_theme || "system"}
-              onChange={(e) => updateSetting("ui_theme", e.target.value)}
-            >
-              <option value="system">{s.themeSystem}</option>
-              <option value="dark">{s.themeDark}</option>
-              <option value="light">{s.themeLight}</option>
-            </select>
-          </Row>
-          <Row label={s.autostart}>
-            <Toggle checked={autostart} onChange={toggleAutostart} />
-          </Row>
-        </Section>
-
-        {/* AI Model */}
-        <Section icon="🤖" label={s.aiModel}>
-          <Row label={s.ollamaHost}>
-            <input
-              type="text"
-              className={inputClass + " w-44 text-right"}
-              value={settings.ollama_host || ""}
-              onChange={(e) => updateSetting("ollama_host", e.target.value)}
-              placeholder="http://localhost:11434"
-            />
-          </Row>
-          <Row label={s.model}>
-            <select
-              className={selectClass}
-              value={settings.ollama_model || ""}
-              onChange={(e) => updateSetting("ollama_model", e.target.value)}
-            >
-              {models.length > 0 ? (
-                models.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))
-              ) : (
-                <option value="">{s.noModels}</option>
-              )}
-            </select>
-          </Row>
-          <Row label={"Modell vorab laden"}>
-            <Toggle
-              checked={settings.ollama_preload || false}
-              onChange={(v) => updateSetting("ollama_preload", v)}
-            />
-          </Row>
-          {settings.ollama_preload && (
-            <>
-              <Row label={"Preload-Modus"}>
-                <select
-                  className={selectClass}
-                  value={settings.ollama_preload_mode || "vram"}
-                  onChange={(e) => updateSetting("ollama_preload_mode", e.target.value)}
-                >
-                  <option value="vram">VRAM (GPU)</option>
-                  <option value="ram">RAM (CPU, schneller Wechsel)</option>
-                </select>
-              </Row>
-              <div className="px-3 py-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-                <div className="flex items-start gap-2">
-                  <span className="text-yellow-400 text-sm flex-shrink-0">⚠</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-yellow-300 break-words">
-                      <strong>Warnung:</strong> Das Vorabladen des Modells verbraucht erheblich RAM bzw. VRAM und hält diese Ressourcen dauerhaft reserviert. Bei großen Modellen kann das System verlangsmt werden oder andere Anwendungen können abstürzen. Nur aktivieren, wenn genügend Arbeitsspeicher verfügbar ist!
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </Section>
-
-        {/* Voice */}
-        <Section icon="🎤" label={s.voice}>
-          <Row label={s.wakeWord}>
-            <Toggle
-              checked={settings.wake_word_enabled || false}
-              onChange={(v) => updateSetting("wake_word_enabled", v)}
-            />
-          </Row>
-          <Row label={s.wakeSensitivity}>
-            <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.05"
-              value={settings.wake_word_threshold || 0.5}
-              onChange={(e) => updateSetting("wake_word_threshold", parseFloat(e.target.value))}
-              className="w-24 accent-nox-accent"
-            />
-            <span className="text-nox-textDim text-xs w-8 text-right">
-              {(settings.wake_word_threshold || 0.5).toFixed(2)}
-            </span>
-          </Row>
-          <Row label={s.audioInput}>
-            <div className="flex flex-col items-end gap-1.5 min-w-0">
-              <select
-                className={selectClass + " max-w-44 w-full"}
-                value={settings.audio_input_device || "default"}
-                onChange={(e) => updateSetting("audio_input_device", e.target.value)}
-              >
-                <option value="default">{s.audioDefault}</option>
-                {audioDevices.input.map((d) => (
-                  <option key={d.index} value={d.name}>
-                    {d.name}{d.is_default ? " ★" : ""}
-                  </option>
-                ))}
-              </select>
+            {searchQuery && (
               <button
-                onClick={testInputDevice}
-                disabled={testingInput}
-                className="px-3 py-1 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105 self-end"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-nox-textDim hover:text-nox-text hover:bg-nox-surface transition-all"
               >
-                {testingInput ? s.testing : s.testInput}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6L18 18M6 18L18 6" />
+                </svg>
               </button>
-            </div>
-          </Row>
-          {testResult?.type === "input" && (
-            <div className="px-3 py-1 text-xs">
-              {testResult.ok ? (
-                <span className="text-green-400">{s.testOk}{(testResult.rms * 1000).toFixed(1)}m)</span>
-              ) : (
-                <span className="text-red-400">{s.testFail}: {testResult.error}</span>
-              )}
-            </div>
-          )}
-          <Row label={s.audioOutput}>
-            <div className="flex flex-col items-end gap-1.5 min-w-0">
-              <select
-                className={selectClass + " max-w-44 w-full"}
-                value={settings.audio_output_device || "default"}
-                onChange={(e) => updateSetting("audio_output_device", e.target.value)}
-              >
-                <option value="default">{s.audioDefault}</option>
-                {audioDevices.output.map((d) => (
-                  <option key={d.index} value={d.name}>
-                    {d.name}{d.is_default ? " ★" : ""}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={testOutputDevice}
-                disabled={testingOutput}
-                className="px-3 py-1 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105 self-end"
-              >
-                {testingOutput ? s.testing : s.testOutput}
-              </button>
-            </div>
-          </Row>
-          {testResult?.type === "output" && (
-            <div className="px-3 py-1 text-xs">
-              {testResult.ok ? (
-                <span className="text-green-400">✓</span>
-              ) : (
-                <span className="text-red-400">{s.testFail}: {testResult.error}</span>
-              )}
-            </div>
-          )}
-          <Row label={s.silenceThreshold}>
-            <input
-              type="range"
-              min="0.5"
-              max="2.5"
-              step="0.1"
-              value={settings.end_turn_silence_threshold || 1.0}
-              onChange={(e) => updateSetting("end_turn_silence_threshold", parseFloat(e.target.value))}
-              className="w-24 accent-nox-accent"
-            />
-            <span className="text-nox-textDim text-xs w-8 text-right">
-              {(settings.end_turn_silence_threshold || 1.0).toFixed(1)}s
-            </span>
-          </Row>
-          <div className="px-3 text-xs text-nox-textDim">
-            {s.silenceThresholdHint}
+            )}
           </div>
-          <Row label={s.endTurnDetection}>
-            <Toggle
-              checked={settings.end_turn_enabled !== false}
-              onChange={(v) => updateSetting("end_turn_enabled", v)}
-            />
-          </Row>
-          {/* Voice selection button — opens modal */}
-          <div className="px-3 py-3 rounded-lg bg-nox-surface/40">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-nox-textDim text-sm">Stimme & Sprache</span>
-              {settings.tts_model && (
-                <span className="text-xs text-nox-textDim truncate max-w-32">
-                  {settings.tts_model}
-                </span>
-              )}
-            </div>
-            <button
-              onClick={() => setShowVoiceSelection(true)}
-              className="w-full px-3 py-2.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm font-medium transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" />
-              </svg>
-              Stimme & Sprache wählen
-            </button>
-          </div>
-        </Section>
-
-        {/* Context Capture */}
-        <Section icon="👁️" label={s.context}>
-          <Row label={s.retentionDays}>
-            <input
-              type="number"
-              min="1"
-              max="90"
-              className={inputClass + " w-16 text-right"}
-              value={settings.nox_eye_ttl_days || 7}
-              onChange={(e) => updateSetting("nox_eye_ttl_days", parseInt(e.target.value) || 7)}
-            />
-          </Row>
-          <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-nox-textDim text-sm">{s.excludedApps}</span>
-            </div>
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                className={inputClass + " flex-1"}
-                value={newExcludedApp}
-                onChange={(e) => setNewExcludedApp(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addExcludedApp()}
-                placeholder={s.addAppPlaceholder}
-              />
-              <button
-                onClick={addExcludedApp}
-                className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
-              >
-                +
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(settings.nox_eye_excluded_apps || []).map((app) => (
-                <span
-                  key={app}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs"
-                >
-                  {app}
-                  <button
-                    onClick={() => removeExcludedApp(app)}
-                    className="text-nox-textDim hover:text-red-500 transition-colors"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          </div>
-        </Section>
-
-        {/* File Search */}
-        <Section icon="📁" label={s.fileSearch}>
-          <Row label={s.fileSearchEnabled}>
-            <Toggle
-              checked={settings.nox_files_enabled || false}
-              onChange={(v) => updateSetting("nox_files_enabled", v)}
-            />
-          </Row>
-          <Row label={s.fileSearchFullDrive}>
-            <Toggle
-              checked={settings.nox_files_full_drive || false}
-              onChange={(v) => updateSetting("nox_files_full_drive", v)}
-            />
-          </Row>
-          {settings.nox_files_full_drive && (
-            <div className="px-3 py-1 text-xs text-yellow-400">
-              ⚠ {s.fileSearchFullDriveWarn}
-            </div>
-          )}
-          <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-nox-textDim text-sm">{s.fileSearchFolders}</span>
-            </div>
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                className={inputClass + " flex-1"}
-                value={newFolderPath}
-                onChange={(e) => setNewFolderPath(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addFolder()}
-                placeholder={s.fileSearchAddFolder}
-              />
-              <button
-                onClick={addFolder}
-                className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
-              >
-                +
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(settings.nox_files_custom_folders || []).map((folder) => (
-                <span
-                  key={folder}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs max-w-full"
-                >
-                  <span className="truncate max-w-32">{folder}</span>
-                  <button
-                    onClick={() => removeFolder(folder)}
-                    className="text-nox-textDim hover:text-red-500 transition-colors"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-nox-textDim text-sm">{s.fileSearchExcluded}</span>
-            </div>
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                className={inputClass + " flex-1"}
-                value={newExcludedDir}
-                onChange={(e) => setNewExcludedDir(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addExcludedDir()}
-                placeholder={s.fileSearchAddExcluded}
-              />
-              <button
-                onClick={addExcludedDir}
-                className="flex items-center justify-center w-8 h-8 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm transition-all hover:scale-105 shrink-0"
-              >
-                +
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(settings.nox_files_excluded_dirs || []).map((dir) => (
-                <span
-                  key={dir}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-nox-border/40 text-nox-textDim text-xs"
-                >
-                  {dir}
-                  <button
-                    onClick={() => removeExcludedDir(dir)}
-                    className="text-nox-textDim hover:text-red-500 transition-colors"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          </div>
-          <Row label={s.fileSearchFiles}>
-            <span className="text-nox-textDim text-xs">
-              {filesHealth?.files_indexed ?? "—"}
-            </span>
-          </Row>
-          <div className="px-3">
-            <button
-              onClick={triggerReindex}
-              disabled={filesHealth?.indexing}
-              className="px-4 py-2 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm w-full disabled:opacity-50 transition-all hover:scale-[1.02]"
-            >
-              {filesHealth?.indexing ? s.fileSearchIndexing : s.fileSearchReindex}
-            </button>
-          </div>
-        </Section>
-
-        {/* About */}
-        <div className="pt-2 border-t border-nox-border/50">
-          <Section icon="ℹ️" label={s.about}>
-            <Row label={s.version}>
-              <span className="text-nox-text font-medium">0.5.0</span>
-            </Row>
-            <Row label={s.configPath}>
-              <span className="text-nox-textDim text-xs truncate max-w-40">
-                %APPDATA%\Nox\config.yaml
-              </span>
-            </Row>
-          </Section>
         </div>
+      )}
+
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {activeCategory && activeCat ? (
+          /* Sub-page: show selected category settings */
+          <div className="glass-card p-4">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-nox-accent/15 text-nox-accent text-sm">
+                {activeCat.icon}
+              </div>
+              <h3 className="text-xs font-semibold text-nox-text uppercase tracking-wide">{activeCat.label}</h3>
+            </div>
+            <div className="space-y-2">
+              {renderCategoryContent(activeCategory)}
+            </div>
+          </div>
+        ) : (
+          /* Main page: category cards */
+          <>
+            {filteredCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => { setActiveCategory(cat.id); setSearchQuery(""); }}
+                className="glass-card w-full p-4 flex items-center gap-3 text-left transition-all hover:scale-[1.02] hover:bg-nox-surface/60"
+              >
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-nox-accent/15 text-nox-accent text-lg flex-shrink-0">
+                  {cat.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-nox-text">{cat.label}</span>
+                  {cat.id === "ai" && settings.ollama_model && (
+                    <p className="text-xs text-nox-textDim truncate">{settings.ollama_model}</p>
+                  )}
+                  {cat.id === "voice" && settings.tts_model && (
+                    <p className="text-xs text-nox-textDim truncate">{settings.tts_model}</p>
+                  )}
+                  {cat.id === "files" && filesHealth && (
+                    <p className="text-xs text-nox-textDim truncate">
+                      {filesHealth.files_indexed ?? 0} Dateien indexiert
+                    </p>
+                  )}
+                </div>
+                <svg className="w-4 h-4 text-nox-textDim flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            ))}
+            {filteredCategories.length === 0 && (
+              <div className="text-center py-8 text-nox-textDim text-sm">
+                Keine Einstellungen gefunden für "{searchQuery}"
+              </div>
+            )}
+          </>
+        )}
 
         {saving && (
           <div className="flex items-center justify-center gap-2 py-2 text-xs text-nox-textDim animate-pulse">
