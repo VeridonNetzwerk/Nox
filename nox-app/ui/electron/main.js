@@ -89,7 +89,6 @@ function postBackend(path) {
 
 let mainWindow = null;
 let tray = null;
-let isPaused = false;
 let isQuitting = false;
 let suppressBlur = false;
 let lastShowTime = 0;
@@ -288,16 +287,6 @@ function createTray() {
           suppressBlur = true;
           setTimeout(() => { suppressBlur = false; }, 500);
           hideWindow();
-        },
-      },
-      { type: "separator" },
-      {
-        label: isPaused ? "Fortsetzen" : "Pause (Kontext-Erfassung)",
-        click: () => {
-          isPaused = !isPaused;
-          tray.setImage(createTrayIcon(isPaused));
-          postBackend(isPaused ? "/eye/pause" : "/eye/resume");
-          buildMenu();
         },
       },
       { type: "separator" },
