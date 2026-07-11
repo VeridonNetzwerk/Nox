@@ -24,8 +24,9 @@ from .stt_wake_word import STTWakeWordListener, _SD_AVAILABLE
 from .vad import VADRecorder
 from .stt import STTEngine
 from .tts import TTSEngine
-from .tts_edge import _EDGE_AVAILABLE, edge_tts_to_wav
-from .tts_kokoro import is_kokoro_available, kokoro_to_wav, get_kokoro_lang_code
+from .tts_edge import _EDGE_AVAILABLE, edge_tts_to_wav, EDGE_VOICES_BY_LANG
+from .tts_kokoro import is_kokoro_available, kokoro_to_wav, get_kokoro_lang_code, KOKORO_VOICES
+from .voice_catalog import get_default_voice, get_default_male_voice
 
 logger = logging.getLogger("nox.voice.manager")
 
@@ -356,10 +357,11 @@ class VoiceManager:
         self._set_state(STATE_SPEAKING)
         self.wake_word.pause()
         try:
-            if self.tts_engine == "edge" and self.tts_voice_id:
-                self._speak_edge(text)
-            elif self.tts_engine == "kokoro" and self.tts_voice_id:
-                self._speak_kokoro(text)
+            engine, voice_id = self._get_voice_for_text(text)
+            if engine == "edge" and voice_id:
+                self._speak_edge(text, voice_id)
+            elif engine == "kokoro" and voice_id:
+                self._speak_kokoro(text, voice_id)
             else:
                 self.tts.speak_text(text)
         finally:
@@ -374,10 +376,11 @@ class VoiceManager:
             self._set_state(STATE_SPEAKING)
         self.wake_word.pause()
         try:
-            if self.tts_engine == "edge" and self.tts_voice_id:
-                self._speak_edge(sentence)
-            elif self.tts_engine == "kokoro" and self.tts_voice_id:
-                self._speak_kokoro(sentence)
+            engine, voice_id = self._get_voice_for_text(sentence)
+            if engine == "edge" and voice_id:
+                self._speak_edge(sentence, voice_id)
+            elif engine == "kokoro" and voice_id:
+                self._speak_kokoro(sentence, voice_id)
             else:
                 self.tts.speak_sentence(sentence)
         finally:
@@ -389,15 +392,159 @@ class VoiceManager:
                 if self._state == STATE_SPEAKING:
                     self._set_state(STATE_IDLE)
 
-    def _speak_edge(self, text: str) -> None:
+    # Script ranges for language detection
+    _SCRIPT_RANGES = {
+        "zh_CN": [(0x4E00, 0x9FFF), (0x3400, 0x4DBF)],
+        "ja_JP": [(0x3040, 0x309F), (0x30A0, 0x30FF)],
+        "ar_JO": [(0x0600, 0x06FF)],
+        "ru_RU": [(0x0400, 0x04FF)],
+        "uk_UA": [(0x0400, 0x04FF)],
+        "el_GR": [(0x0370, 0x03FF)],
+        "hi":    [(0x0900, 0x097F)],
+    }
+
+    # Latin-script language detection by special characters
+    _LATIN_MARKERS = {
+        "de_DE": "äöüß",
+        "fr_FR": "àâçéèêëîïôûùüÿœæ",
+        "es_ES": "áéíóúñ¿¡",
+        "pt_BR": "áéíóúâêôãõç",
+        "it_IT": "àèéìíîòóù",
+        "nl_NL": "ëï",
+        "sv_SE": "åäö",
+        "da_DK": "åæø",
+        "fi_FI": "åäö",
+        "cs_CZ": "áéíóúýřčšžďťň",
+        "pl_PL": "ąćęłńóśźż",
+        "sk_SK": "áäéíóúýŕčšžďťňľ",
+        "hu_HU": "áéíóöőúüű",
+        "ro_RO": "ăâîșț",
+        "tr_TR": "çğıİşöü",
+        "vi_VN": "ăâđêôơưàằầèềìòồờùừỳáắấéếíóốớúứý",
+    }
+
+    def _detect_text_language(self, text: str) -> Optional[str]:
+        """Heuristically detect the language of a text snippet.
+
+        Uses Unicode script ranges first (CJK, Arabic, Cyrillic, etc.),
+        then falls back to Latin-script diacritic markers.
+        Returns a language code like 'en_US', 'de_DE', etc., or None if undetermined.
+        """
+        if not text or not text.strip():
+            return None
+
+        # Check non-Latin script ranges
+        for lang_code, ranges in self._SCRIPT_RANGES.items():
+            count = sum(
+                1 for ch in text
+                if any(lo <= ord(ch) <= hi for lo, hi in ranges)
+            )
+            if count >= 2:
+                return lang_code
+
+        # Check Latin diacritic markers
+        text_lower = text.lower()
+        best_lang = None
+        best_score = 0
+        for lang_code, markers in self._LATIN_MARKERS.items():
+            score = sum(1 for ch in text_lower if ch in markers)
+            if score > best_score:
+                best_score = score
+                best_lang = lang_code
+
+        if best_score >= 2:
+            return best_lang
+
+        # Default: assume English if mostly ASCII letters
+        ascii_letters = sum(1 for ch in text if ch.isalpha() and ord(ch) < 128)
+        if ascii_letters >= 3:
+            return "en_US"
+
+        return None
+
+    def _get_voice_lang_code(self) -> Optional[str]:
+        """Get the language code of the currently configured voice."""
+        return self._infer_lang_from_voice(self.tts_voice_id)
+
+    def _is_male_voice(self, voice_id: str) -> bool:
+        """Check if the given voice ID corresponds to a male voice.
+
+        Searches Edge and Kokoro voice catalogs for the voice ID
+        and returns True if the gender is 'male'.
+        """
+        # Check Edge voices
+        for lang_voices in EDGE_VOICES_BY_LANG.values():
+            for vid, name, gender, desc in lang_voices:
+                if vid == voice_id:
+                    return gender == "male"
+
+        # Check Kokoro voices
+        for lang_voices in KOKORO_VOICES.values():
+            for vid, name, gender, desc in lang_voices:
+                if vid == voice_id:
+                    return gender == "male"
+
+        return False
+
+    def _get_voice_for_text(self, text: str) -> tuple[str, Optional[str]]:
+        """Determine which engine and voice_id to use for the given text.
+
+        If the text language differs from the configured voice language,
+        auto-switch to the default voice for the detected language.
+        Preserves gender: if user has a male voice, uses male default
+        for the detected language; otherwise uses female default.
+        """
+        # Default: use configured engine and voice
+        engine = self.tts_engine
+        voice_id = self.tts_voice_id if engine in ("edge", "kokoro") else None
+
+        # Only auto-switch for edge/kokoro engines (not piper)
+        if engine not in ("edge", "kokoro"):
+            return engine, voice_id
+
+        # Detect text language
+        text_lang = self._detect_text_language(text)
+        if not text_lang:
+            return engine, voice_id
+
+        # Get configured voice language
+        voice_lang = self._get_voice_lang_code()
+        if not voice_lang:
+            return engine, voice_id
+
+        # Same language — no switch needed
+        if text_lang == voice_lang:
+            return engine, voice_id
+
+        # Different language — switch to default for detected language
+        is_male = self._is_male_voice(self.tts_voice_id)
+        if is_male:
+            default = get_default_male_voice(text_lang)
+        else:
+            default = get_default_voice(text_lang)
+
+        if default:
+            new_engine, new_voice = default[1], default[0]
+            logger.info(
+                "Auto-switching voice: text lang=%s, voice lang=%s, "
+                "male=%s -> engine=%s, voice=%s",
+                text_lang, voice_lang, is_male, new_engine, new_voice
+            )
+            return new_engine, new_voice
+
+        # No default for detected language — keep current
+        return engine, voice_id
+
+    def _speak_edge(self, text: str, voice_id: str = None) -> None:
         """Synthesize via Edge TTS and play via sounddevice."""
         if not _EDGE_AVAILABLE or not text.strip():
             return
+        vid = voice_id or self.tts_voice_id
         with self.tts._lock:
             try:
                 loop = asyncio.new_event_loop()
                 try:
-                    wav_bytes = loop.run_until_complete(edge_tts_to_wav(self.tts_voice_id, text))
+                    wav_bytes = loop.run_until_complete(edge_tts_to_wav(vid, text))
                 finally:
                     loop.close()
                 if wav_bytes:
@@ -405,19 +552,20 @@ class VoiceManager:
             except Exception as exc:
                 logger.error("Edge TTS speak error: %s", exc, exc_info=True)
 
-    def _speak_kokoro(self, text: str) -> None:
+    def _speak_kokoro(self, text: str, voice_id: str = None) -> None:
         """Synthesize via Kokoro TTS and play via sounddevice."""
         if not is_kokoro_available() or not text.strip():
             return
+        vid = voice_id or self.tts_voice_id
         # Determine language code from voice_id prefix
-        lang_code = self._infer_lang_from_voice(self.tts_voice_id)
+        lang_code = self._infer_lang_from_voice(vid)
         if lang_code is None or get_kokoro_lang_code(lang_code) is None:
-            logger.warning("Kokoro: cannot determine language for voice '%s', falling back to Piper", self.tts_voice_id)
+            logger.warning("Kokoro: cannot determine language for voice '%s', falling back to Piper", vid)
             self.tts.speak_sentence(text)
             return
         with self.tts._lock:
             try:
-                wav_bytes = kokoro_to_wav(text, self.tts_voice_id, lang_code)
+                wav_bytes = kokoro_to_wav(text, vid, lang_code)
                 if wav_bytes:
                     self._play_wav(wav_bytes)
             except Exception as exc:

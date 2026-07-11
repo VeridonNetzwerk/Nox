@@ -471,9 +471,58 @@ DEFAULT_VOICES = {
 }
 
 
+# Default MALE voice per language — used when user has a male voice and
+# the AI outputs text in a different language. Does NOT affect DEFAULT_VOICES (female).
+DEFAULT_MALE_VOICES = {
+    "ar_JO": ("ar-JO-TaimNeural", "edge"),
+    "zh_CN": ("zm_yunxi", "kokoro"),
+    "cs_CZ": ("cs-CZ-AntoninNeural", "edge"),
+    "da_DK": ("da-DK-JeppeNeural", "edge"),
+    "nl_NL": ("nl-NL-MaartenNeural", "edge"),
+    "en_GB": ("bm_george", "kokoro"),
+    "en_US": ("am_michael", "kokoro"),
+    "fi_FI": ("fi-FI-HarriNeural", "edge"),
+    "fr_FR": ("fr-FR-HenriNeural", "edge"),
+    "de_DE": ("de-DE-ConradNeural", "edge"),
+    "el_GR": ("el-GR-NestorasNeural", "edge"),
+    "hi": ("hi-IN-MadhurNeural", "edge"),
+    "hu_HU": ("hu-HU-TamasNeural", "edge"),
+    "it_IT": ("im_nicola", "kokoro"),
+    "ja_JP": ("ja-JP-KeitaNeural", "edge"),
+    "pl_PL": ("pl-PL-MarekNeural", "edge"),
+    "pt_PT": ("pt-PT-DuarteNeural", "edge"),
+    "pt_BR": ("pm_alex", "kokoro"),
+    "ro_RO": ("ro-RO-EmilNeural", "edge"),
+    "ru_RU": ("ru-RU-DmitryNeural", "edge"),
+    "sk_SK": ("sk-SK-LukasNeural", "edge"),
+    "es_MX": ("es-MX-JorgeNeural", "edge"),
+    "es_ES": ("em_alex", "kokoro"),
+    "sv_SE": ("sv-SE-MattiasNeural", "edge"),
+    "tr_TR": ("tr-TR-AhmetNeural", "edge"),
+    "uk_UA": ("uk-UA-OstapNeural", "edge"),
+    "vi_VN": ("vi-VN-NamMinhNeural", "edge"),
+}
+
+
 def get_default_voice(lang_code: str) -> tuple[str, str] | None:
-    """Get the default voice ID and engine for a language.
+    """Get the default (female) voice ID and engine for a language.
 
     Returns (voice_id, engine) or None if no default is configured.
     """
+    return DEFAULT_VOICES.get(lang_code)
+
+
+def get_default_male_voice(lang_code: str) -> tuple[str, str] | None:
+    """Get the default male voice ID and engine for a language.
+
+    Used when the user has a male voice selected and the AI outputs
+    text in a different language. Falls back to DEFAULT_VOICES (female)
+    if no male voice is available for the language.
+
+    Returns (voice_id, engine) or None if no default is configured.
+    """
+    male = DEFAULT_MALE_VOICES.get(lang_code)
+    if male:
+        return male
+    # Fallback to female default if no male voice available
     return DEFAULT_VOICES.get(lang_code)

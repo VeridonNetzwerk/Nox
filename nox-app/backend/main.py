@@ -1035,6 +1035,7 @@ from nox_voice.voice_catalog import (
     get_sample_sentence,
     detect_system_language,
     get_default_voice,
+    get_default_male_voice,
     SAMPLE_SENTENCES,
 )
 
