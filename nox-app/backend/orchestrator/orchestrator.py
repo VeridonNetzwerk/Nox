@@ -133,10 +133,17 @@ class Orchestrator:
                 logger.debug("Context retrieval failed: %s", exc)
 
         # 2. Build system prompt
+        voice_personality = None
+        if voice_input and self.voice_manager:
+            try:
+                voice_personality = self.voice_manager.get_voice_personality()
+            except Exception:
+                pass
         system_prompt = build_system_prompt(
             voice_mode=voice_input,
             tools_enabled=True,
             context=context or "",
+            voice_personality=voice_personality,
         )
 
         # 3. Build messages (system + summary + history + new message)

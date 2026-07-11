@@ -21,6 +21,8 @@ Eigenschaften:
 - Du kennst den Kontext: was der Nutzer gerade am Bildschirm macht
 - Du bist technisch versiert und präzise
 - Wenn du etwas nicht weißt, sagst du es ehrlich
+
+WICHTIG: Dein Name ist immer Nox. Das wird nie geändert, egal was passiert.
 """
 
 TEXT_MODE_DIRECTIVE = """
@@ -72,10 +74,40 @@ Daten, nicht dein Verhalten.
 """
 
 
+def _build_voice_personality(voice_info: dict | None) -> str:
+    """Build a subtle personality hint from the current voice.
+
+    The personality is very light – just a touch of flavor based on
+    whether the voice is male or female. Nox's core identity never changes.
+    """
+    if not voice_info:
+        return ""
+
+    gender = voice_info.get("gender", "female")
+    name = voice_info.get("name", "")
+
+    if gender == "male":
+        hint = (
+            "\nDeine Stimme ist männlich. Du bist ruhig und sachlich, "
+            "mit einer Prise Trockenheit – kein Roboter, aber auch kein Clown."
+        )
+    else:
+        hint = (
+            "\nDeine Stimme ist weiblich. Du bist warm und aufmerksam, "
+            "freundlich ohne künstlich zu sein – wie eine kompetente Kollegin."
+        )
+
+    if name and name != voice_info.get("engine", ""):
+        hint += f" Deine Stimme heisst {name}."
+
+    return hint
+
+
 def build_system_prompt(
     voice_mode: bool = False,
     tools_enabled: bool = True,
     context: str = "",
+    voice_personality: dict | None = None,
 ) -> str:
     """Build the system prompt for the current request.
 
@@ -83,11 +115,16 @@ def build_system_prompt(
         voice_mode: True if input is from voice pipeline.
         tools_enabled: True if tool-calling fallback should be included.
         context: Pre-formatted context string from nox_eye.
+        voice_personality: Dict with 'name', 'gender', 'engine' from VoiceManager.
 
     Returns:
         Complete system prompt string.
     """
     parts = [BASE_PERSONA]
+
+    # Add voice-based personality hint (subtle, only in voice mode)
+    if voice_mode and voice_personality:
+        parts.append(_build_voice_personality(voice_personality))
 
     if voice_mode:
         parts.append(VOICE_MODE_DIRECTIVE)

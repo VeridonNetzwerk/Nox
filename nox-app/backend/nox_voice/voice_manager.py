@@ -466,6 +466,31 @@ class VoiceManager:
         """Get the language code of the currently configured voice."""
         return self._infer_lang_from_voice(self.tts_voice_id)
 
+    def get_voice_personality(self) -> dict:
+        """Return voice personality info for system prompt injection.
+
+        Returns dict with 'name', 'gender', 'engine' keys.
+        """
+        voice_id = self.tts_voice_id
+        engine = self.tts_engine
+        gender = "male" if self._is_male_voice(voice_id) else "female"
+        name = voice_id
+
+        # Try to find a human-readable name from catalogs
+        for lang_voices in EDGE_VOICES_BY_LANG.values():
+            for vid, vname, vgender, vdesc in lang_voices:
+                if vid == voice_id:
+                    name = vname
+                    break
+        if name == voice_id:
+            for lang_voices in KOKORO_VOICES.values():
+                for vid, vname, vgender, vdesc in lang_voices:
+                    if vid == voice_id:
+                        name = vname
+                        break
+
+        return {"name": name, "gender": gender, "engine": engine}
+
     def _is_male_voice(self, voice_id: str) -> bool:
         """Check if the given voice ID corresponds to a male voice.
 
