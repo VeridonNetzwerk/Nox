@@ -39,17 +39,23 @@ function FlagIcon({ code, size = 20 }) {
   );
 }
 
-function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
+function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label, onOpenChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
+  const toggle = (v) => {
+    const next = typeof v === "boolean" ? v : !open;
+    setOpen(next);
+    onOpenChange?.(next);
+  };
+
   useEffect(() => {
     const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target)) toggle(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [open]);
 
   const entries = Object.entries(voiceCatalog || {}).sort(
     ([, a], [, b]) => a.language_name.localeCompare(b.language_name)
@@ -65,7 +71,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
       </label>
       <div className="relative">
         <button
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => toggle()}
           className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-nox-surface text-nox-text text-sm border border-nox-border hover:border-nox-textDim transition-colors"
         >
           <span className="flex items-center gap-2">
@@ -80,7 +86,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
           </svg>
         </button>
         {open && (
-          <div className="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto rounded-lg bg-nox-surface border border-nox-border shadow-xl shadow-black/40 py-1">
+          <div className="absolute z-50 mt-1 w-full max-h-32 overflow-y-auto rounded-lg bg-nox-surface border border-nox-border shadow-xl shadow-black/40 py-0.5">
             {entries.map(([code, info]) => {
               const isSelected = selectedLang === code;
               return (
@@ -88,7 +94,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
                   key={code}
                   onClick={() => {
                     onSelect(code);
-                    setOpen(false);
+                    toggle(false);
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left ${
                     isSelected
@@ -118,6 +124,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const { addToast } = useToast();
   const s = locale.onboarding || {};
   const [step, setStep] = useState(0);
+  const [openDropdown, setOpenDropdown] = useState(false);
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [ollamaOk, setOllamaOk] = useState(null);
@@ -557,7 +564,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6" style={{ overflow: openDropdown ? 'hidden' : undefined }}>
         {/* Step 0: Welcome + Language selection + Ollama check/install + GPU info */}
         {step === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
@@ -588,6 +595,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                   }
                 }}
                 label={s.selectLanguage || "Sprache wählen"}
+                onOpenChange={setOpenDropdown}
               />
             )}
 
