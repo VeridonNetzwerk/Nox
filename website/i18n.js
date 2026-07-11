@@ -32,6 +32,46 @@ const NOX_COUNTRY_LANG = {
   UA:'uk'
 };
 
+const NOX_TZ_LANG = {
+  'Europe/Berlin':'de','Europe/Vienna':'de','Europe/Zurich':'de','Europe/Luxembourg':'de',
+  'Europe/Paris':'fr','Europe/Monaco':'fr','Europe/Brussels':'fr',
+  'Europe/Rome':'it','Europe/San_Marino':'it','Europe/Vatican':'it',
+  'Europe/Lisbon':'pt','Atlantic/Azores':'pt','Atlantic/Madeira':'pt',
+  'Europe/Madrid':'es','Atlantic/Canary':'es','Africa/Casablanca':'es',
+  'Europe/Moscow':'ru','Europe/Kaliningrad':'ru','Europe/Samara':'ru',
+  'Asia/Tokyo':'ja',
+  'Asia/Shanghai':'zh','Asia/Hong_Kong':'zh','Asia/Taipei':'zh','Asia/Singapore':'zh',
+  'Asia/Seoul':'ko',
+  'Europe/Amsterdam':'nl',
+  'Europe/Warsaw':'pl',
+  'Europe/Istanbul':'tr',
+  'Europe/Stockholm':'sv',
+  'Asia/Kolkata':'hi',
+  'Asia/Jerusalem':'he',
+  'Europe/Prague':'cs',
+  'Europe/Copenhagen':'da',
+  'Europe/Helsinki':'fi',
+  'Europe/Athens':'el',
+  'Europe/Budapest':'hu',
+  'Asia/Jakarta':'id',
+  'Europe/Oslo':'nb',
+  'Europe/Bucharest':'ro',
+  'Asia/Bangkok':'th',
+  'Asia/Ho_Chi_Minh':'vi',
+  'Europe/Kyiv':'uk',
+  'America/Sao_Paulo':'pt','America/Bahia':'pt',
+  'America/Mexico_City':'es',
+  'America/Buenos_Aires':'es','America/Argentina/*':'es',
+  'America/New_York':'en','America/Chicago':'en','America/Denver':'en','America/Los_Angeles':'en',
+  'America/Toronto':'en','America/Vancouver':'en',
+  'Europe/London':'en','Europe/Dublin':'en',
+  'Australia/Sydney':'en','Australia/Melbourne':'en',
+  'Pacific/Auckland':'en',
+  'Africa/Cairo':'ar','Africa/Tunis':'ar','Africa/Algiers':'ar',
+  'Asia/Riyadh':'ar','Asia/Dubai':'ar','Asia/Qatar':'ar','Asia/Kuwait':'ar','Asia/Bahrain':'ar','Asia/Muscat':'ar',
+  'Asia/Baghdad':'ar','Asia/Damascus':'ar','Asia/Beirut':'ar','Asia/Amman':'ar'
+};
+
 function nox_detectLang(cb){
   const saved = localStorage.getItem('nox-lang');
   if(saved && NOX_I18N[saved]){ cb(saved); return; }
@@ -50,6 +90,10 @@ function nox_detectLang(cb){
     else tryBrowser();
   };
 
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const tzLang = NOX_TZ_LANG[tz];
+  if(tzLang && NOX_I18N[tzLang]){ done(tzLang); return; }
+
   fetch('https://get.geojs.io/v1/ip/country.json')
     .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
     .then(d=>applyCountry((d.country||'').toUpperCase()))
@@ -60,12 +104,7 @@ function nox_detectLang(cb){
           if(!d.success) throw new Error('ipwho failed');
           applyCountry((d.country_code||'').toUpperCase());
         })
-        .catch(()=>{
-          fetch('https://ipapi.co/json/')
-            .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
-            .then(d=>applyCountry((d.country_code||'').toUpperCase()))
-            .catch(()=>tryBrowser());
-        });
+        .catch(()=>tryBrowser());
     });
 }
 
