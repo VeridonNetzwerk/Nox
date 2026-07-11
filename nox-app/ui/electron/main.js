@@ -140,12 +140,12 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     ...bounds,
     frame: false,
-    transparent: !isDebug, // Non-transparent in debug so we can see content
+    transparent: true,
     resizable: false,
-    show: isDebug, // Show immediately in debug
-    skipTaskbar: false, // Show in taskbar in debug
-    alwaysOnTop: !isDebug,
-    backgroundColor: isDebug ? "#1a1a1f" : undefined,
+    show: false, // Never show until page is loaded (avoids gray flash)
+    skipTaskbar: false,
+    alwaysOnTop: true,
+    backgroundColor: undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -187,6 +187,7 @@ function createWindow() {
   // Log load events for debugging
   mainWindow.webContents.on("did-finish-load", () => {
     console.log("UI: did-finish-load — page loaded successfully");
+    if (isDebug) mainWindow.show();
   });
   mainWindow.webContents.on("did-fail-load", (_e, errorCode, errorDesc, validatedURL) => {
     console.error("UI: did-fail-load — errorCode:", errorCode, "desc:", errorDesc, "url:", validatedURL);

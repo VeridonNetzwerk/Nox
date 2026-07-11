@@ -68,6 +68,7 @@ function App() {
   const [systemStatus, setSystemStatus] = useState(null); // null = not fetched yet
   const [backendReady, setBackendReady] = useState(false);
   const [localeData, setLocaleData] = useState(deLocale);
+  const [contextPaused, setContextPaused] = useState(false);
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
@@ -171,9 +172,14 @@ function App() {
           const newMicState = stateMap[data.state] || "idle";
           setMicState(newMicState);
           if (data.state === "wake_detected") {
-            // Request Electron to show the window
             window.nox?.showWindow?.();
           }
+          return;
+        }
+
+        // Eye context events
+        if (data.type === "eye_event") {
+          setContextPaused(data.state === "paused");
           return;
         }
 
@@ -374,13 +380,38 @@ function App() {
   };
 
   const handleMicClick = () => {
-    // Click mic to manually trigger listening (sends a voice_trigger event)
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       if (micState === "idle") {
         wsRef.current.send(JSON.stringify({ type: "voice_trigger" }));
       }
     } else {
       addToast({ type: "warning", title: "Mikrofon", message: "Nicht mit Backend verbunden. Bitte warte bis Nox verbunden ist.", duration: 4000 });
+    }
+  };
+
+  const toggleContext = async () => {
+    try {
+      const endpoint = contextPaused ? "/eye/resume" : "/eye/pause";
+      await fetch(`${API_BASE}${endpoint}`, { method: "POST" });
+      setContextPaused(!contextPaused);
+    } catch (err) {
+      addToast({ type: "warning", title: "Kontext", message: "Kontext-Erfassung konnte nicht umgeschaltet werden", duration: 4000 });
+    }
+  };
+
+  const handleRemember = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ message: "Speichere eine Notiz für mich." }));
+      setMessages((prev) => [...prev, { role: "user", content: "Speichere eine Notiz für mich.", streaming: false }]);
+      setIsStreaming(true);
+    }
+  };
+
+  const handleFiles = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ message: "Welche Dateien hast du indiziert?" }));
+      setMessages((prev) => [...prev, { role: "user", content: "Welche Dateien hast du indiziert?", streaming: false }]);
+      setIsStreaming(true);
     }
   };
 
@@ -398,13 +429,6 @@ function App() {
     } catch (err) {
       addToast({ type: "warning", title: "Ollama", message: "Ollama-Status konnte nicht geprüft werden", detail: String(err), duration: 4000 });
     }
-  };
-
-  const micColors = {
-    idle: { ring: "border-nox-border", bg: "bg-nox-surface", text: "text-nox-textDim" },
-    listening: { ring: "border-red-500", bg: "bg-red-500/10", text: "text-red-500" },
-    processing: { ring: "border-yellow-500", bg: "bg-yellow-500/10", text: "text-yellow-500" },
-    speaking: { ring: "border-green-500", bg: "bg-green-500/10", text: "text-green-500" },
   };
 
   const animClass =
@@ -430,13 +454,39 @@ function App() {
 
   const backendStarting = !backendReady && connectionStatus !== "connected";
 
+  const isActive = micState !== "idle" || isStreaming;
+
+  // Latest assistant response
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+
+  // Status text shown in the speech bubble
+  const bubbleText = (() => {
+    if (micState === "listening") return null; // No bubble while just listening — logo only
+    if (micState === "processing" || (isStreaming && !lastAssistant)) return t.app.thinking || "Ich denke nach…";
+    if (micState === "speaking") return lastAssistant?.content || t.app.speaking || "Ich antworte…";
+    if (lastAssistant?.content) return lastAssistant.content;
+    return null;
+  })();
+
+  const showBubble = bubbleText !== null;
+
+  // Logo state classes for animation
+  const logoAnimClass = micState === "listening"
+    ? "orb-listening"
+    : micState === "processing"
+    ? "orb-thinking"
+    : micState === "speaking"
+    ? "orb-speaking"
+    : "orb-idle";
+
   return (
     <div
       data-theme={theme}
-      className={`h-full w-full rounded-2xl overflow-hidden nox-window-bg backdrop-blur-xl border border-nox-border ${animClass}`}
+      className={`h-full w-full overflow-hidden ${animClass}`}
+      style={{ background: "transparent" }}
     >
-      <div className="flex flex-col h-full">
-        {showOnboarding ? (
+      {showOnboarding ? (
+        <div className="h-full w-full rounded-2xl overflow-hidden nox-window-bg backdrop-blur-xl border border-nox-border">
           <OnboardingWizard locale={t} onLocaleChange={async (langCode) => {
             const loader = LOCALE_MAP[langCode];
             if (loader) {
@@ -447,186 +497,115 @@ function App() {
             setShowOnboarding(false);
             window.nox?.onboardingComplete?.();
           }} />
-        ) : showSettings ? (
+        </div>
+      ) : showSettings ? (
+        <div className="h-full w-full rounded-2xl overflow-hidden nox-window-bg backdrop-blur-xl border border-nox-border">
           <SettingsPanel locale={t} onClose={() => setShowSettings(false)} />
-        ) : backendStarting ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div className="relative w-16 h-16">
-              <div className="absolute inset-0 rounded-full border-2 border-nox-border" />
-              <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-nox-accent animate-spin" />
-            </div>
-            <div className="flex items-center gap-2">
-              <img src={noxIcon} alt="Nox" className="w-5 h-5 rounded-full" />
-              <span className="text-sm text-nox-textDim">{t.app.starting || "Nox wird gestartet…"}</span>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Title bar */}
-            <div
-              className="flex items-center justify-between px-4 py-2.5 border-b border-nox-border"
-              style={{ WebkitAppRegion: "drag" }}
-            >
-              <div className="flex items-center gap-2">
-                <img src={noxIcon} alt="Nox" className="w-6 h-6 rounded-full" />
-                <span className="text-sm font-medium text-nox-text">{t.app.name}</span>
-              </div>
-              <div className="flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" }}>
-                <span className={`text-xs ${connColor}`}>● {connText}</span>
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="text-nox-textDim hover:text-nox-text transition-colors p-1 rounded"
-                  aria-label={t.settings.title}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-              {/* Ollama error banner */}
+        </div>
+      ) : backendStarting ? (
+        <div className="flex flex-col items-center justify-end h-full pb-6 gap-3">
+          <img
+            src={noxIcon}
+            alt="Nox"
+            className="w-10 h-10 rounded-full orb-idle"
+          />
+          <span className="text-xs text-nox-textDim">{t.app.starting || "Nox wird gestartet…"}</span>
+        </div>
+      ) : (
+        <div className="relative h-full w-full">
+          {/* Error toasts — minimal, bottom area */}
+          {!isActive && (ollamaDown || wakeModelMissing) && (
+            <div className="absolute bottom-20 right-3 left-3 space-y-1.5">
               {ollamaDown && (
-                <div className="bg-red-500/15 text-red-400 border border-red-500/30 rounded-xl px-3 py-2.5 text-xs flex items-center justify-between gap-2">
+                <div className="glass-card text-red-400 px-3 py-2 text-xs flex items-center justify-between gap-2">
                   <span>{t.errors.ollamaDown}</span>
                   <button
                     onClick={checkOllamaStatus}
-                    className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors whitespace-nowrap"
+                    className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors whitespace-nowrap"
                   >
                     {t.errors.checkOllama}
                   </button>
                 </div>
               )}
-
-              {/* Wake word model missing warning */}
               {wakeModelMissing && (
-                <div className="bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 rounded-xl px-3 py-2.5 text-xs">
+                <div className="glass-card text-yellow-400 px-3 py-2 text-xs">
                   {t.errors.wakeModelMissing}
                 </div>
               )}
-
-              {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full gap-3">
-                  <img src={noxIcon} alt="Nox" className="w-12 h-12 rounded-full opacity-80" />
-                  <p className="text-nox-textDim text-sm">{t.app.placeholder}</p>
-                </div>
-              )}
-              {messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex ${
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  <div
-                    className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      msg.role === "user"
-                        ? "bg-nox-accent text-white rounded-br-md"
-                        : msg.role === "error"
-                        ? "bg-red-500/15 text-red-400 border border-red-500/30 rounded-bl-md"
-                        : "bg-nox-surface text-nox-text rounded-bl-md"
-                    }`}
-                  >
-                    {msg.role === "assistant" && (
-                      <img src={noxIcon} alt="Nox" className="w-5 h-5 rounded-full mb-1 inline-block mr-1.5 align-middle" />
-                    )}
-                    {msg.content}
-                    {msg.streaming && (
-                      <span className="inline-block w-1.5 h-4 ml-0.5 bg-nox-accent animate-pulse rounded-sm" />
-                    )}
-                    {msg.role === "assistant" && !msg.streaming && msg.content && (
-                      <button
-                        onClick={() => speakText(msg.content, addToast)}
-                        className="ml-2 inline-flex items-center gap-1 text-xs text-nox-textDim hover:text-nox-accent transition-colors align-middle"
-                        title="Vorlesen"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {/* Thinking indicator */}
-              {isStreaming && messages.length > 0 && messages[messages.length - 1].role === "user" && (
-                <div className="flex justify-start">
-                  <div className="bg-nox-surface rounded-2xl rounded-bl-md px-4 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-nox-textDim mr-1">{t.app.thinking}</span>
-                      <span className="thinking-dot w-1.5 h-1.5 rounded-full bg-nox-textDim" />
-                      <span className="thinking-dot w-1.5 h-1.5 rounded-full bg-nox-textDim" />
-                      <span className="thinking-dot w-1.5 h-1.5 rounded-full bg-nox-textDim" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
             </div>
+          )}
 
-            {/* Input bar */}
-            <div className="px-4 py-3 border-t border-nox-border">
-              <div className="flex items-end gap-2">
-                {/* Mic button */}
-                <button
-                  onClick={handleMicClick}
-                  disabled={voiceDisabled}
-                  className={`flex-shrink-0 w-9 h-9 rounded-full border-2 ${micColors[micState].ring} ${micColors[micState].bg} ${micColors[micState].text} flex items-center justify-center transition-all ${voiceDisabled ? "opacity-30 cursor-not-allowed" : "hover:scale-105"}`}
-                  aria-label={voiceDisabled ? t.errors.micUnavailable : t.mic[micState]}
-                  title={voiceDisabled ? t.errors.micUnavailable : t.mic[micState]}
-                >
-                  {micState === "speaking" ? (
-                    // Speaker/sound wave icon
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M11 5L6 9H2v6h4l5 4V5z" />
-                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    </svg>
-                  ) : micState === "processing" ? (
-                    // Processing gear icon
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin" style={{ animationDuration: "2s" }}>
-                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                    </svg>
-                  ) : (
-                    // Microphone icon
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
-                    </svg>
+          {/* Speech bubble — appears above the logo */}
+          {showBubble && (
+            <div className="absolute bottom-16 right-3 left-3 flex justify-end animate-bubble-in">
+              <div className="glass-card rounded-2xl rounded-br-md px-4 py-3 max-w-[90%]">
+                {/* Nox header */}
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <img src={noxIcon} alt="Nox" className="w-4 h-4 rounded-full" />
+                  <span className="text-xs font-medium text-nox-textDim">Nox</span>
+                  {micState === "processing" && (
+                    <div className="flex items-center gap-0.5 ml-auto">
+                      <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
+                      <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
+                      <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
+                    </div>
                   )}
-                </button>
-
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={t.app.inputPlaceholder}
-                  rows={1}
-                  className="flex-1 bg-nox-surface text-nox-text text-sm px-3 py-2 rounded-xl border border-nox-border focus:border-nox-accent focus:outline-none resize-none max-h-32"
-                  disabled={isStreaming}
-                />
-
-                <button
-                  onClick={sendMessage}
-                  disabled={!input.trim() || isStreaming || connectionStatus !== "connected"}
-                  className="flex-shrink-0 w-9 h-9 rounded-full bg-nox-accent hover:bg-nox-accentHover disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors"
-                  aria-label={t.app.send}
+                </div>
+                {/* Bubble content */}
+                <div
+                  className="text-sm leading-relaxed text-nox-text whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
+                  ref={messagesEndRef}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                  </svg>
-                </button>
+                  {bubbleText}
+                  {isStreaming && lastAssistant?.streaming && (
+                    <span className="inline-block w-1.5 h-4 ml-0.5 bg-nox-accent animate-pulse rounded-sm align-middle" />
+                  )}
+                </div>
+                {/* Replay button when response is done */}
+                {micState === "idle" && lastAssistant?.content && !lastAssistant?.streaming && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => speakText(lastAssistant.content, addToast)}
+                      className="inline-flex items-center gap-1 text-xs text-nox-textDim hover:text-nox-accent transition-colors"
+                      title="Vorlesen"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                      </svg>
+                      Vorlesen
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
-          </>
-        )}
-      </div>
+          )}
+
+          {/* Nox Logo — bottom right corner, animated by state */}
+          <button
+            onClick={handleMicClick}
+            disabled={voiceDisabled}
+            className={`absolute bottom-3 right-3 rounded-full ${logoAnimClass} ${
+              voiceDisabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:scale-110"
+            } transition-transform`}
+            style={{
+              width: 40,
+              height: 40,
+              background: `radial-gradient(circle at 35% 35%, var(--nox-accent-hover), var(--nox-accent) 60%, color-mix(in srgb, var(--nox-accent) 50%, black) 100%)`,
+              border: "none",
+            }}
+            aria-label="Nox"
+          >
+            <img
+              src={noxIcon}
+              alt="Nox"
+              className="w-full h-full rounded-full object-cover"
+              style={{ pointerEvents: "none" }}
+            />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

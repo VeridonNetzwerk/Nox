@@ -131,28 +131,150 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Thinking dots
+   Glassmorphism utilities
    --------------------------------------------------------------------------- */
 
-@keyframes nox-thinking-bounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.4;
+@layer components {
+  .glass-panel {
+    border-radius: 1.5rem;
+    background: color-mix(in srgb, var(--nox-surface) 60%, transparent);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid color-mix(in srgb, var(--nox-text) 8%, transparent);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   }
-  30% {
-    transform: translateY(-4px);
+
+  .glass-card {
+    border-radius: 1rem;
+    background: var(--nox-surface);
+    border: 1px solid var(--nox-border);
+    transition: background 200ms ease, border-color 200ms ease;
+  }
+
+  .glass-card:hover {
+    background: var(--nox-surface-hover);
+    border-color: color-mix(in srgb, var(--nox-accent) 30%, transparent);
+  }
+
+  .glass-input {
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--nox-surface) 50%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--nox-text) 8%, transparent);
+    transition: border-color 200ms ease;
+  }
+
+  .glass-input:focus {
+    border-color: var(--nox-accent);
+  }
+
+  .accent-text-gradient {
+    background: linear-gradient(135deg, var(--nox-accent), var(--nox-accent-hover));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Orb animations
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-orb-idle {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 30px color-mix(in srgb, var(--nox-accent) 40%, transparent);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 50px color-mix(in srgb, var(--nox-accent) 60%, transparent);
+  }
+}
+
+@keyframes nox-orb-listening {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 30px color-mix(in srgb, var(--nox-accent) 40%, transparent);
+  }
+  50% {
+    transform: scale(1.12);
+    box-shadow: 0 0 60px color-mix(in srgb, var(--nox-accent) 80%, transparent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 30px color-mix(in srgb, var(--nox-accent) 40%, transparent);
+  }
+}
+
+@keyframes nox-orb-thinking {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.08); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes nox-orb-speaking {
+  0%, 100% {
+    transform: scaleY(1);
+    box-shadow: 0 0 30px color-mix(in srgb, var(--nox-accent) 50%, transparent);
+  }
+  25% {
+    transform: scaleY(1.1) scaleX(0.95);
+    box-shadow: 0 0 45px color-mix(in srgb, var(--nox-accent) 70%, transparent);
+  }
+  50% {
+    transform: scaleY(0.95) scaleX(1.05);
+    box-shadow: 0 0 55px color-mix(in srgb, var(--nox-accent) 80%, transparent);
+  }
+  75% {
+    transform: scaleY(1.08) scaleX(0.97);
+    box-shadow: 0 0 40px color-mix(in srgb, var(--nox-accent) 65%, transparent);
+  }
+}
+
+@keyframes nox-orb-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.orb-idle {
+  animation: nox-orb-idle 3s ease-in-out infinite;
+}
+.orb-listening {
+  animation: nox-orb-listening 1.2s ease-in-out infinite;
+}
+.orb-thinking {
+  animation: nox-orb-thinking 2s linear infinite;
+}
+.orb-speaking {
+  animation: nox-orb-speaking 0.6s ease-in-out infinite;
+}
+
+.orb-ripple {
+  animation: nox-orb-ripple 1.5s ease-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Slide in for chat bubbles
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
-.thinking-dot {
-  animation: nox-thinking-bounce 1.4s ease-in-out infinite;
-}
-
-.thinking-dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.thinking-dot:nth-child(3) {
-  animation-delay: 0.4s;
+.animate-bubble-in {
+  animation: nox-bubble-in 250ms ease-out forwards;
 }

@@ -123,12 +123,27 @@ if LOCAL_CONFIG_PATH.exists():
 
 
 class ConnectionManager:
-    """Manages WebSocket connections and broadcasts messages."""
+    """Manages WebSocket connections for the single-user desktop app.
+
+    Only keeps the most recent connection — old ones are closed on connect.
+    """
 
     def __init__(self):
         self._connections: list[WebSocket] = []
 
+    @property
+    def latest(self) -> Optional[WebSocket]:
+        """Return the most recent connection, or None."""
+        return self._connections[-1] if self._connections else None
+
     async def connect(self, websocket: WebSocket) -> None:
+        # Close any existing connections — single-user app, only one UI at a time
+        for old_ws in self._connections:
+            try:
+                await old_ws.close()
+            except Exception:
+                pass
+        self._connections.clear()
         await websocket.accept()
         self._connections.append(websocket)
         logger.info("WebSocket client connected (%d total)", len(self._connections))
@@ -148,6 +163,15 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
+
+    async def send_to_latest(self, message: dict[str, Any]) -> None:
+        """Send a message only to the most recent connection."""
+        ws = self.latest
+        if ws:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                self.disconnect(ws)
 
 
 manager = ConnectionManager()
@@ -204,12 +228,15 @@ orchestrator = Orchestrator(
 
 async def on_voice_transcript(transcript: str) -> None:
     """Handle a voice transcript – send as chat message through the orchestrator."""
-    await manager.broadcast({
+    await manager.send_to_latest({
         "type": "user_message",
         "content": transcript,
         "voice_input": True,
     })
-    await orchestrator.process_message(transcript, voice_input=True)
+    # Send tokens only to the latest connection, not broadcast to all
+    async def _send_to_latest(msg):
+        await manager.send_to_latest(msg)
+    await orchestrator.process_message(transcript, voice_input=True, send=_send_to_latest)
 
 
 voice_manager.set_callbacks(

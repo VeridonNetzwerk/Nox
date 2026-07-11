@@ -245,7 +245,7 @@ function SettingsPanel({ locale, onClose }) {
   );
 
   const Section = ({ icon, label, children }) => (
-    <div className="rounded-xl bg-nox-bg/50 border border-nox-border/50 p-3">
+    <div className="glass-card p-3">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-base">{icon}</span>
         <h3 className="text-xs font-semibold text-nox-text uppercase tracking-wide">{label}</h3>
@@ -255,7 +255,7 @@ function SettingsPanel({ locale, onClose }) {
   );
 
   const Row = ({ label, children }) => (
-    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-nox-surface text-sm gap-2">
+    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-nox-surface/60 text-sm gap-2">
       <span className="text-nox-textDim shrink-0">{label}</span>
       <div className="flex items-center gap-2 min-w-0">{children}</div>
     </div>
@@ -269,16 +269,16 @@ function SettingsPanel({ locale, onClose }) {
     <div className="flex flex-col h-full animate-slide-in-right">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 py-3 border-b border-nox-border"
+        className="flex items-center justify-between px-4 py-2.5 border-b border-nox-border/50"
         style={{ WebkitAppRegion: "drag" }}
       >
         <div className="flex items-center gap-2">
           <img src={noxLogo} alt="Nox" className="h-5 w-auto" />
-          <span className="text-xs text-nox-textDim">{s.title}</span>
+          <span className="text-xs font-medium text-nox-text">{s.title}</span>
         </div>
         <button
           onClick={onClose}
-          className="text-nox-textDim hover:text-nox-text transition-colors p-1 rounded"
+          className="text-nox-textDim hover:text-nox-text transition-colors p-1 rounded-full hover:bg-nox-surface"
           style={{ WebkitAppRegion: "no-drag" }}
           aria-label={s.back}
         >

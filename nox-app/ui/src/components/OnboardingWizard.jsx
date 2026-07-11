@@ -541,17 +541,17 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const prev = () => setStep((p) => Math.max(p - 1, 0));
 
   const btnClass =
-    "px-4 py-2 rounded-lg text-sm font-medium transition-colors";
-  const btnPrimary = btnClass + " bg-nox-accent hover:bg-nox-accentHover text-white";
-  const btnSecondary = btnClass + " bg-nox-surface hover:bg-nox-border text-nox-text";
-  const btnDisabled = btnClass + " bg-nox-border text-nox-textDim cursor-not-allowed";
+    "px-4 py-2 rounded-full text-sm font-medium transition-all";
+  const btnPrimary = btnClass + " bg-nox-accent hover:bg-nox-accentHover text-white hover:scale-105";
+  const btnSecondary = btnClass + " glass-card text-nox-text hover:scale-105";
+  const btnDisabled = btnClass + " bg-nox-border/50 text-nox-textDim cursor-not-allowed";
 
   return (
     <div className="flex flex-col h-full animate-slide-in-right">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-nox-border/50">
         <div className="flex items-center gap-2">
-          <img src={noxIcon} alt="Nox" className="w-6 h-6 rounded-md" />
+          <img src={noxIcon} alt="Nox" className="w-5 h-5 rounded-full" />
           <h2 className="text-sm font-semibold text-nox-text">{s.title || "Nox einrichten"}</h2>
         </div>
         <span className="text-xs text-nox-textDim">
@@ -560,9 +560,9 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
       </div>
 
       {/* Progress bar */}
-      <div className="h-1 bg-nox-border">
+      <div className="h-0.5 bg-nox-border/50">
         <div
-          className="h-full bg-nox-accent transition-all duration-300"
+          className="h-full bg-nox-accent transition-all duration-300 rounded-full"
           style={{ width: `${((step + 1) / steps.length) * 100}%` }}
         />
       </div>
@@ -604,7 +604,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
             )}
 
             <div className="mt-2 space-y-3 w-full max-w-xs">
-              <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-nox-surface text-sm">
+              <div className="flex items-center justify-between px-3 py-2 rounded-lg glass-card text-sm">
                 <span className="text-nox-textDim">Ollama</span>
                 {ollamaOk === null ? (
                   <span className="text-nox-textDim">…</span>
@@ -615,7 +615,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                 )}
               </div>
               {gpuInfo && (
-                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-nox-surface text-sm">
+                <div className="flex items-center justify-between px-3 py-2 rounded-lg glass-card text-sm">
                   <span className="text-nox-textDim">{s.gpu || "GPU"}</span>
                   <span className={gpuInfo.cuda_available ? "text-green-500" : "text-yellow-500"}>
                     {gpuInfo.cuda_available
@@ -775,7 +775,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               );
               if (!female.length && !male.length) {
                 return (
-                  <div className="px-3 py-4 rounded-lg bg-nox-surface border border-nox-border text-center">
+                  <div className="px-3 py-4 rounded-lg glass-card border border-nox-border/50 text-center">
                     <p className="text-sm text-nox-textDim">Keine Stimmen für diese Sprache.</p>
                   </div>
                 );
@@ -903,7 +903,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                 ))}
               </div>
             ) : (
-              <div className="px-3 py-4 rounded-lg bg-nox-surface space-y-3">
+              <div className="px-3 py-4 rounded-lg glass-card space-y-3">
                 <p className="text-sm text-nox-textDim">
                   {s.noModels || "Keine Modelle gefunden. Lade ein Modell herunter:"}
                 </p>
@@ -957,7 +957,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               {s.audioDevicesHint || "Wähle welches Mikrofon und welche Lautsprecher Nox verwenden soll."}
             </p>
             <div className="space-y-3">
-              <div className="px-3 py-3 rounded-lg bg-nox-surface space-y-2">
+              <div className="px-3 py-3 rounded-lg glass-card space-y-2">
                 <label className="text-xs font-medium text-nox-textDim uppercase tracking-wide">
                   {s.audioInput || "Eingang (Mikrofon)"}
                 </label>
@@ -974,7 +974,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                   ))}
                 </select>
               </div>
-              <div className="px-3 py-3 rounded-lg bg-nox-surface space-y-2">
+              <div className="px-3 py-3 rounded-lg glass-card space-y-2">
                 <label className="text-xs font-medium text-nox-textDim uppercase tracking-wide">
                   {s.audioOutput || "Ausgang (Lautsprecher)"}
                 </label>
@@ -1007,7 +1007,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
             <p className="text-sm text-nox-textDim">
               {s.wakeHint || "Sage 3× 'Hey Nox', um die Erkennung zu testen."}
             </p>
-            <div className="px-3 py-4 rounded-lg bg-nox-surface">
+            <div className="px-3 py-4 rounded-lg glass-card">
               {wakeOk === null ? (
                 <span className="text-nox-textDim text-sm">…</span>
               ) : wakeOk ? (
@@ -1060,7 +1060,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-nox-border">
+      <div className="flex items-center justify-between px-4 py-3 border-t border-nox-border/50">
         <button
           onClick={prev}
           disabled={step === 0}
