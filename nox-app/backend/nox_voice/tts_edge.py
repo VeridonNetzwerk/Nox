@@ -34,8 +34,6 @@ EDGE_ENGLISH_VOICES = [
     ("en-US-JennyNeural", "Jenny", "female", "Female, friendly"),
     ("en-US-EmmaNeural", "Emma", "female", "Female, professional"),
     ("en-US-BrianNeural", "Brian", "male", "Male, professional"),
-    ("en-GB-SoniaNeural", "Sonia", "female", "Female British"),
-    ("en-GB-RyanNeural", "Ryan", "male", "Male British"),
 ]
 
 # French voices

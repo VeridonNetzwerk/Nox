@@ -726,7 +726,6 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0 flex items-center gap-2">
                           <span className="font-medium text-nox-text">{v.name}</span>
-                          <span className="text-nox-textDim text-xs">{v.gender}</span>
                           {isCloud && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium leading-none">Cloud</span>
                           )}
