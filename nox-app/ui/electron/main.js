@@ -8,6 +8,7 @@ const {
   screen,
   ipcMain,
   net,
+  shell,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -182,6 +183,15 @@ function createWindow() {
   if (fs.existsSync(debugFlag)) {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
+
+  // Open external links (e.g. GitHub) in system browser, not inside Electron
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
+  });
 
   // Log load events for debugging
   mainWindow.webContents.on("did-finish-load", () => {
