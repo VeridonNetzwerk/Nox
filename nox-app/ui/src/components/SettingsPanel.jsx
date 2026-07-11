@@ -622,25 +622,27 @@ function SettingsPanel({ locale, onClose }) {
             </span>
           </Row>
           <Row label={s.audioInput}>
-            <select
-              className={selectClass + " max-w-40"}
-              value={settings.audio_input_device || "default"}
-              onChange={(e) => updateSetting("audio_input_device", e.target.value)}
-            >
-              <option value="default">{s.audioDefault}</option>
-              {audioDevices.input.map((d) => (
-                <option key={d.index} value={d.name}>
-                  {d.name}{d.is_default ? " ★" : ""}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={testInputDevice}
-              disabled={testingInput}
-              className="px-3 py-1.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105"
-            >
-              {testingInput ? s.testing : s.testInput}
-            </button>
+            <div className="flex flex-col items-end gap-1.5 min-w-0">
+              <select
+                className={selectClass + " max-w-44 w-full"}
+                value={settings.audio_input_device || "default"}
+                onChange={(e) => updateSetting("audio_input_device", e.target.value)}
+              >
+                <option value="default">{s.audioDefault}</option>
+                {audioDevices.input.map((d) => (
+                  <option key={d.index} value={d.name}>
+                    {d.name}{d.is_default ? " ★" : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={testInputDevice}
+                disabled={testingInput}
+                className="px-3 py-1 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105 self-end"
+              >
+                {testingInput ? s.testing : s.testInput}
+              </button>
+            </div>
           </Row>
           {testResult?.type === "input" && (
             <div className="px-3 py-1 text-xs">
@@ -652,25 +654,27 @@ function SettingsPanel({ locale, onClose }) {
             </div>
           )}
           <Row label={s.audioOutput}>
-            <select
-              className={selectClass + " max-w-40"}
-              value={settings.audio_output_device || "default"}
-              onChange={(e) => updateSetting("audio_output_device", e.target.value)}
-            >
-              <option value="default">{s.audioDefault}</option>
-              {audioDevices.output.map((d) => (
-                <option key={d.index} value={d.name}>
-                  {d.name}{d.is_default ? " ★" : ""}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={testOutputDevice}
-              disabled={testingOutput}
-              className="px-3 py-1.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105"
-            >
-              {testingOutput ? s.testing : s.testOutput}
-            </button>
+            <div className="flex flex-col items-end gap-1.5 min-w-0">
+              <select
+                className={selectClass + " max-w-44 w-full"}
+                value={settings.audio_output_device || "default"}
+                onChange={(e) => updateSetting("audio_output_device", e.target.value)}
+              >
+                <option value="default">{s.audioDefault}</option>
+                {audioDevices.output.map((d) => (
+                  <option key={d.index} value={d.name}>
+                    {d.name}{d.is_default ? " ★" : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={testOutputDevice}
+                disabled={testingOutput}
+                className="px-3 py-1 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-xs whitespace-nowrap disabled:opacity-50 transition-all hover:scale-105 self-end"
+              >
+                {testingOutput ? s.testing : s.testOutput}
+              </button>
+            </div>
           </Row>
           {testResult?.type === "output" && (
             <div className="px-3 py-1 text-xs">
