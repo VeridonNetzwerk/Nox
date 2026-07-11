@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import noxLogo from "../assets/nox-logo.png";
 import { useToast } from "./Toast.jsx";
+import VoiceSelection from "./VoiceSelection.jsx";
 
 const API_BASE = "http://127.0.0.1:8420";
 
@@ -139,6 +140,7 @@ function SettingsPanel({ locale, onClose }) {
   const [newFolderPath, setNewFolderPath] = useState("");
   const [newExcludedDir, setNewExcludedDir] = useState("");
   const [filesHealth, setFilesHealth] = useState(null);
+  const [showVoiceSelection, setShowVoiceSelection] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -672,108 +674,26 @@ function SettingsPanel({ locale, onClose }) {
               onChange={(v) => updateSetting("end_turn_enabled", v)}
             />
           </Row>
-          {/* Language selector */}
+          {/* Voice selection button — opens modal */}
           <div className="px-3 py-3 rounded-lg bg-nox-surface/40">
-            <LanguageDropdown
-              voiceCatalog={voiceCatalog}
-              selectedLang={selectedLang}
-              onSelect={(code) => setSelectedLang(code)}
-              label={so.selectLanguage || "Sprache wählen"}
-            />
-          </div>
-
-          {/* Voice cards — grouped by gender, like Onboarding */}
-          {voiceCatalog && selectedLang && (() => {
-            const allVoices = [
-              ...(kokoroCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "kokoro" })),
-              ...(edgeCatalog?.[selectedLang]?.voices || []).map((v) => ({ ...v, _engine: "edge" })),
-            ];
-            const female = allVoices.filter((v) => v.gender === "female").sort((a, b) => a.name.localeCompare(b.name));
-            const male = allVoices.filter((v) => v.gender === "male").sort((a, b) => a.name.localeCompare(b.name));
-            const renderGroup = (label, voices) => voices.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-nox-textDim uppercase tracking-wide">{label}</span>
-                  <div className="flex-1 h-px bg-nox-border" />
-                </div>
-                <div className="space-y-1.5">
-                  {voices.map((v) => {
-                    const isPreviewing = previewPlaying === `${v._engine}:${v.id}`;
-                    const isSelected = settings.tts_model === v.id && settings.tts_engine === v._engine;
-                    const isCloud = v._engine === "edge";
-                    const desc = v.description ? v.description.replace(/^Female\s+/i, "").replace(/^Male\s+/i, "").replace(/^Weiblich,\s*/i, "").replace(/^Männlich,\s*/i, "") : "";
-                    return (
-                      <div
-                        key={`${v._engine}:${v.id}`}
-                        className={`px-3 py-2.5 rounded-lg text-sm transition-all border cursor-pointer ${
-                          isSelected
-                            ? "bg-nox-accent/10 border-nox-accent shadow-sm shadow-nox-accent/20"
-                            : "bg-nox-surface border-nox-border hover:border-nox-accent/40 hover:bg-nox-surface/80"
-                        }`}
-                        onClick={() => saveVoiceSetting(v.id, v._engine)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0 flex items-center gap-2">
-                            <span className="font-medium text-nox-text">{v.name}</span>
-                            {isCloud && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium leading-none">Cloud</span>
-                            )}
-                            {isSelected && (
-                              <svg className="w-4 h-4 text-nox-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isCloud) playEdgePreview(selectedLang, v.id);
-                              else playKokoroPreview(selectedLang, v.id);
-                            }}
-                            className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors shrink-0 ${
-                              isPreviewing ? "bg-nox-accent text-white" : "bg-nox-border/50 text-nox-textDim hover:bg-nox-accent/20 hover:text-nox-text"
-                            }`}
-                          >
-                            {isPreviewing ? (
-                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
-                            ) : (
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" /></svg>
-                            )}
-                          </button>
-                        </div>
-                        {desc && <p className="text-xs text-nox-textDim mt-1">{desc}</p>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-            if (!female.length && !male.length) {
-              return (
-                <div className="px-3 py-4 rounded-lg glass-card border border-nox-border/50 text-center">
-                  <p className="text-sm text-nox-textDim">Keine Stimmen für diese Sprache.</p>
-                </div>
-              );
-            }
-            return <div className="space-y-4 px-3">{renderGroup("Weiblich", female)}{renderGroup("Männlich", male)}</div>;
-          })()}
-
-          {previewError && (
-            <div className="px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30">
-              <div className="flex items-start gap-2">
-                <span className="text-red-400 text-sm flex-shrink-0">⚠</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-red-300 break-words">{previewError}</p>
-                </div>
-                <button
-                  onClick={() => setPreviewError(null)}
-                  className="text-red-400/60 hover:text-red-400 text-xs flex-shrink-0"
-                >
-                  ✕
-                </button>
-              </div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-nox-textDim text-sm">{s.ttsVoice}</span>
+              {settings.tts_model && (
+                <span className="text-xs text-nox-textDim truncate max-w-32">
+                  {settings.tts_model}
+                </span>
+              )}
             </div>
-          )}
+            <button
+              onClick={() => setShowVoiceSelection(true)}
+              className="w-full px-3 py-2.5 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm font-medium transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.5 8.5a3.5 3.5 0 10-1 5.83M11 5L6 9H3v6h3l5 4V5z" />
+              </svg>
+              {so.selectVoice || "Stimme wählen"}
+            </button>
+          </div>
         </Section>
 
         {/* Context Capture */}
@@ -960,6 +880,18 @@ function SettingsPanel({ locale, onClose }) {
           </div>
         )}
       </div>
+
+      {showVoiceSelection && (
+        <VoiceSelection
+          locale={locale}
+          currentVoice={settings.tts_model}
+          currentEngine={settings.tts_engine}
+          onClose={() => {
+            setShowVoiceSelection(false);
+            fetchSettings();
+          }}
+        />
+      )}
     </div>
   );
 }
