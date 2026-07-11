@@ -7,6 +7,8 @@ onboarding_completed: false
 # Ollama
 ollama_host: "http://localhost:11434"
 ollama_model: "llama3.1"
+ollama_preload: false  # preload model on startup (vram or ram mode)
+ollama_preload_mode: "vram"  # "vram" = load into VRAM, "ram" = load into RAM only (faster switch to VRAM when needed)
 
 # UI
 ui_theme: "system"  # system | dark | light

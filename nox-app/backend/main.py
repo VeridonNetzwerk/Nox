@@ -288,6 +288,29 @@ async def startup_event() -> None:
     except Exception as exc:
         logger.warning("Could not verify Ollama models at startup: %s", exc, exc_info=True)
 
+    # Preload model if enabled
+    if config.get("ollama_preload", False):
+        preload_mode = config.get("ollama_preload_mode", "vram")
+        model = config.get("ollama_model", "llama3.1")
+        ollama_host = config.get("ollama_host", "http://localhost:11434")
+        logger.info("Preloading model '%s' (mode=%s)...", model, preload_mode)
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                payload = {
+                    "model": model,
+                    "prompt": "",
+                    "keep_alive": -1,  # keep loaded indefinitely
+                }
+                if preload_mode == "ram":
+                    payload["options"] = {"num_gpu": 0}
+                resp = await client.post(f"{ollama_host}/api/generate", json=payload)
+                if resp.status_code == 200:
+                    logger.info("Model '%s' preloaded successfully (mode=%s)", model, preload_mode)
+                else:
+                    logger.warning("Model preload returned status %d: %s", resp.status_code, resp.text[:200])
+        except Exception as exc:
+            logger.warning("Model preload failed: %s", exc, exc_info=True)
+
     logger.info("Backend startup complete")
 
 

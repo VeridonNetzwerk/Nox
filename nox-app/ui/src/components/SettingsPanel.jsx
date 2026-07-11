@@ -567,6 +567,36 @@ function SettingsPanel({ locale, onClose }) {
               )}
             </select>
           </Row>
+          <Row label={"Modell vorab laden"}>
+            <Toggle
+              checked={settings.ollama_preload || false}
+              onChange={(v) => updateSetting("ollama_preload", v)}
+            />
+          </Row>
+          {settings.ollama_preload && (
+            <>
+              <Row label={"Preload-Modus"}>
+                <select
+                  className={selectClass}
+                  value={settings.ollama_preload_mode || "vram"}
+                  onChange={(e) => updateSetting("ollama_preload_mode", e.target.value)}
+                >
+                  <option value="vram">VRAM (GPU)</option>
+                  <option value="ram">RAM (CPU, schneller Wechsel)</option>
+                </select>
+              </Row>
+              <div className="px-3 py-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <div className="flex items-start gap-2">
+                  <span className="text-yellow-400 text-sm flex-shrink-0">⚠</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-yellow-300 break-words">
+                      <strong>Warnung:</strong> Das Vorabladen des Modells verbraucht erheblich RAM bzw. VRAM und hält diese Ressourcen dauerhaft reserviert. Bei großen Modellen kann das System verlangsmt werden oder andere Anwendungen können abstürzen. Nur aktivieren, wenn genügend Arbeitsspeicher verfügbar ist!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </Section>
 
         {/* Voice */}
