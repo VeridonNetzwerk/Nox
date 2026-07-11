@@ -212,6 +212,61 @@ from nox_files import FilesManager
 files_manager = FilesManager(config)
 
 # ---------------------------------------------------------------------------
+# Settings apply function – used by tool handler to hot-reload settings
+# ---------------------------------------------------------------------------
+
+def apply_settings_update(updates: dict[str, Any]) -> None:
+    """Apply setting changes at runtime (called by einstellung_aendern tool)."""
+    config.update(updates)
+    if "ollama_model" in updates:
+        orchestrator.set_model(updates["ollama_model"])
+    if "wake_word_threshold" in updates:
+        voice_manager.wake_word.threshold = updates["wake_word_threshold"]
+    if "wake_word_enabled" in updates:
+        voice_manager._enabled = updates["wake_word_enabled"]
+        if updates["wake_word_enabled"]:
+            voice_manager.start()
+        else:
+            voice_manager.stop()
+    if "nox_eye_ttl_days" in updates:
+        eye_manager.context_store.ttl_days = updates["nox_eye_ttl_days"]
+    if "nox_eye_excluded_apps" in updates:
+        eye_manager.window_monitor.excluded_apps = {
+            a.lower() for a in updates["nox_eye_excluded_apps"]
+        }
+    if "tts_model" in updates:
+        voice_manager.tts.model_name = updates["tts_model"]
+        voice_manager.tts._voice = None
+    if "tts_engine" in updates:
+        voice_manager.tts_engine = updates["tts_engine"]
+        voice_manager.tts_voice_id = updates.get("tts_model", voice_manager.tts_voice_id)
+    if "audio_input_device" in updates or "audio_output_device" in updates:
+        input_dev = updates.get("audio_input_device", config.get("audio_input_device", "default"))
+        output_dev = updates.get("audio_output_device", config.get("audio_output_device", "default"))
+        voice_manager.update_audio_devices(input_dev, output_dev)
+    if "vad_silence_duration" in updates:
+        voice_manager.recorder.silence_duration = updates["vad_silence_duration"]
+    if "end_turn_silence_threshold" in updates:
+        voice_manager.recorder.end_turn_silence_threshold = updates["end_turn_silence_threshold"]
+    if "end_turn_max_silence" in updates:
+        voice_manager.recorder.end_turn_max_silence = updates["end_turn_max_silence"]
+    if "end_turn_enabled" in updates:
+        voice_manager.recorder.end_turn_enabled = updates["end_turn_enabled"]
+    files_keys = {"nox_files_enabled", "nox_files_full_drive", "nox_files_custom_folders",
+                  "nox_files_excluded_dirs", "nox_files_ocr_gpu"}
+    if files_keys & updates.keys():
+        files_manager.update_settings(updates)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                manager.broadcast({"type": "settings_changed", "settings": updates}),
+                loop,
+            )
+    except Exception:
+        pass
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -223,6 +278,8 @@ orchestrator = Orchestrator(
     voice_manager=voice_manager,
     files_manager=files_manager,
     broadcast=manager.broadcast,
+    settings_manager=settings_mgr,
+    apply_settings_fn=apply_settings_update,
 )
 
 

@@ -49,13 +49,43 @@ class Tool:
         }
 
 
+# Short descriptions of settings the AI can read/change on request
+SETTINGS_DESCRIPTIONS = {
+    "ollama_model": "KI-Modell (z.B. llama3.1, gemma3, mistral)",
+    "ollama_host": "Ollama-Server-Adresse",
+    "ollama_preload": "Modell beim Start laden (true/false)",
+    "ui_theme": "Design: system, dark oder light",
+    "system_language": "UI-Sprache (leer = auto, z.B. de_DE, en_US)",
+    "hotkey": "Tastenkürzel zum Öffnen (z.B. CommandOrControl+Shift+Space)",
+    "wake_word_enabled": "Wake-Word-Erkennung aktiv (true/false)",
+    "wake_word_threshold": "Wake-Word-Empfindlichkeit 0.0-1.0",
+    "tts_model": "Stimme für Sprachausgabe",
+    "tts_engine": "TTS-Engine: kokoro, edge oder piper",
+    "audio_input_device": "Mikrofon-Gerät (default oder Name)",
+    "audio_output_device": "Lautsprecher-Gerät (default oder Name)",
+    "vad_silence_duration": "Stille bis Aufnahme endet (Sekunden)",
+    "end_turn_enabled": "End-of-Turn-Erkennung aktiv (true/false)",
+    "end_turn_silence_threshold": "Grund-Stille für Turn-Ende (Sekunden)",
+    "end_turn_max_silence": "Max Stille bevor Abbruch (Sekunden)",
+    "nox_eye_enabled": "Kontext-Erfassung aktiv (true/false)",
+    "nox_eye_ttl_days": "Kontext-Aufbewahrung in Tagen",
+    "nox_eye_excluded_apps": "Apps die nicht erfasst werden (Liste)",
+    "nox_files_enabled": "Dateisuche aktiv (true/false)",
+    "nox_files_full_drive": "Ganze Festplatte indexieren (true/false)",
+    "max_history_turns": "Gesprächsverlauf-Länge (Anzahl Turns)",
+    "max_context_tokens": "Max Token-Kontextfenster",
+}
+
+
 class ToolHandler:
     """Manages tool registration, execution, and fallback parsing."""
 
-    def __init__(self, eye_manager=None, files_manager=None):
+    def __init__(self, eye_manager=None, files_manager=None, settings_manager=None, apply_settings_fn=None):
         self._tools: dict[str, Tool] = {}
         self._eye_manager = eye_manager
         self._files_manager = files_manager
+        self._settings_manager = settings_manager
+        self._apply_settings_fn = apply_settings_fn
         self._register_defaults()
 
     def _register_defaults(self) -> None:
@@ -151,6 +181,35 @@ class ToolHandler:
                         "Verwende dies, wenn du wissen musst, was der Nutzer gerade sieht.",
             parameters={"type": "object", "properties": {}},
             handler=self._tool_fast_context,
+        ))
+
+        # einstellungen_lesen
+        self.register(Tool(
+            name="einstellungen_lesen",
+            description="Listet alle Nox-Einstellungen mit aktuellem Wert und Kurzbeschreibung auf. "
+                        "Verwende dies NUR wenn der Nutzer nach Einstellungen fragt oder eine ändern möchte.",
+            parameters={"type": "object", "properties": {}},
+            handler=self._tool_read_settings,
+        ))
+
+        # einstellung_aendern
+        self.register(Tool(
+            name="einstellung_aendern",
+            description="Ändert eine Nox-Einstellung. Verwende einstellungen_lesen zuerst um gültige Werte zu sehen.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Der Einstellungs-Name (z.B. ollama_model, ui_theme, wake_word_threshold)",
+                    },
+                    "value": {
+                        "description": "Der neue Wert (String, Zahl, Boolean oder Liste)",
+                    },
+                },
+                "required": ["key", "value"],
+            },
+            handler=self._tool_change_setting,
         ))
 
     def register(self, tool: Tool) -> None:
@@ -274,3 +333,33 @@ class ToolHandler:
             return "Kontext-Erfassung nicht verfügbar."
         result = self._eye_manager.get_fast_context()
         return result if result else "Kein Bildschirminhalt erfasst (Fenster leer oder geschützt)."
+
+    def _tool_read_settings(self, args: dict[str, Any]) -> str:
+        """Return all settings with current values and short descriptions."""
+        if not self._settings_manager:
+            return "Einstellungen nicht verfügbar."
+        cfg = self._settings_manager.config
+        lines = []
+        for key, desc in sorted(SETTINGS_DESCRIPTIONS.items()):
+            val = cfg.get(key, "(nicht gesetzt)")
+            lines.append(f"{key} = {val}  — {desc}")
+        return "Aktuelle Nox-Einstellungen:\n\n" + "\n".join(lines)
+
+    def _tool_change_setting(self, args: dict[str, Any]) -> str:
+        """Change a single setting and apply it."""
+        if not self._settings_manager:
+            return "Einstellungen nicht verfügbar."
+        key = args.get("key", "").strip()
+        value = args.get("value")
+        if not key:
+            return "Kein Einstellungs-Name angegeben."
+        if key not in SETTINGS_DESCRIPTIONS:
+            return f"Unbekannte Einstellung '{key}'. Verwende einstellungen_lesen um gültige Einstellungen zu sehen."
+        try:
+            updates = {key: value}
+            self._settings_manager.save(updates)
+            if self._apply_settings_fn:
+                self._apply_settings_fn(updates)
+            return f"Einstellung '{key}' geändert auf: {value}"
+        except Exception as exc:
+            return f"Fehler beim Ändern von '{key}': {exc}"

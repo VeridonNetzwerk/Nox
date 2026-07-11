@@ -66,6 +66,8 @@ class Orchestrator:
         voice_manager=None,
         files_manager=None,
         broadcast: Optional[Callable] = None,
+        settings_manager=None,
+        apply_settings_fn: Optional[Callable] = None,
     ):
         self.config = config
         self.ollama_host = config.get("ollama_host", "http://localhost:11434")
@@ -90,6 +92,8 @@ class Orchestrator:
         self.tool_handler = ToolHandler(
             eye_manager=eye_manager,
             files_manager=files_manager,
+            settings_manager=settings_manager,
+            apply_settings_fn=apply_settings_fn,
         )
 
         # Active conversation ID (could be session-based in future)
@@ -175,6 +179,15 @@ class Orchestrator:
                             tool_args = {"pfad": tool_params}
                         elif tool_name == "dateien_suchen":
                             tool_args = {"query": tool_params}
+                        elif tool_name == "einstellung_aendern":
+                            import re as _re
+                            m = _re.match(r'key=(\S+)\s+value=(.+)', tool_params)
+                            if m:
+                                tool_args = {"key": m.group(1), "value": m.group(2).strip()}
+                            else:
+                                tool_args = {"key": "", "value": ""}
+                        elif tool_name == "einstellungen_lesen":
+                            tool_args = {}
                         else:
                             tool_args = {"query": tool_params, "text": tool_params}
                         tool_result = self.tool_handler.execute(tool_name, tool_args)

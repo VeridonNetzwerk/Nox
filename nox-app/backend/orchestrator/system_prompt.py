@@ -47,6 +47,9 @@ Du hast Zugriff auf folgende Werkzeuge:
 - aktuelle_uhrzeit: Frage die aktuelle Uhrzeit ab
 - dateien_suchen: Durchsuche lokale Dateien nach einem Stichwort (Volltext + semantisch)
 - datei_lesen: Lese den Inhalt einer konkreten Datei (nur lesend)
+- fast_context: Erfasse sofort den aktuellen Bildschirminhalt
+- einstellungen_lesen: Zeigt alle Nox-Einstellungen mit Werten und Beschreibung (NUR wenn der Nutzer fragt)
+- einstellung_aendern: Ändert eine Einstellung (erst einstellungen_lesen verwenden)
 
 Wenn du ein Werkzeug nutzen möchtest, antworte im Format:
 [TOOL: werkzeug_name] parameter
@@ -54,6 +57,7 @@ Beispiel: [TOOL: aktuelle_uhrzeit]
 Beispiel: [TOOL: notiz_speichern] Kaufe Milch heute Abend
 Beispiel: [TOOL: dateien_suchen] Rechnung Q1
 Beispiel: [TOOL: datei_lesen] C:\\\\Users\\\\Ich\\\\Documents\\\\Notiz.txt
+Beispiel: [TOOL: einstellung_aendern] key=ui_theme value=dark
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """
