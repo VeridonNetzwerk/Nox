@@ -1130,25 +1130,28 @@ async def voices_system_language() -> dict[str, Any]:
 
     Checks config system_language first, then falls back to OS detection.
     """
-    config_lang = config.get("system_language", "")
-    if config_lang:
-        from nox_voice.supported_languages import SUPPORTED_LANGUAGES
-        if config_lang in SUPPORTED_LANGUAGES:
-            lang = config_lang
+    try:
+        config_lang = config.get("system_language", "")
+        if config_lang:
+            if config_lang in SUPPORTED_LANGUAGES:
+                lang = config_lang
+            else:
+                lang = detect_system_language()
         else:
             lang = detect_system_language()
-    else:
-        lang = detect_system_language()
-    info = SUPPORTED_LANGUAGES.get(lang, ("German", "Deutsch"))
-    default = get_default_voice(lang)
-    return {
-        "status": "ok",
-        "language_code": lang,
-        "language_name": info[0],
-        "language_native": info[1],
-        "default_voice": default[0] if default else None,
-        "default_engine": default[1] if default else None,
-    }
+        info = SUPPORTED_LANGUAGES.get(lang, ("German", "Deutsch"))
+        default = get_default_voice(lang)
+        return {
+            "status": "ok",
+            "language_code": lang,
+            "language_name": info[0],
+            "language_native": info[1],
+            "default_voice": default[0] if default else None,
+            "default_engine": default[1] if default else None,
+        }
+    except Exception as exc:
+        logger.error("voices_system_language error: %s", exc, exc_info=True)
+        return {"status": "error", "error": str(exc)}
 
 
 @app.get("/api/voices/default/{lang_code}")
