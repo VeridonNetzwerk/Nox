@@ -1382,7 +1382,9 @@ async def ws_chat(websocket: WebSocket) -> None:
                 continue
 
             try:
-                await orchestrator.process_message(message, voice_input=voice_input, context_override=context)
+                async def _send_to_client(msg):
+                    await websocket.send_json(msg)
+                await orchestrator.process_message(message, voice_input=voice_input, context_override=context, send=_send_to_client)
             except Exception as exc:
                 logger.error("Orchestrator error: %s", exc, exc_info=True)
                 await websocket.send_json({"type": "error", "content": f"Interner Fehler: {exc}"})

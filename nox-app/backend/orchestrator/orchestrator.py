@@ -109,6 +109,7 @@ class Orchestrator:
         message: str,
         voice_input: bool = False,
         context_override: Optional[str] = None,
+        send: Optional[Callable] = None,
     ) -> None:
         """Process an incoming message end-to-end.
 
@@ -152,6 +153,9 @@ class Orchestrator:
 
         logger.info("Processing message: voice=%s, len=%d, msgs=%d", voice_input, len(message), len(messages))
 
+        # Use send callback if provided (targets specific client), else broadcast
+        _send = send or self._broadcast
+
         # 5. Stream response
         sentence_buffer = SentenceBuffer()
         full_response = ""
@@ -176,9 +180,9 @@ class Orchestrator:
                         tool_result = self.tool_handler.execute(tool_name, tool_args)
                         tool_executed = True
                         # Tell UI to clear the streamed tool-call text
-                        await self._broadcast({"type": "tool_start", "tool": tool_name})
-                        # Broadcast tool result
-                        await self._broadcast({
+                        await _send({"type": "tool_start", "tool": tool_name})
+                        # Send tool result
+                        await _send({
                             "type": "tool_result",
                             "tool": tool_name,
                             "result": tool_result,
@@ -191,7 +195,7 @@ class Orchestrator:
                         sentence_buffer = SentenceBuffer()
                         async for token2 in self._stream_ollama(messages):
                             full_response += token2
-                            await self._broadcast({"type": "token", "content": token2})
+                            await _send({"type": "token", "content": token2})
                             if voice_input:
                                 for sentence in sentence_buffer.feed(token2):
                                     self.voice_manager.speak_sentence(sentence)
@@ -200,7 +204,7 @@ class Orchestrator:
 
                 # Stream token to UI (only if no tool was executed)
                 if not tool_executed:
-                    await self._broadcast({"type": "token", "content": token})
+                    await _send({"type": "token", "content": token})
 
                 # Pipe to TTS in voice mode
                 if voice_input and self.voice_manager:
@@ -228,21 +232,21 @@ class Orchestrator:
                     self.conversation_store.summarize_old_turns(self._conversation_id)
                 )
 
-            # 8. Broadcast done
-            await self._broadcast({"type": "done", "content": clean_response})
+            # 8. Send done
+            await _send({"type": "done", "content": clean_response})
             logger.info("Response complete: len=%d", len(clean_response))
 
         except httpx.ConnectError:
             logger.error("Ollama not reachable")
-            await self._broadcast({
+            await _send({
                 "type": "error",
                 "content": f"Ollama ist nicht erreichbar unter {self.ollama_host}. Bitte Ollama starten.",
             })
-            await self._broadcast({"type": "done"})
+            await _send({"type": "done"})
         except Exception as exc:
             logger.error("Orchestrator error: %s", exc, exc_info=True)
-            await self._broadcast({"type": "error", "content": f"Fehler: {exc}"})
-            await self._broadcast({"type": "done"})
+            await _send({"type": "error", "content": f"Fehler: {exc}"})
+            await _send({"type": "done"})
 
     async def _stream_ollama(
         self,
