@@ -382,7 +382,7 @@ class Orchestrator:
             "model": self.ollama_model,
             "messages": messages,
             "stream": True,
-            "think": False,
+            "think": self.config.get("ollama_think", False),
         }
         if use_tools:
             payload["tools"] = self.tool_handler.get_ollama_tools()

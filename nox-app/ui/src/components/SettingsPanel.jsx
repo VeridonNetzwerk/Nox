@@ -596,6 +596,12 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
           onChange={(v) => updateSetting("ollama_preload", v)}
         />
       </Row>
+      <Row label={"Thinking-Modus"}>
+        <Toggle
+          checked={settings.ollama_think || false}
+          onChange={(v) => updateSetting("ollama_think", v)}
+        />
+      </Row>
       {settings.ollama_preload && (
         <>
           <Row label={"Preload-Modus"}>

@@ -34,6 +34,7 @@ ollama_host: http://localhost:11434
 ollama_model: qwen3:14b
 ollama_preload: false
 ollama_preload_mode: vram
+ollama_think: false
 onboarding_completed: false
 server_host: 127.0.0.1
 server_port: 8420
