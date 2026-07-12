@@ -382,11 +382,12 @@ class Orchestrator:
             "model": self.ollama_model,
             "messages": messages,
             "stream": True,
+            "think": False,
         }
         if use_tools:
             payload["tools"] = self.tool_handler.get_ollama_tools()
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
                 f"{self.ollama_host}/api/chat",
@@ -418,6 +419,7 @@ class Orchestrator:
                         continue
                     msg = chunk.get("message", {})
                     token = msg.get("content", "")
+                    thinking = msg.get("thinking", "")
                     # Check for native tool calls
                     tool_calls = msg.get("tool_calls", [])
                     if tool_calls:
