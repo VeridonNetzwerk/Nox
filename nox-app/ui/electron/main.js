@@ -457,6 +457,41 @@ function stopBackend() {
       try { backendProcess.kill(); } catch {}
     }
     backendProcess = null;
+  } else if (!app.isPackaged) {
+    // Dev mode: backend was started externally (npm run dev:backend via concurrently).
+    // Kill any process still listening on port 8420.
+    console.log("Dev mode – killing any process on port 8420...");
+    try {
+      spawn("taskkill", ["/f", "/t", "/fi", "WINDOWTITLE eq *uvicorn*"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch (err) {
+      console.error("Failed to kill dev backend:", err);
+    }
+    // Also try via netstat + taskkill (more reliable for finding port listeners)
+    try {
+      const { execSync } = require("child_process");
+      const out = execSync('netstat -ano | findstr ":8420" | findstr "LISTENING"', {
+        windowsHide: true,
+        encoding: "utf8",
+      });
+      const pids = new Set();
+      for (const line of out.trim().split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && /^\d+$/.test(pid)) pids.add(pid);
+      }
+      for (const pid of pids) {
+        console.log(`Killing backend PID ${pid} on port 8420`);
+        spawn("taskkill", ["/pid", pid, "/f", "/t"], {
+          windowsHide: true,
+          stdio: "ignore",
+        });
+      }
+    } catch (err) {
+      // netstat might fail if no process is on the port — that's fine
+    }
   }
 }
 
