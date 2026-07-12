@@ -174,10 +174,39 @@ class Orchestrator:
         tool_executed = False
 
         try:
-            async for token in self._stream_ollama(messages):
+            async for item in self._stream_ollama(messages, use_tools=True):
+                # Native tool call sentinel
+                if isinstance(item, dict) and "tool_calls" in item and not tool_executed:
+                    for tc in item["tool_calls"]:
+                        func = tc.get("function", {})
+                        tool_name = func.get("name", "")
+                        tool_args_str = func.get("arguments", "{}")
+                        try:
+                            tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+                        except json.JSONDecodeError:
+                            tool_args = {}
+                        if tool_name and self.tool_handler.has_tool(tool_name):
+                            tool_result = self.tool_handler.execute(tool_name, tool_args)
+                            tool_executed = True
+                            await _send({"type": "tool_start", "tool": tool_name})
+                            await _send({"type": "tool_result", "tool": tool_name, "result": tool_result})
+                            messages.append({"role": "assistant", "content": "", "tool_calls": [tc]})
+                            messages.append({"role": "user", "content": f"Werkzeug-Ergebnis: {tool_result}\n\nBitte antworte basierend auf diesem Ergebnis."})
+                            full_response = ""
+                            sentence_buffer = SentenceBuffer()
+                            async for token2 in self._stream_ollama(messages, use_tools=False):
+                                full_response += token2
+                                await _send({"type": "token", "content": token2})
+                                if voice_input:
+                                    for sentence in sentence_buffer.feed(token2):
+                                        self.voice_manager.speak_sentence(sentence)
+                            break
+                    continue
+
+                token = item
                 full_response += token
 
-                # Check for tool calls in fallback mode
+                # Check for tool calls in fallback mode (text-based)
                 tool_match = self.tool_handler.parse_fallback(full_response)
                 if tool_match and not tool_executed:
                     tool_name, tool_params = tool_match
@@ -316,20 +345,27 @@ class Orchestrator:
     async def _stream_ollama(
         self,
         messages: list[dict[str, str]],
-    ) -> AsyncIterator[str]:
+        use_tools: bool = False,
+    ) -> AsyncIterator[Any]:
         """Stream tokens from Ollama /api/chat endpoint.
 
         Uses the chat API (not generate) for proper multi-turn support.
+        If use_tools is True, sends native tool definitions to Ollama.
+        Yields str tokens, or a dict with 'tool_calls' key as a sentinel.
         """
+        payload = {
+            "model": self.ollama_model,
+            "messages": messages,
+            "stream": True,
+        }
+        if use_tools:
+            payload["tools"] = self.tool_handler.get_ollama_tools()
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
                 f"{self.ollama_host}/api/chat",
-                json={
-                    "model": self.ollama_model,
-                    "messages": messages,
-                    "stream": True,
-                },
+                json=payload,
             ) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
@@ -357,6 +393,11 @@ class Orchestrator:
                         continue
                     msg = chunk.get("message", {})
                     token = msg.get("content", "")
+                    # Check for native tool calls
+                    tool_calls = msg.get("tool_calls", [])
+                    if tool_calls:
+                        yield {"tool_calls": tool_calls}
+                        continue
                     if token:
                         yield token
                     if chunk.get("done", False):
