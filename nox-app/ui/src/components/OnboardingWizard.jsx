@@ -160,6 +160,8 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const [pullRunning, setPullRunning] = useState(false);
   const [pullError, setPullError] = useState(null);
   const [pullModel, setPullModel] = useState("");
+  const [sliderPos, setSliderPos] = useState(1);
+  const [showInstalledModels, setShowInstalledModels] = useState(false);
 
   const pollRef = useRef(null);
   const wakeTestActiveRef = useRef(false);
@@ -177,6 +179,23 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   useEffect(() => {
     window.nox?.onboardingActive?.();
   }, []);
+
+  // Auto-select model when slider position changes and the tier's model is installed
+  useEffect(() => {
+    if (step !== 2 || !gpuInfo) return;
+    const vram = gpuInfo?.vram_mb || 0;
+    let model;
+    if (vram >= 12000) {
+      model = sliderPos === 0 ? "gemma3:4b" : "gemma3:12b";
+    } else if (vram >= 8000) {
+      model = sliderPos === 2 ? "gemma3:12b" : "gemma3:4b";
+    } else {
+      model = sliderPos === 2 ? "gemma3:12b" : "gemma3:4b";
+    }
+    if (model && models.includes(model)) {
+      setSelectedModel(model);
+    }
+  }, [sliderPos, step, gpuInfo, models]);
 
   // Poll wake detection status during onboarding step 4
   useEffect(() => {
@@ -815,144 +834,150 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               {s.modelHint || "Wähle das Ollama-Modell, das Nox verwenden soll."}
             </p>
 
-            {/* Recommended model download — GPU-aware */}
+            {/* Quality vs Speed slider — picks model based on VRAM and preference */}
             {(() => {
               const vram = gpuInfo?.vram_mb || 0;
               const gpuMode = gpuInfo?.cuda_available ? "GPU" : "CPU";
-              let recModel, recDesc, recLabel;
-              if (vram >= 20000) {
-                recModel = "gemma3:12b";
-                recDesc = "Gemma 3 12B – beste Qualität, ausreichend VRAM vorhanden.";
-                recLabel = "12B";
-              } else if (vram >= 12000) {
-                recModel = "gemma3:12b";
-                recDesc = "Gemma 3 12B – beste Balance aus Qualität und Geschwindigkeit für " + Math.round(vram/1024) + " GB VRAM.";
-                recLabel = "12B";
+
+              // Build model tiers based on VRAM
+              let tiers;
+              if (vram >= 12000) {
+                tiers = [
+                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Sehr schnell, kompakt – gut für einfache Fragen.", size: "~3 GB" },
+                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Beste Balance aus Qualität und Geschwindigkeit.", size: "~8 GB" },
+                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Höchste Qualität für deine GPU (" + Math.round(vram/1024) + " GB VRAM).", size: "~8 GB" },
+                ];
               } else if (vram >= 8000) {
-                recModel = "gemma3:4b";
-                recDesc = "Gemma 3 4B – ideal für 8 GB VRAM. Schnelle Antworten, gute Qualität.";
-                recLabel = "4B";
-              } else if (vram > 0) {
-                recModel = "gemma3:4b";
-                recDesc = "Gemma 3 4B – kleines Modell für begrenzte VRAM (" + Math.round(vram/1024) + " GB).";
-                recLabel = "4B";
+                tiers = [
+                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Sehr schnell, ideal für 8 GB VRAM.", size: "~3 GB" },
+                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Gute Balance für 8 GB VRAM – schnelle Antworten.", size: "~3 GB" },
+                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Maximale Qualität – benötigt ~8 GB VRAM, kann langsamer sein.", size: "~8 GB" },
+                ];
               } else {
-                recModel = "gemma3:4b";
-                recDesc = "Gemma 3 4B – funktioniert auf CPU und GPU. Kompakt und schnell.";
-                recLabel = "4B";
+                tiers = [
+                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Schnell und kompakt – funktioniert überall.", size: "~3 GB" },
+                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Beste Wahl für CPU oder wenig VRAM.", size: "~3 GB" },
+                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Höchste Qualität – braucht viel Arbeitsspeicher, kann langsam sein.", size: "~8 GB" },
+                ];
               }
-              const recInstalled = models.includes(recModel);
-              if (recInstalled) return (
-                <div className="px-3 py-3 rounded-lg bg-green-500/10 border border-green-500/30 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-green-400 uppercase tracking-wide">
-                      {s.recommended || "Empfohlen"} · {gpuMode} · ✓ {s.installedModels || "Installiert"}
-                    </span>
-                    {vram > 0 && (
-                      <span className="text-xs text-nox-textDim">
-                        {Math.round(vram/1024)} GB VRAM
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-nox-text">
-                    {recDesc}
-                  </p>
-                </div>
-              );
+
+              const sliderLabels = ["⚡ Schnell", "⚖️ Balance", "★ Qualität"];
+              const tier = tiers[sliderPos];
+              const isInstalled = models.includes(tier.model);
+
               return (
-                <div className="px-3 py-3 rounded-lg bg-nox-accent/10 border border-nox-accent/30 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-nox-accent uppercase tracking-wide">
-                      {s.recommended || "Empfohlen"} · {gpuMode}
-                    </span>
-                    {vram > 0 && (
-                      <span className="text-xs text-nox-textDim">
-                        {Math.round(vram/1024)} GB VRAM
-                      </span>
+                <div className="space-y-3">
+                  {/* GPU info badge */}
+                  <div className="flex items-center gap-2 text-xs text-nox-textDim">
+                    <span className="px-2 py-0.5 rounded bg-nox-surface border border-nox-border">{gpuMode}</span>
+                    {vram > 0 && <span>{Math.round(vram/1024)} GB VRAM</span>}
+                  </div>
+
+                  {/* Slider */}
+                  <div className="px-1">
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={1}
+                      value={sliderPos}
+                      onChange={(e) => setSliderPos(parseInt(e.target.value))}
+                      className="w-full h-2 rounded-full appearance-none cursor-pointer bg-nox-border accent-nox-accent"
+                      style={{
+                        background: `linear-gradient(to right, var(--color-nox-accent, #6366f1) ${sliderPos * 50}%, var(--color-nox-border, #2a2a2e) ${sliderPos * 50}%)`,
+                      }}
+                    />
+                    <div className="flex justify-between mt-1.5">
+                      {sliderLabels.map((label, i) => (
+                        <span
+                          key={i}
+                          className={`text-xs transition-colors ${sliderPos === i ? "text-nox-accent font-medium" : "text-nox-textDim"}`}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Selected tier info */}
+                  <div className="px-3 py-3 rounded-lg bg-nox-surface border border-nox-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-nox-text">{tier.label}</span>
+                      <span className="text-xs text-nox-textDim">{tier.size}</span>
+                    </div>
+                    <p className="text-xs text-nox-textDim">{tier.desc}</p>
+                    {isInstalled ? (
+                      <div className="flex items-center gap-1.5 text-xs text-green-400">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        <span>Bereits installiert – ausgewählt als Modell</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => startModelPull(tier.model)}
+                        disabled={pullRunning}
+                        className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          pullRunning && pullModel === tier.model
+                            ? "bg-nox-accent/30 text-nox-textDim"
+                            : "bg-nox-accent hover:bg-nox-accentHover text-white"
+                        }`}
+                      >
+                        {pullRunning && pullModel === tier.model
+                          ? `${s.downloading || "Lade herunter"}… ${Math.round(pullProgress * 100)}%`
+                          : `⬇ ${tier.label} herunterladen`}
+                      </button>
+                    )}
+                    {pullRunning && pullModel === tier.model && (
+                      <div className="w-full h-2 rounded-full bg-nox-border overflow-hidden">
+                        <div className="h-full bg-nox-accent transition-all duration-300 rounded-full" style={{ width: `${Math.round(pullProgress * 100)}%` }} />
+                      </div>
+                    )}
+                    {pullError && pullModel === tier.model && (
+                      <p className="text-xs text-red-400">{s.pullFailed || "Download fehlgeschlagen:"} {pullError}</p>
                     )}
                   </div>
-                  <p className="text-sm text-nox-text">
-                    {recDesc}
-                  </p>
-                  <button
-                    onClick={() => startModelPull(recModel)}
-                    disabled={pullRunning}
-                    className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      pullRunning && pullModel === recModel
-                        ? "bg-nox-accent/30 text-nox-textDim"
-                        : "bg-nox-accent hover:bg-nox-accentHover text-white"
-                    }`}
-                  >
-                    {pullRunning && pullModel === recModel
-                      ? `${s.downloading || "Lade herunter"}… ${Math.round(pullProgress * 100)}%`
-                      : `⬇ ${s.downloadRecommended || "Empfohlenes Modell herunterladen"} (gemma3:${recLabel})`}
-                  </button>
-                  {pullRunning && pullModel === recModel && (
-                    <div className="w-full h-2 rounded-full bg-nox-border overflow-hidden">
-                      <div className="h-full bg-nox-accent transition-all duration-300 rounded-full" style={{ width: `${Math.round(pullProgress * 100)}%` }} />
-                    </div>
-                  )}
-                  {pullError && pullModel === recModel && (
-                    <p className="text-xs text-red-400">
-                      {s.pullFailed || "Download fehlgeschlagen:"} {pullError}
-                    </p>
-                  )}
                 </div>
               );
             })()}
 
-            {models.length > 0 ? (
+            {/* Collapsible installed models */}
+            {models.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-nox-textDim uppercase tracking-wide mb-1">
-                  {s.installedModels || "Installierte Modelle"}
-                </p>
-                {models.map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setSelectedModel(m)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                      selectedModel === m
-                        ? "bg-nox-accent text-white"
-                        : "bg-nox-surface text-nox-text hover:bg-nox-border"
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="px-3 py-4 rounded-lg glass-card space-y-3">
-                <p className="text-sm text-nox-textDim">
-                  {s.noModels || "Keine Modelle gefunden. Lade ein Modell herunter:"}
-                </p>
-                <div className="flex flex-col gap-2">
-                  {["llama3.1", "qwen2.5", "mistral"].map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => startModelPull(m)}
-                      disabled={pullRunning}
-                      className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-                        pullRunning && pullModel === m
-                          ? "bg-nox-accent/30 text-nox-textDim"
-                          : "bg-nox-bg text-nox-text hover:bg-nox-border"
-                      }`}
-                    >
-                      {pullRunning && pullModel === m
-                        ? `${s.downloading || "Lade herunter"}… ${Math.round(pullProgress * 100)}%`
-                        : `ollama pull ${m}`}
-                    </button>
-                  ))}
-                </div>
-                {pullRunning && pullModel !== "gemma3:12b" && (
-                  <div className="w-full h-2 rounded-full bg-nox-border overflow-hidden">
-                    <div className="h-full bg-nox-accent transition-all duration-300 rounded-full" style={{ width: `${Math.round(pullProgress * 100)}%` }} />
+                <button
+                  onClick={() => setShowInstalledModels(!showInstalledModels)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg glass-card text-sm text-nox-textDim hover:text-nox-text transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showInstalledModels ? "M19 9l-7 7-7-7" : "M5 15l7-7 7 7"} />
+                    </svg>
+                    {s.installedModels || "Installierte Modelle"} ({models.length})
+                  </span>
+                  {selectedModel && (
+                    <span className="text-xs text-nox-accent font-medium">{selectedModel}</span>
+                  )}
+                </button>
+                {showInstalledModels && (
+                  <div className="space-y-1 pt-1">
+                    {models.map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setSelectedModel(m)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedModel === m ? "bg-nox-accent text-white" : "bg-nox-surface text-nox-text hover:bg-nox-border"}`}
+                      >
+                        {m}
+                      </button>
+                    ))}
                   </div>
                 )}
-                {pullError && pullModel !== "gemma3:12b" && (
-                  <p className="text-xs text-red-400">
-                    {s.pullFailed || "Download fehlgeschlagen:"} {pullError}
-                  </p>
-                )}
+              </div>
+            )}
+
+            {/* No models at all — manual download */}
+            {models.length === 0 && (
+              <div className="px-3 py-4 rounded-lg glass-card space-y-3">
+                <p className="text-sm text-nox-textDim">
+                  {s.noModels || "Keine Modelle gefunden. Lade ein Modell über den Slider oben herunter."}
+                </p>
               </div>
             )}
           </div>
