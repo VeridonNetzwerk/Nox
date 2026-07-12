@@ -1,4 +1,4 @@
-audd_api_token: ''
+audd_api_token: 'test'
 audio_input_device: default
 audio_output_device: default
 end_turn_enabled: true
