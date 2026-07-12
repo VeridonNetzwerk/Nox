@@ -36,13 +36,14 @@
 |---------|-------------|
 | 🎙️ **Wake Word** | Say **"Hey Nox"** to activate — custom-trained openWakeWord model, fully offline |
 | 🗣️ **Speech-to-Text** | GPU-accelerated transcription via faster-whisper (CUDA) with VAD silence detection |
-| 🔊 **Text-to-Speech** | Natural German voice via Piper TTS, sentence-by-sentence streaming |
-| 💬 **Chat** | Streaming token-by-token responses via Ollama (llama3.1, mistral, etc.) |
+| 🔊 **Text-to-Speech** | Multi-engine voices: Piper TTS (offline), Edge TTS (cloud), Kokoro-82M (offline) — 27 languages, male & female voices |
+| 💬 **Chat** | Streaming token-by-token responses via Ollama (Gemma, Llama, Mistral, etc.) |
 | 👁️ **Context Capture** | Reads active windows, UI elements, clipboard, and screenshots (OCR) for context-aware answers |
 | 📁 **File Search** | Indexes and searches local documents (txt, md, docx, pdf) with semantic embeddings |
-| 🎨 **Overlay UI** | Sleek always-on-top overlay with system tray, global hotkey, and dark theme |
+| � **Music Recognition** | Identifies songs playing on your PC via system audio loopback + AudD API |
+| �🎨 **Overlay UI** | Sleek always-on-top overlay with system tray, global hotkey, and dark theme |
 | 🔒 **100% Local** | No cloud, no telemetry, no data leaves your machine |
-| 🌐 **Multilingual** | German and English UI with full i18n support |
+| 🌐 **Multilingual** | 27 languages with auto-switching TTS voices and full i18n UI support |
 
 ---
 
@@ -147,13 +148,14 @@ nox-app/
 |-------|-----------|
 | Frontend | Electron 33, React 18, Tailwind CSS 3, Vite 6 |
 | Backend | Python 3.11, FastAPI, uvicorn |
-| LLM | Ollama (Gemma preferred, auto-selected by VRAM) |
-| Wake Word | openWakeWord (custom "Hey Nox" ONNX model) |
-| STT | faster-whisper (CTranslate2, CUDA) |
-| TTS | Piper TTS (German voice, sentence streaming) |
-| VAD | webrtcvad (voice activity detection + end-of-turn) |
-| Context | EasyOCR, sentence-transformers, SQLite + FTS5 |
-| Packaging | electron-builder (NSIS installer) |
+| LLM | [Ollama](https://ollama.com) (Gemma preferred, auto-selected by VRAM) |
+| Wake Word | [openWakeWord](https://github.com/dscripka/openWakeWord) (custom "Hey Nox" ONNX model) |
+| STT | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2, CUDA) |
+| TTS | [Piper TTS](https://github.com/rhasspy/piper) (offline), [Edge TTS](https://github.com/rany2/edge-tts) (cloud), [Kokoro-82M](https://github.com/hexgrad/kokoro) (offline) |
+| VAD | [webrtcvad](https://github.com/wiseman/py-webrtcvad) (voice activity detection + end-of-turn) |
+| Context | [EasyOCR](https://github.com/JaidedAI/EasyOCR), [sentence-transformers](https://github.com/UKPLab/sentence-transformers), SQLite + FTS5 |
+| Music Recognition | [AudD](https://audd.io) API + [SoundCard](https://github.com/bastibe/SoundCard) (WASAPI loopback) |
+| Packaging | [electron-builder](https://github.com/electron-userland/electron-builder) (NSIS installer) |
 
 ---
 
@@ -243,7 +245,29 @@ If you like this project, consider donating:
 
 ---
 
-## 🤖 Built With AI
+## 🙏 Credits & Built With
+
+Nox stands on the shoulders of these amazing open-source projects:
+
+| Project | Role |
+|---------|------|
+| [Ollama](https://ollama.com) | Local LLM runtime — powers all chat and reasoning |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | GPU-accelerated speech-to-text transcription |
+| [Piper TTS](https://github.com/rhasspy/piper) | Offline neural text-to-speech |
+| [Edge TTS](https://github.com/rany2/edge-tts) | Microsoft Edge cloud text-to-speech voices |
+| [Kokoro-82M](https://github.com/hexgrad/kokoro) | Lightweight offline TTS with 27-language support |
+| [openWakeWord](https://github.com/dscripka/openWakeWord) | Offline wake word detection |
+| [webrtcvad](https://github.com/wiseman/py-webrtcvad) | Voice activity detection |
+| [EasyOCR](https://github.com/JaidedAI/EasyOCR) | OCR for screen text extraction |
+| [sentence-transformers](https://github.com/UKPLab/sentence-transformers) | Semantic embeddings for context & file search |
+| [FastAPI](https://fastapi.tiangolo.com) | Backend API framework |
+| [Electron](https://www.electronjs.org) | Cross-platform desktop UI runtime |
+| [React](https://react.dev) | Frontend UI library |
+| [Tailwind CSS](https://tailwindcss.com) | Utility-first CSS framework |
+| [SoundCard](https://github.com/bastibe/SoundCard) | System audio loopback capture for music recognition |
+| [AudD](https://audd.io) | Music recognition API |
+
+### 🤖 Built With AI
 
 Parts of this project were created and refined with the assistance of AI tools.
 
