@@ -455,7 +455,14 @@ class VoiceManager:
         if best_score >= 2:
             return best_lang
 
-        # Default: assume English if mostly ASCII letters
+        # No strong diacritic signal — assume the configured voice language
+        # rather than defaulting to English. This prevents German text without
+        # umlauts (e.g. "Hallo, ich bin Nox") from being misdetected as English.
+        voice_lang = self._get_voice_lang_code()
+        if voice_lang:
+            return voice_lang
+
+        # Last resort: assume English if mostly ASCII letters
         ascii_letters = sum(1 for ch in text if ch.isalpha() and ord(ch) < 128)
         if ascii_letters >= 3:
             return "en_US"
