@@ -31,7 +31,7 @@ nox_files_excluded_dirs: []
 nox_files_full_drive: false
 nox_files_ocr_gpu: true
 ollama_host: http://localhost:11434
-ollama_model: gemma3:12b
+ollama_model: qwen3:14b
 ollama_preload: false
 ollama_preload_mode: vram
 onboarding_completed: false
