@@ -264,10 +264,54 @@ class Orchestrator:
                 "content": f"Ollama ist nicht erreichbar unter {self.ollama_host}. Bitte Ollama starten.",
             })
             await _send({"type": "done"})
+        except httpx.HTTPStatusError as exc:
+            logger.error("Ollama HTTP error: %s", exc)
+            user_msg = self._format_ollama_error(exc)
+            await _send({"type": "error", "content": user_msg})
+            await _send({"type": "done"})
         except Exception as exc:
             logger.error("Orchestrator error: %s", exc, exc_info=True)
             await _send({"type": "error", "content": f"Fehler: {exc}"})
             await _send({"type": "done"})
+
+    def _format_ollama_error(self, exc: httpx.HTTPStatusError) -> str:
+        """Format an Ollama HTTP error into a user-friendly German message."""
+        status = exc.response.status_code if exc.response else 0
+        ollama_err = ""
+        if exc.response:
+            try:
+                body = exc.response.json()
+                ollama_err = body.get("error", "")
+            except Exception:
+                try:
+                    raw = exc.response.content
+                    body = json.loads(raw)
+                    ollama_err = body.get("error", "")
+                except Exception:
+                    ollama_err = exc.response.text if hasattr(exc.response, 'text') else ""
+
+        if status == 500 and ollama_err:
+            err_lower = ollama_err.lower()
+            if "memory" in err_lower or "ram" in err_lower or "vram" in err_lower:
+                return (
+                    f"Das KI-Modell '{self.ollama_model}' ist zu groß für den verfügbaren Arbeitsspeicher. "
+                    f"Ollama meldet: {ollama_err}\n"
+                    "Bitte wähle in den Einstellungen ein kleineres Modell oder schließe speicherintensive Programme."
+                )
+            if "model" in err_lower and ("not found" in err_lower or "does not exist" in err_lower):
+                return (
+                    f"Das KI-Modell '{self.ollama_model}' ist nicht installiert. "
+                    "Bitte lade es mit 'ollama pull' herunter oder wähle ein anderes Modell in den Einstellungen."
+                )
+            return f"Ollama-Fehler: {ollama_err}"
+
+        if status == 404:
+            return (
+                f"Das KI-Modell '{self.ollama_model}' wurde nicht gefunden. "
+                "Bitte installiere es mit 'ollama pull' oder wähle ein anderes Modell."
+            )
+
+        return f"Ollama-Fehler (HTTP {status}): {ollama_err or str(exc)}"
 
     async def _stream_ollama(
         self,
@@ -287,7 +331,22 @@ class Orchestrator:
                     "stream": True,
                 },
             ) as resp:
-                resp.raise_for_status()
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    try:
+                        err_body = json.loads(body)
+                    except Exception:
+                        err_body = {"error": body.decode(errors="replace")}
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code}",
+                        request=resp.request,
+                        response=httpx.Response(
+                            resp.status_code,
+                            content=body,
+                            headers=dict(resp.headers),
+                            request=resp.request,
+                        ),
+                    )
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
