@@ -61,14 +61,14 @@
 
 ### 🎯 Smart Model Selection
 
-Nox automatically selects the best Ollama model based on your GPU's VRAM. **Gemma** models are preferred for their strong context support and multimodal (image) capabilities, which power Nox's screen-aware context pipeline.
+Nox automatically selects the best Ollama model based on your GPU's VRAM. **Gemma 4** models are preferred for their strong context support, multimodal (image) capabilities, and agentic workflows.
 
 | GPU VRAM | Recommended Model | Use Case |
 |----------|-------------------|----------|
-| < 8 GB | Gemma 4b | Low-end GPUs, still capable |
-| 8–12 GB | Gemma 4b | Mid-range, safe choice |
-| 12–20 GB | Gemma 12b | Balanced performance + speed |
-| ≥ 20 GB | Gemma 12b | Maximum quality |
+| < 8 GB | Gemma 4 E2B | Low-end GPUs, edge devices |
+| 8–12 GB | Gemma 4 E4B | Mid-range, solid default |
+| 12–20 GB | Gemma 4 26B MoE | Balanced performance + speed |
+| ≥ 20 GB | Gemma 4 31B | Maximum quality |
 
 If no Gemma model is installed, Nox falls back to any available model with a matching size, or the first available model as a last resort. You can always switch models in **Settings**.
 
@@ -147,7 +147,7 @@ nox-app/
 |-------|-----------|
 | Frontend | Electron 33, React 18, Tailwind CSS 3, Vite 6 |
 | Backend | Python 3.11, FastAPI, uvicorn |
-| LLM | [Ollama](https://ollama.com) (Gemma preferred, auto-selected by VRAM) |
+| LLM | [Ollama](https://ollama.com) (Gemma 4 preferred, auto-selected by VRAM) |
 | Wake Word | [openWakeWord](https://github.com/dscripka/openWakeWord) (custom "Hey Nox" ONNX model) |
 | STT | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2, CUDA) |
 | TTS | [Edge TTS](https://github.com/rany2/edge-tts) (cloud), [Kokoro-82M](https://github.com/hexgrad/kokoro) (offline), [Piper TTS](https://github.com/rhasspy/piper) (offline fallback) |
@@ -251,7 +251,7 @@ Nox stands on the shoulders of these amazing open-source projects:
 
 | Project | Role |
 |---------|------|
-| [Ollama](https://ollama.com) | Local LLM runtime — powers all chat and reasoning |
+| [Ollama](https://ollama.com) | Local LLM runtime — powers all chat and reasoning (Gemma 4) |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | GPU-accelerated speech-to-text transcription |
 | [Piper TTS](https://github.com/rhasspy/piper) | Offline neural text-to-speech (fallback engine) |
 | [Edge TTS](https://github.com/rany2/edge-tts) | Microsoft Edge cloud text-to-speech voices |

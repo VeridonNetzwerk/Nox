@@ -51,7 +51,7 @@ class Tool:
 
 # Short descriptions of settings the AI can read/change on request
 SETTINGS_DESCRIPTIONS = {
-    "ollama_model": "KI-Modell (z.B. llama3.1, gemma3, mistral)",
+    "ollama_model": "KI-Modell (z.B. gemma4:e4b, gemma4:26b, gemma4:31b)",
     "ollama_host": "Ollama-Server-Adresse",
     "ollama_preload": "Modell beim Start laden (true/false)",
     "ui_theme": "Design: system, dark oder light",

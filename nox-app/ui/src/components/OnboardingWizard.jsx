@@ -185,12 +185,14 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     if (step !== 2 || !gpuInfo) return;
     const vram = gpuInfo?.vram_mb || 0;
     let model;
-    if (vram >= 12000) {
-      model = sliderPos === 0 ? "gemma3:4b" : "gemma3:12b";
+    if (vram >= 20000) {
+      model = sliderPos === 0 ? "gemma4:e4b" : sliderPos === 1 ? "gemma4:26b" : "gemma4:31b";
+    } else if (vram >= 12000) {
+      model = sliderPos === 0 ? "gemma4:e4b" : sliderPos === 1 ? "gemma4:26b" : "gemma4:26b";
     } else if (vram >= 8000) {
-      model = sliderPos === 2 ? "gemma3:12b" : "gemma3:4b";
+      model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:e4b" : "gemma4:26b";
     } else {
-      model = sliderPos === 2 ? "gemma3:12b" : "gemma3:4b";
+      model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:e4b" : "gemma4:e4b";
     }
     if (model && models.includes(model)) {
       setSelectedModel(model);
@@ -839,25 +841,31 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               const vram = gpuInfo?.vram_mb || 0;
               const gpuMode = gpuInfo?.cuda_available ? "GPU" : "CPU";
 
-              // Build model tiers based on VRAM
+              // Build model tiers based on VRAM — Gemma 4 family
               let tiers;
-              if (vram >= 12000) {
+              if (vram >= 20000) {
                 tiers = [
-                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Sehr schnell, kompakt – gut für einfache Fragen.", size: "~3 GB" },
-                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Beste Balance aus Qualität und Geschwindigkeit.", size: "~8 GB" },
-                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Höchste Qualität für deine GPU (" + Math.round(vram/1024) + " GB VRAM).", size: "~8 GB" },
+                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Schnell und kompakt – gut für einfache Aufgaben.", size: "~10 GB" },
+                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Beste Balance – MoE-Architektur, nur 4B aktiv pro Token.", size: "~18 GB" },
+                  { model: "gemma4:31b", label: "Gemma 4 31B", desc: "Höchste Qualität für deine GPU (" + Math.round(vram/1024) + " GB VRAM).", size: "~20 GB" },
+                ];
+              } else if (vram >= 12000) {
+                tiers = [
+                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Schnell und kompakt – gut für einfache Aufgaben.", size: "~10 GB" },
+                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Beste Balance für " + Math.round(vram/1024) + " GB VRAM – MoE, nur 4B aktiv.", size: "~18 GB" },
+                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Maximale Qualität für deine GPU – MoE mit 256K Kontext.", size: "~18 GB" },
                 ];
               } else if (vram >= 8000) {
                 tiers = [
-                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Sehr schnell, ideal für 8 GB VRAM.", size: "~3 GB" },
-                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Gute Balance für 8 GB VRAM – schnelle Antworten.", size: "~3 GB" },
-                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Maximale Qualität – benötigt ~8 GB VRAM, kann langsamer sein.", size: "~8 GB" },
+                  { model: "gemma4:e2b", label: "Gemma 4 E2B", desc: "Sehr schnell, ideal für 8 GB VRAM.", size: "~7 GB" },
+                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Gute Balance – kompakt aber leistungsstark.", size: "~10 GB" },
+                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Maximale Qualität – braucht ~18 GB, kann langsam sein.", size: "~18 GB" },
                 ];
               } else {
                 tiers = [
-                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Schnell und kompakt – funktioniert überall.", size: "~3 GB" },
-                  { model: "gemma3:4b", label: "Gemma 3 4B", desc: "Beste Wahl für CPU oder wenig VRAM.", size: "~3 GB" },
-                  { model: "gemma3:12b", label: "Gemma 3 12B", desc: "Höchste Qualität – braucht viel Arbeitsspeicher, kann langsam sein.", size: "~8 GB" },
+                  { model: "gemma4:e2b", label: "Gemma 4 E2B", desc: "Schnell und kompakt – funktioniert überall.", size: "~7 GB" },
+                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Beste Wahl für CPU oder wenig VRAM.", size: "~10 GB" },
+                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Höchste Qualität für begrenzte Hardware – kann langsam sein.", size: "~10 GB" },
                 ];
               }
 

@@ -327,7 +327,7 @@ async def startup_event() -> None:
     orchestrator.set_broadcast(manager.broadcast)
 
     # Auto-select best Ollama model if configured model is missing
-    configured_model = config.get("ollama_model", "llama3.1")
+    configured_model = config.get("ollama_model", "gemma4:e4b")
     try:
         available = await orchestrator.get_available_models()
         if available and configured_model not in available:
@@ -348,7 +348,7 @@ async def startup_event() -> None:
     # Preload model if enabled
     if config.get("ollama_preload", False):
         preload_mode = config.get("ollama_preload_mode", "vram")
-        model = config.get("ollama_model", "llama3.1")
+        model = config.get("ollama_model", "gemma4:e4b")
         ollama_host = config.get("ollama_host", "http://localhost:11434")
         logger.info("Preloading model '%s' (mode=%s)...", model, preload_mode)
         try:
@@ -400,7 +400,7 @@ async def health_ollama() -> dict[str, Any]:
     if Ollama is not running, instead of raising an exception.
     """
     ollama_host = config.get("ollama_host", "http://localhost:11434")
-    ollama_model = config.get("ollama_model", "llama3.1")
+    ollama_model = config.get("ollama_model", "gemma4:e4b")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{ollama_host}/api/tags")
@@ -510,7 +510,7 @@ async def get_models() -> dict[str, Any]:
     models = await orchestrator.get_available_models()
     return {
         "status": "ok",
-        "current_model": config.get("ollama_model", "llama3.1"),
+        "current_model": config.get("ollama_model", "gemma4:e4b"),
         "available_models": models,
     }
 
@@ -1034,7 +1034,7 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
 
     The frontend polls /api/onboarding/pull-status to track progress.
     """
-    model = body.get("model", "llama3.1")
+    model = body.get("model", "gemma4:e4b")
     if ONBOARDING_STATE.get("pull_running"):
         return {"status": "already_running"}
 

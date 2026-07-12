@@ -71,7 +71,7 @@ class Orchestrator:
     ):
         self.config = config
         self.ollama_host = config.get("ollama_host", "http://localhost:11434")
-        self.ollama_model = config.get("ollama_model", "llama3.1")
+        self.ollama_model = config.get("ollama_model", "gemma4:e4b")
         self.max_context_tokens = config.get("max_context_tokens", 4096)
         self.max_history_turns = config.get("max_history_turns", 10)
 
