@@ -54,6 +54,7 @@ tts_sample_rate: 22050
 
 # Music Recognition (AudD API)
 audd_api_token: ""  # free token at https://dashboard.audd.io/
+music_platform: ""  # preferred platform: spotify, apple_music, youtube (empty = ask user)
 
 # Nox Eye (context capture)
 nox_eye_enabled: true

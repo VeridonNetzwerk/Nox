@@ -75,6 +75,7 @@ SETTINGS_DESCRIPTIONS = {
     "max_history_turns": "Gesprächsverlauf-Länge (Anzahl Turns)",
     "max_context_tokens": "Max Token-Kontextfenster",
     "audd_api_token": "AudD API-Token für Musikerkennung (leer = deaktiviert, kostenlos auf audd.io)",
+    "music_platform": "Bevorzugte Musik-Plattform für Song-Links: spotify, apple_music, youtube (leer = Nutzer fragen)",
 }
 
 
@@ -397,11 +398,47 @@ class ToolHandler:
                 parts.append(f"Album: {result['album']}")
             if result.get("release_date"):
                 parts.append(f"Veröffentlichung: {result['release_date']}")
-            if result.get("song_link"):
-                parts.append(f"Link: {result['song_link']}")
             if not parts:
                 return "Kein Song erkannt."
+
+            # Check preferred music platform and open song there
+            platform = self._config.get("music_platform", "").strip().lower()
+            platform_urls = {
+                "spotify": result.get("spotify_url", ""),
+                "apple_music": result.get("apple_music_url", ""),
+                "youtube": result.get("youtube_url", ""),
+            }
+
+            if platform and platform in platform_urls and platform_urls[platform]:
+                url = platform_urls[platform]
+                self._open_url_external(url)
+                parts.append(f"Geöffnet auf {platform}")
+            elif platform and platform in platform_urls:
+                # Platform set but no URL for it — try YouTube fallback
+                yt = platform_urls.get("youtube", "")
+                if yt:
+                    self._open_url_external(yt)
+                    parts.append(f"Geöffnet auf YouTube (kein {platform}-Link verfügbar)")
+            else:
+                # No platform set — ask user and remember answer
+                available = [p for p, url in platform_urls.items() if url]
+                return (
+                    " | ".join(parts) + "\n\n"
+                    "FRAGE AN NUTZER: Welche Musik-Plattform nutzt du normalerweise? "
+                    f"Verfügbar: {', '.join(available) if available else 'keine'}. "
+                    "Antworte z.B. 'Spotify', 'Apple Music' oder 'YouTube'. "
+                    "Ich merke mir deine Wahl für das nächste Mal."
+                )
+
             return " | ".join(parts)
         except Exception as exc:
             logger.error("musik_erkennen error: %s", exc, exc_info=True)
             return f"Musikerkennung fehlgeschlagen: {exc}"
+
+    def _open_url_external(self, url: str) -> None:
+        """Open a URL in the system default browser."""
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception as exc:
+            logger.warning("Failed to open URL %s: %s", url, exc)

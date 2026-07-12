@@ -53,6 +53,8 @@ Du hast Zugriff auf folgende Werkzeuge:
 - einstellungen_lesen: Zeigt alle Nox-Einstellungen mit Werten und Beschreibung (NUR wenn der Nutzer fragt)
 - einstellung_aendern: Ändert eine Einstellung (erst einstellungen_lesen verwenden)
 - musik_erkennen: Erkennt den aktuell auf dem PC spielenden Song (System-Audio-Aufnahme + AudD API)
+  Wenn musik_erkennen zurückgibt dass keine Plattform eingestellt ist, frage den Nutzer welche er nutzt
+  (Spotify, Apple Music, YouTube) und speichere die Antwort mit [TOOL: einstellung_aendern] key=music_platform value=spotify
 
 Wenn du ein Werkzeug nutzen möchtest, antworte im Format:
 [TOOL: werkzeug_name] parameter

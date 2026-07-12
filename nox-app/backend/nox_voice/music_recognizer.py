@@ -156,6 +156,10 @@ def recognize_song(api_token: str, output_device: Optional[str] = None,
                 info["spotify_url"] = r["spotify"].get("external_urls", {}).get("spotify", "")
             if r.get("apple_music"):
                 info["apple_music_url"] = r["apple_music"].get("url", "")
+            # YouTube fallback: search link for the recognized song
+            artist_title = f"{info['artist']} {info['title']}".strip()
+            if artist_title:
+                info["youtube_url"] = f"https://www.youtube.com/results?search_query={artist_title.replace(' ', '+')}"
 
             logger.info("Recognized: %s - %s", info["artist"], info["title"])
             return info
