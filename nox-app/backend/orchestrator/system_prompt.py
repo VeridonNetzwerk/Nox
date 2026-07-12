@@ -52,6 +52,7 @@ Du hast Zugriff auf folgende Werkzeuge:
 - fast_context: Erfasse sofort den aktuellen Bildschirminhalt
 - einstellungen_lesen: Zeigt alle Nox-Einstellungen mit Werten und Beschreibung (NUR wenn der Nutzer fragt)
 - einstellung_aendern: Ändert eine Einstellung (erst einstellungen_lesen verwenden)
+- musik_erkennen: Erkennt den aktuell auf dem PC spielenden Song (System-Audio-Aufnahme + AudD API)
 
 Wenn du ein Werkzeug nutzen möchtest, antworte im Format:
 [TOOL: werkzeug_name] parameter

@@ -74,18 +74,20 @@ SETTINGS_DESCRIPTIONS = {
     "nox_files_full_drive": "Ganze Festplatte indexieren (true/false)",
     "max_history_turns": "Gesprächsverlauf-Länge (Anzahl Turns)",
     "max_context_tokens": "Max Token-Kontextfenster",
+    "audd_api_token": "AudD API-Token für Musikerkennung (leer = deaktiviert, kostenlos auf audd.io)",
 }
 
 
 class ToolHandler:
     """Manages tool registration, execution, and fallback parsing."""
 
-    def __init__(self, eye_manager=None, files_manager=None, settings_manager=None, apply_settings_fn=None):
+    def __init__(self, eye_manager=None, files_manager=None, settings_manager=None, apply_settings_fn=None, config=None):
         self._tools: dict[str, Tool] = {}
         self._eye_manager = eye_manager
         self._files_manager = files_manager
         self._settings_manager = settings_manager
         self._apply_settings_fn = apply_settings_fn
+        self._config = config or {}
         self._register_defaults()
 
     def _register_defaults(self) -> None:
@@ -210,6 +212,16 @@ class ToolHandler:
                 "required": ["key", "value"],
             },
             handler=self._tool_change_setting,
+        ))
+
+        # musik_erkennen
+        self.register(Tool(
+            name="musik_erkennen",
+            description="Erkennt den aktuell auf dem PC abgespielten Song. "
+                        "Nimmt kurze System-Audio auf und sendet es an die AudD API zur Erkennung. "
+                        "Verwende dies wenn der Nutzer fragt was für ein Song spielt oder welche Musik läuft.",
+            parameters={"type": "object", "properties": {}},
+            handler=self._tool_recognize_music,
         ))
 
     def register(self, tool: Tool) -> None:
@@ -363,3 +375,33 @@ class ToolHandler:
             return f"Einstellung '{key}' geändert auf: {value}"
         except Exception as exc:
             return f"Fehler beim Ändern von '{key}': {exc}"
+
+    def _tool_recognize_music(self, args: dict[str, Any]) -> str:
+        """Recognize currently playing music from system audio loopback."""
+        api_token = self._config.get("audd_api_token", "")
+        if not api_token:
+            return ("Musikerkennung nicht konfiguriert. "
+                    "Setze 'audd_api_token' in den Einstellungen (kostenloser Token auf audd.io).")
+        output_device = self._config.get("audio_output_device", "default")
+        try:
+            from nox_voice.music_recognizer import recognize_song
+            result = recognize_song(api_token=api_token, output_device=output_device)
+            if "error" in result:
+                return result["error"]
+            parts = []
+            if result.get("artist"):
+                parts.append(f"Künstler: {result['artist']}")
+            if result.get("title"):
+                parts.append(f"Titel: {result['title']}")
+            if result.get("album"):
+                parts.append(f"Album: {result['album']}")
+            if result.get("release_date"):
+                parts.append(f"Veröffentlichung: {result['release_date']}")
+            if result.get("song_link"):
+                parts.append(f"Link: {result['song_link']}")
+            if not parts:
+                return "Kein Song erkannt."
+            return " | ".join(parts)
+        except Exception as exc:
+            logger.error("musik_erkennen error: %s", exc, exc_info=True)
+            return f"Musikerkennung fehlgeschlagen: {exc}"

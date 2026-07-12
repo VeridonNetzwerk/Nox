@@ -14,6 +14,9 @@ onnxruntime>=1.17.0
 sounddevice==0.5.1
 numpy>=1.26.0
 
+# Music recognition – system audio loopback capture
+SoundCard>=0.4.6
+
 # Voice pipeline – VAD
 # webrtcvad-wheels installed separately in build_backend.py (optional, --only-binary)
 # webrtcvad-wheels==2.0.10.post2
