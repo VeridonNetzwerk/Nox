@@ -1056,6 +1056,8 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
                         if not line:
                             continue
                         data = json.loads(line)
+                        if data.get("error"):
+                            raise RuntimeError(data["error"])
                         if data.get("total"):
                             ONBOARDING_STATE["pull_progress"] = data.get("completed", 0) / data["total"]
                         if data.get("status") == "success":
