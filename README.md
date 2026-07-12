@@ -36,12 +36,12 @@
 |---------|-------------|
 | 🎙️ **Wake Word** | Say **"Hey Nox"** to activate — custom-trained openWakeWord model, fully offline |
 | 🗣️ **Speech-to-Text** | GPU-accelerated transcription via faster-whisper (CUDA) with VAD silence detection |
-| 🔊 **Text-to-Speech** | Multi-engine voices: Piper TTS (offline), Edge TTS (cloud), Kokoro-82M (offline) — 27 languages, male & female voices |
+| 🔊 **Text-to-Speech** | Multi-engine voices: Edge TTS (cloud), Kokoro-82M (offline), Piper TTS (offline fallback) — 27 languages, male & female voices |
 | 💬 **Chat** | Streaming token-by-token responses via Ollama (Gemma, Llama, Mistral, etc.) |
 | 👁️ **Context Capture** | Reads active windows, UI elements, clipboard, and screenshots (OCR) for context-aware answers |
 | 📁 **File Search** | Indexes and searches local documents (txt, md, docx, pdf) with semantic embeddings |
 | � **Music Recognition** | Identifies songs playing on your PC via system audio loopback + AudD API |
-| �🎨 **Overlay UI** | Sleek always-on-top overlay with system tray, global hotkey, and dark theme |
+| � **Overlay UI** | Sleek always-on-top overlay with system tray, global hotkey, and dark theme |
 | 🔒 **100% Local** | No cloud, no telemetry, no data leaves your machine |
 | 🌐 **Multilingual** | 27 languages with auto-switching TTS voices and full i18n UI support |
 
@@ -151,7 +151,7 @@ nox-app/
 | LLM | [Ollama](https://ollama.com) (Gemma preferred, auto-selected by VRAM) |
 | Wake Word | [openWakeWord](https://github.com/dscripka/openWakeWord) (custom "Hey Nox" ONNX model) |
 | STT | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2, CUDA) |
-| TTS | [Piper TTS](https://github.com/rhasspy/piper) (offline), [Edge TTS](https://github.com/rany2/edge-tts) (cloud), [Kokoro-82M](https://github.com/hexgrad/kokoro) (offline) |
+| TTS | [Edge TTS](https://github.com/rany2/edge-tts) (cloud), [Kokoro-82M](https://github.com/hexgrad/kokoro) (offline), [Piper TTS](https://github.com/rhasspy/piper) (offline fallback) |
 | VAD | [webrtcvad](https://github.com/wiseman/py-webrtcvad) (voice activity detection + end-of-turn) |
 | Context | [EasyOCR](https://github.com/JaidedAI/EasyOCR), [sentence-transformers](https://github.com/UKPLab/sentence-transformers), SQLite + FTS5 |
 | Music Recognition | [AudD](https://audd.io) API + [SoundCard](https://github.com/bastibe/SoundCard) (WASAPI loopback) |
@@ -171,7 +171,8 @@ Settings are stored in `%APPDATA%\Nox\config.yaml` and can be changed via the in
 | `stt_model` | `small` | Whisper model size (tiny/base/small/medium/large) |
 | `stt_language` | `de` | STT language code |
 | `stt_device` | `cuda` | Compute device (cuda/cpu) |
-| `tts_model` | `de_DE-thorsten-medium` | Piper voice model |
+| `tts_model` | `de-DE-SeraphinaMultilingualNeural` | TTS voice ID (Edge/Kokoro/Piper) |
+| `tts_engine` | `edge` | TTS engine: edge, kokoro, or piper |
 | `vad_silence_duration` | `1.0` | Silence seconds to end recording |
 | `vad_timeout` | `15.0` | Max recording duration |
 | `hotkey` | `Ctrl+Shift+Space` | Global overlay toggle |
@@ -253,7 +254,7 @@ Nox stands on the shoulders of these amazing open-source projects:
 |---------|------|
 | [Ollama](https://ollama.com) | Local LLM runtime — powers all chat and reasoning |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | GPU-accelerated speech-to-text transcription |
-| [Piper TTS](https://github.com/rhasspy/piper) | Offline neural text-to-speech |
+| [Piper TTS](https://github.com/rhasspy/piper) | Offline neural text-to-speech (fallback engine) |
 | [Edge TTS](https://github.com/rany2/edge-tts) | Microsoft Edge cloud text-to-speech voices |
 | [Kokoro-82M](https://github.com/hexgrad/kokoro) | Lightweight offline TTS with 27-language support |
 | [openWakeWord](https://github.com/dscripka/openWakeWord) | Offline wake word detection |
