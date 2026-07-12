@@ -1136,8 +1136,8 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
         {step < steps.length - 1 ? (
           <button
             onClick={next}
-            disabled={(step === 0 && !ollamaOk) || (step === 1 && !selectedVoice) || (step === 2 && (pullRunning || (selectedModel && !models.includes(selectedModel))))}
-            className={(step === 0 && !ollamaOk) || (step === 1 && !selectedVoice) || (step === 2 && (pullRunning || (selectedModel && !models.includes(selectedModel)))) ? btnDisabled : btnPrimary}
+            disabled={(step === 0 && !ollamaOk) || (step === 1 && !selectedVoice) || (step === 2 && selectedModel && !models.includes(selectedModel))}
+            className={(step === 0 && !ollamaOk) || (step === 1 && !selectedVoice) || (step === 2 && selectedModel && !models.includes(selectedModel)) ? btnDisabled : btnPrimary}
           >
             {s.next || "Weiter"}
           </button>
