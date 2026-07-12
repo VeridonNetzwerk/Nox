@@ -1,5 +1,5 @@
 audd_api_token: 'test'
-audio_input_device: default
+audio_input_device: OBSBOT Meet 2 Microphone
 audio_output_device: default
 end_turn_enabled: true
 end_turn_fillword_extension: 0.8
