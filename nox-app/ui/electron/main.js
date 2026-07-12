@@ -637,11 +637,16 @@ app.whenReady().then(async () => {
   ipcMain.on("onboarding-complete", () => {
     markOnboardingDone();
     isOnboardingActive = false;
+    if (mainWindow) {
+      const isDebug = !app.isPackaged;
+      mainWindow.setAlwaysOnTop(!isDebug, "screen-saver");
+    }
     console.log("Onboarding completed — flag written");
   });
   ipcMain.on("onboarding-active", () => {
     isOnboardingActive = true;
-    console.log("Onboarding active — window will stay visible");
+    if (mainWindow) mainWindow.setAlwaysOnTop(true, "screen-saver");
+    console.log("Onboarding active — window will stay visible and on top");
   });
   ipcMain.on("thinking-state", (_e, thinking) => {
     isThinking = thinking;
