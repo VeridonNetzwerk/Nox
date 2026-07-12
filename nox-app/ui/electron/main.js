@@ -95,6 +95,7 @@ let suppressBlur = false;
 let lastShowTime = 0;
 let isThinking = false; // Don't hide window while Nox is generating a response
 let isOnboardingActive = false; // Don't hide window while onboarding wizard is showing
+let isVoiceActive = false; // Don't hide window while listening or speaking
 
 // ---------------------------------------------------------------------------
 // Screen positioning
@@ -215,6 +216,8 @@ function createWindow() {
     if (isThinking) return;
     // Don't hide while onboarding wizard is active
     if (isOnboardingActive) return;
+    // Don't hide while Nox is listening or speaking
+    if (isVoiceActive) return;
     // Ignore blur within 1s of showWindow (tray menu close delay)
     if (Date.now() - lastShowTime < 1000) return;
     hideWindow();
@@ -650,7 +653,13 @@ app.whenReady().then(async () => {
   });
   ipcMain.on("thinking-state", (_e, thinking) => {
     isThinking = thinking;
+    if (mainWindow) mainWindow.setAlwaysOnTop(thinking || isVoiceActive || isOnboardingActive, "screen-saver");
     console.log("Thinking state:", thinking);
+  });
+  ipcMain.on("voice-state", (_e, active) => {
+    isVoiceActive = active;
+    if (mainWindow) mainWindow.setAlwaysOnTop(active || isThinking || isOnboardingActive, "screen-saver");
+    console.log("Voice active state:", active);
   });
   ipcMain.on("renderer-log", (_e, msg) => console.log(`[RENDERER] ${msg}`));
   ipcMain.on("renderer-error", (_e, msg) => console.error(`[RENDERER ERROR] ${msg}`));

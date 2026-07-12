@@ -64,6 +64,14 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [micState, setMicState] = useState("idle"); // idle | listening | processing | speaking
+
+  // Notify Electron when voice/thinking state changes so window stays visible
+  useEffect(() => {
+    window.nox?.setVoiceState?.(micState === "listening" || micState === "speaking");
+  }, [micState]);
+  useEffect(() => {
+    window.nox?.setThinkingState?.(isStreaming);
+  }, [isStreaming]);
   const [animState, setAnimState] = useState("visible"); // hidden | animating-in | visible | animating-out
   const [systemStatus, setSystemStatus] = useState(null); // null = not fetched yet
   const [backendReady, setBackendReady] = useState(false);
