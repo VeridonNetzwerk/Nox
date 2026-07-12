@@ -63,12 +63,12 @@
 
 Nox automatically selects the best Ollama model based on your GPU's VRAM. **Gemma 4** models are preferred for their strong context support, multimodal (image) capabilities, and agentic workflows.
 
-| GPU VRAM | Recommended Model | Use Case |
-|----------|-------------------|----------|
-| < 8 GB | Gemma 4 E2B | Low-end GPUs, edge devices |
-| 8–12 GB | Gemma 4 E4B | Mid-range, solid default |
-| 12–20 GB | Gemma 4 26B MoE | Balanced performance + speed |
-| ≥ 20 GB | Gemma 4 31B | Maximum quality |
+| GPU VRAM | Schnell | Balance | Qualität |
+|----------|---------|---------|----------|
+| < 8 GB | Gemma 4 E2B | Gemma 4 E4B | Gemma 4 E4B |
+| 8–12 GB | Gemma 4 E2B | Gemma 4 E4B | Gemma 4 26B MoE |
+| 12–20 GB | Gemma 4 E2B | Gemma 4 E4B | Gemma 4 26B MoE |
+| ≥ 20 GB | Gemma 4 E4B | Gemma 4 26B MoE | Gemma 4 31B |
 
 If no Gemma model is installed, Nox falls back to any available model with a matching size, or the first available model as a last resort. You can always switch models in **Settings**.
 

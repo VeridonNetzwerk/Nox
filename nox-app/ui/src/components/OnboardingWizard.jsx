@@ -188,7 +188,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     if (vram >= 20000) {
       model = sliderPos === 0 ? "gemma4:e4b" : sliderPos === 1 ? "gemma4:26b" : "gemma4:31b";
     } else if (vram >= 12000) {
-      model = sliderPos === 0 ? "gemma4:e4b" : sliderPos === 1 ? "gemma4:26b" : "gemma4:26b";
+      model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:e4b" : "gemma4:26b";
     } else if (vram >= 8000) {
       model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:e4b" : "gemma4:26b";
     } else {
@@ -851,9 +851,9 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                 ];
               } else if (vram >= 12000) {
                 tiers = [
-                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Schnell und kompakt – gut für einfache Aufgaben.", size: "~10 GB" },
-                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Beste Balance für " + Math.round(vram/1024) + " GB VRAM – MoE, nur 4B aktiv.", size: "~18 GB" },
-                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Maximale Qualität für deine GPU – MoE mit 256K Kontext.", size: "~18 GB" },
+                  { model: "gemma4:e2b", label: "Gemma 4 E2B", desc: "Sehr schnell, kompakt – gut für einfache Aufgaben.", size: "~7 GB" },
+                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Beste Balance für " + Math.round(vram/1024) + " GB VRAM – kompakt aber leistungsstark.", size: "~10 GB" },
+                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Maximale Qualität – MoE mit 256K Kontext, braucht ~18 GB.", size: "~18 GB" },
                 ];
               } else if (vram >= 8000) {
                 tiers = [
