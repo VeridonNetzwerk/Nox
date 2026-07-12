@@ -102,9 +102,32 @@ class Orchestrator:
 
         logger.info("Orchestrator initialized (model=%s, conv=%s)", self.ollama_model, self._conversation_id)
 
+        self._tools_supported: Optional[bool] = None
+
     @property
     def conversation_id(self) -> str:
         return self._conversation_id
+
+    async def _check_tools_support(self) -> bool:
+        """Check if the current Ollama model supports native tool calling."""
+        if self._tools_supported is not None:
+            return self._tools_supported
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.ollama_host}/api/tags")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for m in data.get("models", []):
+                        if m.get("name") == self.ollama_model or m.get("model") == self.ollama_model:
+                            caps = m.get("capabilities", [])
+                            self._tools_supported = "tools" in caps
+                            logger.info("Model %s tools support: %s (capabilities: %s)",
+                                        self.ollama_model, self._tools_supported, caps)
+                            return self._tools_supported
+        except Exception as exc:
+            logger.warning("Failed to check model capabilities: %s", exc)
+        self._tools_supported = False
+        return False
 
     def set_broadcast(self, broadcast: Callable) -> None:
         self._broadcast = broadcast
@@ -173,8 +196,10 @@ class Orchestrator:
         full_response = ""
         tool_executed = False
 
+        use_native_tools = await self._check_tools_support()
+
         try:
-            async for item in self._stream_ollama(messages, use_tools=True):
+            async for item in self._stream_ollama(messages, use_tools=use_native_tools):
                 # Native tool call sentinel
                 if isinstance(item, dict) and "tool_calls" in item and not tool_executed:
                     for tc in item["tool_calls"]:
@@ -419,6 +444,7 @@ class Orchestrator:
         """Change the active Ollama model at runtime."""
         self.ollama_model = model
         self.conversation_store.ollama_model = model
+        self._tools_supported = None
         logger.info("Model changed to: %s", model)
 
     def new_conversation(self) -> str:
