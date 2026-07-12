@@ -1042,7 +1042,13 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
         ONBOARDING_STATE["pull_running"] = True
         ONBOARDING_STATE["pull_model"] = model
         ONBOARDING_STATE["pull_progress"] = 0
+        ONBOARDING_STATE["pull_completed"] = 0
+        ONBOARDING_STATE["pull_total"] = 0
+        ONBOARDING_STATE["pull_speed"] = 0
         ONBOARDING_STATE["pull_error"] = None
+        import time
+        last_completed = 0
+        last_time = time.monotonic()
         try:
             ollama_host = config.get("ollama_host", "http://localhost:11434")
             async with httpx.AsyncClient(timeout=600.0) as client:
@@ -1059,9 +1065,21 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
                         if data.get("error"):
                             raise RuntimeError(data["error"])
                         if data.get("total"):
-                            ONBOARDING_STATE["pull_progress"] = data.get("completed", 0) / data["total"]
+                            completed = data.get("completed", 0)
+                            total = data["total"]
+                            ONBOARDING_STATE["pull_progress"] = completed / total
+                            ONBOARDING_STATE["pull_completed"] = completed
+                            ONBOARDING_STATE["pull_total"] = total
+                            now = time.monotonic()
+                            elapsed = now - last_time
+                            if elapsed >= 0.5:
+                                speed = (completed - last_completed) / elapsed
+                                ONBOARDING_STATE["pull_speed"] = speed
+                                last_completed = completed
+                                last_time = now
                         if data.get("status") == "success":
                             ONBOARDING_STATE["pull_progress"] = 1.0
+                            ONBOARDING_STATE["pull_speed"] = 0
                             break
             logger.info("Ollama model pull complete: %s", model)
         except Exception as exc:
@@ -1082,6 +1100,9 @@ async def pull_status() -> dict[str, Any]:
         "running": ONBOARDING_STATE.get("pull_running", False),
         "model": ONBOARDING_STATE.get("pull_model", ""),
         "progress": ONBOARDING_STATE.get("pull_progress", 0),
+        "completed": ONBOARDING_STATE.get("pull_completed", 0),
+        "total": ONBOARDING_STATE.get("pull_total", 0),
+        "speed": ONBOARDING_STATE.get("pull_speed", 0),
         "error": ONBOARDING_STATE.get("pull_error"),
     }
 

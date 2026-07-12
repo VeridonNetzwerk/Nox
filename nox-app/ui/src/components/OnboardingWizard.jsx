@@ -160,6 +160,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const [pullRunning, setPullRunning] = useState(false);
   const [pullError, setPullError] = useState(null);
   const [pullModel, setPullModel] = useState("");
+  const [pullBytes, setPullBytes] = useState({ completed: 0, total: 0, speed: 0 });
   const [sliderPos, setSliderPos] = useState(1);
   const [showInstalledModels, setShowInstalledModels] = useState(false);
 
@@ -469,6 +470,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     setPullProgress(0);
     setPullRunning(true);
     setPullError(null);
+    setPullBytes({ completed: 0, total: 0, speed: 0 });
     try {
       await fetch(`${API_BASE}/api/onboarding/pull-ollama-model`, {
         method: "POST",
@@ -480,6 +482,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
           const res = await fetch(`${API_BASE}/api/onboarding/pull-status`);
           const data = await res.json();
           setPullProgress(data.progress || 0);
+          setPullBytes({ completed: data.completed || 0, total: data.total || 0, speed: data.speed || 0 });
           if (data.running) {
             pollRef.current = setTimeout(poll, 1000);
           } else {
@@ -935,8 +938,20 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                       </button>
                     )}
                     {pullRunning && pullModel === tier.model && (
-                      <div className="w-full h-2 rounded-full bg-nox-border overflow-hidden">
-                        <div className="h-full bg-nox-accent transition-all duration-300 rounded-full" style={{ width: `${Math.round(pullProgress * 100)}%` }} />
+                      <div className="space-y-1.5">
+                        <div className="w-full h-2 rounded-full bg-nox-border overflow-hidden">
+                          <div className="h-full bg-nox-accent transition-all duration-300 rounded-full" style={{ width: `${Math.round(pullProgress * 100)}%` }} />
+                        </div>
+                        <div className="flex justify-between text-xs text-nox-textDim">
+                          <span>
+                            {pullBytes.completed > 0
+                              ? `${(pullBytes.completed / 1048576).toFixed(0)} / ${(pullBytes.total / 1048576).toFixed(0)} MB`
+                              : `${Math.round(pullProgress * 100)}%`}
+                          </span>
+                          {pullBytes.speed > 0 && (
+                            <span>{(pullBytes.speed / 1048576).toFixed(1)} MB/s</span>
+                          )}
+                        </div>
                       </div>
                     )}
                     {pullError && pullModel === tier.model && (
