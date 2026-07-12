@@ -824,14 +824,10 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                 recModel = "gemma3:12b";
                 recDesc = "Gemma 3 12B – beste Qualität, ausreichend VRAM vorhanden.";
                 recLabel = "12B";
-              } else if (vram >= 16000) {
-                recModel = "gemma3:12b";
-                recDesc = "Gemma 3 12B – beste Balance aus Qualität und Geschwindigkeit.";
-                recLabel = "12B";
               } else if (vram >= 12000) {
-                recModel = "gemma3:4b";
-                recDesc = "Gemma 3 4B – optimiert für deine GPU (" + Math.round(vram/1024) + " GB VRAM). Schnell und präzise.";
-                recLabel = "4B";
+                recModel = "gemma3:12b";
+                recDesc = "Gemma 3 12B – beste Balance aus Qualität und Geschwindigkeit für " + Math.round(vram/1024) + " GB VRAM.";
+                recLabel = "12B";
               } else if (vram >= 8000) {
                 recModel = "gemma3:4b";
                 recDesc = "Gemma 3 4B – ideal für 8 GB VRAM. Schnelle Antworten, gute Qualität.";
@@ -845,7 +841,24 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                 recDesc = "Gemma 3 4B – funktioniert auf CPU und GPU. Kompakt und schnell.";
                 recLabel = "4B";
               }
-              if (models.includes(recModel)) return null;
+              const recInstalled = models.includes(recModel);
+              if (recInstalled) return (
+                <div className="px-3 py-3 rounded-lg bg-green-500/10 border border-green-500/30 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-green-400 uppercase tracking-wide">
+                      {s.recommended || "Empfohlen"} · {gpuMode} · ✓ {s.installedModels || "Installiert"}
+                    </span>
+                    {vram > 0 && (
+                      <span className="text-xs text-nox-textDim">
+                        {Math.round(vram/1024)} GB VRAM
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-nox-text">
+                    {recDesc}
+                  </p>
+                </div>
+              );
               return (
                 <div className="px-3 py-3 rounded-lg bg-nox-accent/10 border border-nox-accent/30 space-y-2">
                   <div className="flex items-center gap-2">
@@ -942,15 +955,6 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                 )}
               </div>
             )}
-            {/* Voice model info */}
-            <div className="pt-2 border-t border-nox-border">
-              <h4 className="text-xs font-medium text-nox-textDim uppercase tracking-wide mb-2">
-                {s.voiceModels || "Voice-Modelle"}
-              </h4>
-              <p className="text-xs text-nox-textDim">
-                {s.wakeWordBuiltin || "Wake-Word-Modell ist integriert (Hey Nox). Du kannst die Kalibrierung im nächsten Schritt testen."}
-              </p>
-            </div>
           </div>
         )}
 
