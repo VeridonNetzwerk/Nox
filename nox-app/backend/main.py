@@ -1037,6 +1037,7 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
         ONBOARDING_STATE["pull_total"] = 0
         ONBOARDING_STATE["pull_speed"] = 0
         ONBOARDING_STATE["pull_error"] = None
+        ONBOARDING_STATE["pull_status_text"] = "starting"
         import time
         last_completed = 0
         last_time = time.monotonic()
@@ -1055,6 +1056,8 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
                         data = json.loads(line)
                         if data.get("error"):
                             raise RuntimeError(data["error"])
+                        status_text = data.get("status", "")
+                        ONBOARDING_STATE["pull_status_text"] = status_text
                         if data.get("total"):
                             completed = data.get("completed", 0)
                             total = data["total"]
@@ -1068,9 +1071,10 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
                                 ONBOARDING_STATE["pull_speed"] = speed
                                 last_completed = completed
                                 last_time = now
-                        if data.get("status") == "success":
+                        if status_text == "success":
                             ONBOARDING_STATE["pull_progress"] = 1.0
                             ONBOARDING_STATE["pull_speed"] = 0
+                            ONBOARDING_STATE["pull_status_text"] = "done"
                             break
             logger.info("Ollama model pull complete: %s", model)
         except Exception as exc:
@@ -1095,6 +1099,7 @@ async def pull_status() -> dict[str, Any]:
         "total": ONBOARDING_STATE.get("pull_total", 0),
         "speed": ONBOARDING_STATE.get("pull_speed", 0),
         "error": ONBOARDING_STATE.get("pull_error"),
+        "status_text": ONBOARDING_STATE.get("pull_status_text", ""),
     }
 
 

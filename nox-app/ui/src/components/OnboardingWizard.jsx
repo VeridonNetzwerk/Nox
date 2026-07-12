@@ -161,6 +161,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const [pullError, setPullError] = useState(null);
   const [pullModel, setPullModel] = useState("");
   const [pullBytes, setPullBytes] = useState({ completed: 0, total: 0, speed: 0 });
+  const [pullStatusText, setPullStatusText] = useState("");
   const [sliderPos, setSliderPos] = useState(1);
   const [showInstalledModels, setShowInstalledModels] = useState(false);
 
@@ -200,7 +201,52 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     }
   }, [sliderPos, step, gpuInfo, models]);
 
-  // Poll wake detection status during onboarding step 4
+  const poll = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/onboarding/pull-status`);
+      const data = await res.json();
+      setPullProgress(data.progress || 0);
+      setPullBytes({ completed: data.completed || 0, total: data.total || 0, speed: data.speed || 0 });
+      setPullStatusText(data.status_text || "");
+      setPullModel(data.model || "");
+      if (data.running) {
+        pollRef.current = setTimeout(poll, 1000);
+      } else {
+        setPullRunning(false);
+        if (data.error) {
+          setPullError(data.error);
+        } else {
+          const modelsRes = await fetch(`${API_BASE}/api/models`);
+          const modelsData = await modelsRes.json();
+          setModels(modelsData.available_models || []);
+          if (data.model) setSelectedModel(data.model);
+        }
+      }
+    } catch {
+      pollRef.current = setTimeout(poll, 2000);
+    }
+  };
+
+  // Resume polling on mount if a pull is already running (e.g. after HMR)
+  useEffect(() => {
+    if (pullRunning) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/onboarding/pull-status`);
+        const data = await res.json();
+        if (!cancelled && data.running) {
+          setPullRunning(true);
+          setPullModel(data.model || "");
+          setPullProgress(data.progress || 0);
+          setPullBytes({ completed: data.completed || 0, total: data.total || 0, speed: data.speed || 0 });
+          setPullStatusText(data.status_text || "");
+          pollRef.current = setTimeout(poll, 1000);
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
     if (step !== 4 || !wakeOk) return;
     let lastCount = 0;
@@ -471,35 +517,13 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     setPullRunning(true);
     setPullError(null);
     setPullBytes({ completed: 0, total: 0, speed: 0 });
+    setPullStatusText("starting");
     try {
       await fetch(`${API_BASE}/api/onboarding/pull-ollama-model`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model }),
       });
-      const poll = async () => {
-        try {
-          const res = await fetch(`${API_BASE}/api/onboarding/pull-status`);
-          const data = await res.json();
-          setPullProgress(data.progress || 0);
-          setPullBytes({ completed: data.completed || 0, total: data.total || 0, speed: data.speed || 0 });
-          if (data.running) {
-            pollRef.current = setTimeout(poll, 1000);
-          } else {
-            setPullRunning(false);
-            if (data.error) {
-              setPullError(data.error);
-            } else {
-              const modelsRes = await fetch(`${API_BASE}/api/models`);
-              const modelsData = await modelsRes.json();
-              setModels(modelsData.available_models || []);
-              setSelectedModel(model);
-            }
-          }
-        } catch {
-          pollRef.current = setTimeout(poll, 2000);
-        }
-      };
       poll();
     } catch (err) {
       setPullError(String(err));
@@ -953,6 +977,9 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                           )}
                         </div>
                       </div>
+                    )}
+                    {pullRunning && pullModel === tier.model && pullBytes.total === 0 && pullStatusText && (
+                      <p className="text-xs text-nox-textDim">{pullStatusText}…</p>
                     )}
                     {pullError && pullModel === tier.model && (
                       <p className="text-xs text-red-400">{s.pullFailed || "Download fehlgeschlagen:"} {pullError}</p>
