@@ -327,7 +327,7 @@ async def startup_event() -> None:
     orchestrator.set_broadcast(manager.broadcast)
 
     # Auto-select best Ollama model if configured model is missing
-    configured_model = config.get("ollama_model", "gemma4:e4b")
+    configured_model = config.get("ollama_model", "qwen3:14b")
     try:
         available = await orchestrator.get_available_models()
         if available and configured_model not in available:
@@ -348,7 +348,7 @@ async def startup_event() -> None:
     # Preload model if enabled
     if config.get("ollama_preload", False):
         preload_mode = config.get("ollama_preload_mode", "vram")
-        model = config.get("ollama_model", "gemma4:e4b")
+        model = config.get("ollama_model", "qwen3:14b")
         ollama_host = config.get("ollama_host", "http://localhost:11434")
         logger.info("Preloading model '%s' (mode=%s)...", model, preload_mode)
         try:
@@ -400,7 +400,7 @@ async def health_ollama() -> dict[str, Any]:
     if Ollama is not running, instead of raising an exception.
     """
     ollama_host = config.get("ollama_host", "http://localhost:11434")
-    ollama_model = config.get("ollama_model", "gemma4:e4b")
+    ollama_model = config.get("ollama_model", "qwen3:14b")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{ollama_host}/api/tags")
@@ -510,7 +510,7 @@ async def get_models() -> dict[str, Any]:
     models = await orchestrator.get_available_models()
     return {
         "status": "ok",
-        "current_model": config.get("ollama_model", "gemma4:e4b"),
+        "current_model": config.get("ollama_model", "qwen3:14b"),
         "available_models": models,
     }
 
@@ -843,38 +843,29 @@ def _get_gpu_vram() -> int:
 
 
 def _select_model_by_vram(available_models: list[str], vram_mb: int) -> str | None:
-    """Select the best Gemma model based on GPU VRAM.
+    """Select the best Qwen3 model based on GPU VRAM.
 
-    Preference order (Gemma first, then fallback):
+    Preference order (Qwen3 first, then fallback):
       <8GB  VRAM -> 4b model
-      <12GB VRAM -> 4b model (safe)
-      <16GB VRAM -> 8b model
-      <20GB VRAM -> 12b model
-      >=20GB VRAM -> 16b model (or largest available)
+      <12GB VRAM -> 8b model
+      <20GB VRAM -> 14b model
+      >=20GB VRAM -> 14b or 32b model
     """
     if vram_mb <= 0:
-        # No GPU info — pick smallest Gemma
-        target_sizes = ["4b", "8b", "12b", "16b", "2b", "1b"]
+        target_sizes = ["4b", "8b", "14b", "1.7b"]
     elif vram_mb < 8000:
-        target_sizes = ["4b", "2b", "1b"]
+        target_sizes = ["4b", "1.7b", "8b"]
     elif vram_mb < 12000:
-        target_sizes = ["4b", "8b", "2b", "1b"]
-    elif vram_mb < 16000:
-        target_sizes = ["8b", "4b", "12b", "2b"]
+        target_sizes = ["8b", "4b", "14b", "1.7b"]
     elif vram_mb < 20000:
-        target_sizes = ["12b", "8b", "4b", "16b"]
+        target_sizes = ["14b", "8b", "4b", "32b"]
     else:
-        target_sizes = ["16b", "12b", "8b", "4b"]
+        target_sizes = ["14b", "32b", "8b", "4b"]
 
-    # Try Gemma variants first, then any model with the target size
+    # Try Qwen3 variants first
     for size in target_sizes:
-        # Prefer gemma3 specifically
         for m in available_models:
-            if "gemma3" in m.lower() and size in m.lower():
-                return m
-        # Then any gemma variant
-        for m in available_models:
-            if "gemma" in m.lower() and size in m.lower():
+            if "qwen3" in m.lower() and size in m.lower():
                 return m
 
     # Fallback: any model with the target size
@@ -1034,7 +1025,7 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
 
     The frontend polls /api/onboarding/pull-status to track progress.
     """
-    model = body.get("model", "gemma4:e4b")
+    model = body.get("model", "qwen3:14b")
     if ONBOARDING_STATE.get("pull_running"):
         return {"status": "already_running"}
 

@@ -151,7 +151,7 @@
     "wakeWordBuiltin": "Le modèle wake word est intégré (Hey Nox). Vous pouvez tester la calibration à l'étape suivante.",
     "pullFailed": "Échec du téléchargement",
     "recommended": "Recommandé",
-    "recommendedModelDesc": "Gemma 3 12B – meilleur équilibre qualité/vitesse pour Nox.",
+    "recommendedModelDesc": "Qwen 3 14B – meilleur équilibre qualité/tool-calling/vitesse pour Nox.",
     "downloadRecommended": "Télécharger le modèle recommandé",
     "installedModels": "Modèles installés"
   },

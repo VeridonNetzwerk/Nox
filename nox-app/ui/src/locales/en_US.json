@@ -152,7 +152,7 @@
     "wakeWordBuiltin": "Wake word model is built-in (Hey Nox). You can test calibration in the next step.",
     "pullFailed": "Download failed",
     "recommended": "Recommended",
-    "recommendedModelDesc": "Gemma 3 12B – best balance of quality and speed for Nox.",
+    "recommendedModelDesc": "Qwen 3 14B – best balance of quality, tool-calling and speed for Nox.",
     "downloadRecommended": "Download recommended model",
     "installedModels": "Installed models"
   },

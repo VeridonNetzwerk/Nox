@@ -187,13 +187,13 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
     const vram = gpuInfo?.vram_mb || 0;
     let model;
     if (vram >= 20000) {
-      model = sliderPos === 0 ? "gemma4:12b" : sliderPos === 1 ? "gemma4:26b" : "gemma4:31b";
+      model = sliderPos === 0 ? "qwen3:14b" : sliderPos === 1 ? "qwen3:32b" : "qwen3:32b";
     } else if (vram >= 12000) {
-      model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:12b" : "gemma4:26b";
+      model = sliderPos === 0 ? "qwen3:8b" : sliderPos === 1 ? "qwen3:14b" : "qwen3:32b";
     } else if (vram >= 8000) {
-      model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:12b" : "gemma4:26b";
+      model = sliderPos === 0 ? "qwen3:4b" : sliderPos === 1 ? "qwen3:8b" : "qwen3:14b";
     } else {
-      model = sliderPos === 0 ? "gemma4:e2b" : sliderPos === 1 ? "gemma4:e4b" : "gemma4:12b";
+      model = sliderPos === 0 ? "qwen3:1.7b" : sliderPos === 1 ? "qwen3:4b" : "qwen3:8b";
     }
     if (model && models.includes(model)) {
       setSelectedModel(model);
@@ -844,31 +844,31 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               const vram = gpuInfo?.vram_mb || 0;
               const gpuMode = gpuInfo?.cuda_available ? "GPU" : "CPU";
 
-              // Build model tiers based on VRAM — Gemma 4 family
+              // Build model tiers based on VRAM — Qwen 3 family
               let tiers;
               if (vram >= 20000) {
                 tiers = [
-                  { model: "gemma4:12b", label: "Gemma 4 12B", desc: "Schnell, 256K Kontext – gut für einfache Aufgaben.", size: "~8 GB" },
-                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Beste Balance – MoE-Architektur, nur 4B aktiv pro Token.", size: "~18 GB" },
-                  { model: "gemma4:31b", label: "Gemma 4 31B", desc: "Höchste Qualität für deine GPU (" + Math.round(vram/1024) + " GB VRAM).", size: "~20 GB" },
+                  { model: "qwen3:14b", label: "Qwen 3 14B", desc: "Schnell, Tool-Calling – gut für einfache Aufgaben.", size: "~9 GB" },
+                  { model: "qwen3:32b", label: "Qwen 3 32B", desc: "Beste Balance – Tool-Calling, Thinking, 40K Kontext.", size: "~20 GB" },
+                  { model: "qwen3:32b", label: "Qwen 3 32B", desc: "Höchste Qualität für deine GPU (" + Math.round(vram/1024) + " GB VRAM).", size: "~20 GB" },
                 ];
               } else if (vram >= 12000) {
                 tiers = [
-                  { model: "gemma4:e2b", label: "Gemma 4 E2B", desc: "Sehr schnell, kompakt – gut für einfache Aufgaben.", size: "~7 GB" },
-                  { model: "gemma4:12b", label: "Gemma 4 12B", desc: "Beste Balance für " + Math.round(vram/1024) + " GB VRAM – 256K Kontext, nur ~8 GB.", size: "~8 GB" },
-                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Maximale Qualität – MoE mit 256K Kontext, braucht ~18 GB.", size: "~18 GB" },
+                  { model: "qwen3:8b", label: "Qwen 3 8B", desc: "Sehr schnell, kompakt – gut für einfache Aufgaben.", size: "~5 GB" },
+                  { model: "qwen3:14b", label: "Qwen 3 14B", desc: "Beste Balance für " + Math.round(vram/1024) + " GB VRAM – Tool-Calling, Thinking.", size: "~9 GB" },
+                  { model: "qwen3:32b", label: "Qwen 3 32B", desc: "Maximale Qualität – braucht ~20 GB, kann langsam sein.", size: "~20 GB" },
                 ];
               } else if (vram >= 8000) {
                 tiers = [
-                  { model: "gemma4:e2b", label: "Gemma 4 E2B", desc: "Sehr schnell, ideal für 8 GB VRAM.", size: "~7 GB" },
-                  { model: "gemma4:12b", label: "Gemma 4 12B", desc: "Gute Balance – 256K Kontext, kompakt mit ~8 GB.", size: "~8 GB" },
-                  { model: "gemma4:26b", label: "Gemma 4 26B MoE", desc: "Maximale Qualität – braucht ~18 GB, kann langsam sein.", size: "~18 GB" },
+                  { model: "qwen3:4b", label: "Qwen 3 4B", desc: "Sehr schnell, ideal für 8 GB VRAM.", size: "~2.5 GB" },
+                  { model: "qwen3:8b", label: "Qwen 3 8B", desc: "Gute Balance – Tool-Calling, kompakt mit ~5 GB.", size: "~5 GB" },
+                  { model: "qwen3:14b", label: "Qwen 3 14B", desc: "Maximale Qualität – braucht ~9 GB, kann langsam sein.", size: "~9 GB" },
                 ];
               } else {
                 tiers = [
-                  { model: "gemma4:e2b", label: "Gemma 4 E2B", desc: "Schnell und kompakt – funktioniert überall.", size: "~7 GB" },
-                  { model: "gemma4:e4b", label: "Gemma 4 E4B", desc: "Beste Wahl für CPU oder wenig VRAM.", size: "~10 GB" },
-                  { model: "gemma4:12b", label: "Gemma 4 12B", desc: "Höchste Qualität für begrenzte Hardware – 256K Kontext.", size: "~8 GB" },
+                  { model: "qwen3:1.7b", label: "Qwen 3 1.7B", desc: "Schnell und kompakt – funktioniert überall.", size: "~1.5 GB" },
+                  { model: "qwen3:4b", label: "Qwen 3 4B", desc: "Beste Wahl für CPU oder wenig VRAM.", size: "~2.5 GB" },
+                  { model: "qwen3:8b", label: "Qwen 3 8B", desc: "Höchste Qualität für begrenzte Hardware – Tool-Calling.", size: "~5 GB" },
                 ];
               }
 

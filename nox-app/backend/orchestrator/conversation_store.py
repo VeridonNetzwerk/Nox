@@ -43,7 +43,7 @@ class ConversationStore:
         self,
         db_path: str = "",
         ollama_host: str = "http://localhost:11434",
-        ollama_model: str = "gemma4:e4b",
+        ollama_model: str = "qwen3:14b",
         max_context_tokens: int = 4096,
         summary_threshold: float = 0.75,
     ):
