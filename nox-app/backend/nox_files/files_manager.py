@@ -122,6 +122,7 @@ class FilesManager:
             result = subprocess.run(
                 ["net", "use"],
                 capture_output=True, text=True, timeout=10,
+                encoding="utf-8", errors="replace",
             )
             for line in result.stdout.splitlines():
                 line = line.strip()
@@ -169,6 +170,7 @@ class FilesManager:
                     result = subprocess.run(
                         ["fsutil", "fsinfo", "volumeinfo", f"{letter}:"],
                         capture_output=True, text=True, timeout=5,
+                        encoding="utf-8", errors="replace",
                     )
                     output = result.stdout.lower()
                     # Network drives often have "remote" or specific drive types
