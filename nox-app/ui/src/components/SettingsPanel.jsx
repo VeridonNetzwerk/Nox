@@ -122,6 +122,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
   const [settings, setSettings] = useState({});
   const [models, setModels] = useState([]);
   const [autostart, setAutostart] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newExcludedApp, setNewExcludedApp] = useState("");
   const [audioDevices, setAudioDevices] = useState({ input: [], output: [] });
@@ -933,10 +934,45 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
     </>
   );
 
-  const renderAboutSettings = () => (
+  const renderAboutSettings = () => {
+    const handleCheckUpdates = async () => {
+      setUpdateChecking(true);
+      try {
+        const result = await window.nox?.checkForUpdates?.();
+        if (result?.error) {
+          addToast({ type: "error", title: "Update", message: `Prüfung fehlgeschlagen: ${result.error}`, duration: 5000 });
+        } else if (result?.hasUpdate) {
+          addToast({
+            type: "info",
+            title: "Update verfügbar",
+            message: `v${result.latestVersion} ist verfügbar (aktuell: v${result.currentVersion})`,
+            duration: 8000,
+          });
+          if (result.releaseUrl) {
+            window.nox?.openReleasePage?.();
+          }
+        } else {
+          addToast({ type: "success", title: "Update", message: `Nox ist aktuell (v${result?.currentVersion || "0.5.0"})`, duration: 4000 });
+        }
+      } catch (err) {
+        addToast({ type: "error", title: "Update", message: "Update-Prüfung fehlgeschlagen", detail: String(err), duration: 5000 });
+      }
+      setUpdateChecking(false);
+    };
+
+    return (
     <>
       <Row label={s.version}>
         <span className="text-nox-text font-medium">0.5.0</span>
+      </Row>
+      <Row label="Updates">
+        <button
+          onClick={handleCheckUpdates}
+          disabled={updateChecking}
+          className="px-3 py-1.5 rounded-lg bg-nox-accent/20 hover:bg-nox-accent/30 text-nox-accent text-sm font-medium transition-colors disabled:opacity-50"
+        >
+          {updateChecking ? "Prüfe…" : "Auf Updates prüfen"}
+        </button>
       </Row>
       <Row label={s.configPath}>
         <span className="text-nox-textDim text-xs truncate max-w-40">
@@ -944,7 +980,8 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
         </span>
       </Row>
     </>
-  );
+    );
+  };
 
   const renderCategoryContent = (catId) => {
     switch (catId) {

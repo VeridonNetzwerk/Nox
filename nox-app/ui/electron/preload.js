@@ -36,6 +36,15 @@ contextBridge.exposeInMainWorld("nox", {
   // Logging — forward renderer logs to main process file logger
   log: (msg) => ipcRenderer.send("renderer-log", msg),
   error: (msg) => ipcRenderer.send("renderer-error", msg),
+
+  // Updates
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+  downloadAndInstallUpdate: () => ipcRenderer.invoke("update:download-and-install"),
+  openReleasePage: () => ipcRenderer.send("update:open-release-page"),
+  onUpdateAvailable: (callback) =>
+    ipcRenderer.on("update:available", (_, info) => callback(info)),
+  onUpdateProgress: (callback) =>
+    ipcRenderer.on("update:progress", (_, progress) => callback(progress)),
 });
 
 // Forward uncaught renderer errors to main process

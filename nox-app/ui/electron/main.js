@@ -15,6 +15,7 @@ const fs = require("fs");
 const { spawn } = require("child_process");
 const { createTrayIcon } = require("./icon");
 const { checkAndUpgradeCuda } = require("./cuda-upgrade");
+const { checkForUpdates, downloadAndInstallInstaller, runInstaller, APP_VERSION } = require("./updater");
 
 // ---------------------------------------------------------------------------
 // File logging — writes to %APPDATA%/Nox/logs/nox-electron.log
@@ -681,6 +682,59 @@ app.whenReady().then(async () => {
       console.log("Hotkey updated:", newHotkey);
     }
   });
+
+  // --- Update IPC handlers ---
+  ipcMain.handle("update:check", async () => {
+    return await checkForUpdates();
+  });
+
+  ipcMain.handle("update:download-and-install", async (event) => {
+    const info = await checkForUpdates();
+    if (!info || info.error || !info.hasUpdate || !info.installer) {
+      return { error: "No update available or no installer asset found" };
+    }
+
+    try {
+      const installerPath = await downloadAndInstallInstaller(
+        info.installer.downloadUrl,
+        (progress) => {
+          if (mainWindow) {
+            mainWindow.webContents.send("update:progress", progress);
+          }
+        }
+      );
+      runInstaller(installerPath);
+      return { success: true };
+    } catch (err) {
+      console.error("Update download/install failed:", err);
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.on("update:open-release-page", () => {
+    checkForUpdates().then((info) => {
+      if (info && info.releaseUrl) {
+        shell.openExternal(info.releaseUrl);
+      }
+    });
+  });
+
+  // Auto-check for updates on startup (production only, after delay)
+  if (app.isPackaged) {
+    setTimeout(async () => {
+      const info = await checkForUpdates();
+      if (info && info.hasUpdate && mainWindow) {
+        console.log(`Update notification: v${info.latestVersion} available`);
+        mainWindow.webContents.send("update:available", {
+          currentVersion: info.currentVersion,
+          latestVersion: info.latestVersion,
+          releaseUrl: info.releaseUrl,
+          releaseNotes: info.releaseNotes,
+          installerSize: info.installer ? info.installer.size : 0,
+        });
+      }
+    }, 5000);
+  }
 });
 
 app.on("will-quit", () => {
