@@ -30,7 +30,8 @@ LOG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) /
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger("nox.backend")
-logger.setLevel(logging.DEBUG)
+# Log level set later based on dev/prod mode
+_log_level = logging.INFO
 
 # Size-based rotation: 10MB, 3 backups
 # delay=True opens the file lazily on first write to avoid Windows file lock issues
@@ -68,9 +69,9 @@ _console_handler.setFormatter(
 logger.addHandler(_console_handler)
 
 # Wire voice/orchestrator loggers to the same handlers
-for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt", "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation", "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye", "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store", "nox.eye.clipboard", "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings"):
+for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt", "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation", "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye", "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store", "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings"):
     _l = logging.getLogger(_name)
-    _l.setLevel(logging.DEBUG)
+    _l.setLevel(_log_level)
     _l.addHandler(_file_handler)
     _l.addHandler(_timed_handler)
     _l.addHandler(_console_handler)
@@ -87,6 +88,14 @@ _is_dev_mode = (
     or any("--reload" in str(a) for a in _sys.argv)
     or not (Path(__file__).parent / ".prod").exists()  # source tree without .prod marker
 )
+# Set log level based on mode
+if _is_dev_mode:
+    _log_level = logging.DEBUG
+    logger.setLevel(logging.DEBUG)
+    for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt", "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation", "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye", "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store", "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings"):
+        logging.getLogger(_name).setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.INFO)
 if _is_dev_mode:
     import shutil as _shutil
     _bundled = Path(__file__).parent / "config.yaml"
@@ -216,7 +225,11 @@ files_manager = FilesManager(config)
 # ---------------------------------------------------------------------------
 
 def apply_settings_update(updates: dict[str, Any]) -> None:
-    """Apply setting changes at runtime (called by einstellung_aendern tool)."""
+    """Apply setting changes at runtime (called by einstellung_aendern tool).
+
+    This is the single source of truth for hot-reloading settings.
+    Also called by the /api/settings endpoint.
+    """
     config.update(updates)
     if "ollama_model" in updates:
         orchestrator.set_model(updates["ollama_model"])
@@ -252,6 +265,10 @@ def apply_settings_update(updates: dict[str, Any]) -> None:
         voice_manager.recorder.end_turn_silence_threshold = updates["end_turn_silence_threshold"]
     if "end_turn_max_silence" in updates:
         voice_manager.recorder.end_turn_max_silence = updates["end_turn_max_silence"]
+    if "end_turn_fillword_extension" in updates:
+        voice_manager.recorder.end_turn_fillword_extension = updates["end_turn_fillword_extension"]
+    if "end_turn_incomplete_sentence_extension" in updates:
+        voice_manager.recorder.end_turn_incomplete_sentence_extension = updates["end_turn_incomplete_sentence_extension"]
     if "end_turn_enabled" in updates:
         voice_manager.recorder.end_turn_enabled = updates["end_turn_enabled"]
     files_keys = {"nox_files_enabled", "nox_files_full_drive", "nox_files_custom_folders",
@@ -379,7 +396,7 @@ async def shutdown_event() -> None:
     voice_manager.stop()
     eye_manager.stop()
     files_manager.stop()
-    orchestrator.close()
+    await orchestrator.close()
     logger.info("Backend shutdown complete")
 
 
@@ -561,66 +578,8 @@ async def update_settings(body: dict[str, Any]) -> dict[str, Any]:
     others require restart (host, port).
     """
     updates = body.get("settings", body)
-
-    # Persist to disk
     updated = settings_mgr.save(updates)
-    config.update(updates)
-
-    # Apply immediately where possible
-    if "ollama_model" in updates:
-        orchestrator.set_model(updates["ollama_model"])
-    if "wake_word_threshold" in updates:
-        voice_manager.wake_word.threshold = updates["wake_word_threshold"]
-    if "wake_word_enabled" in updates:
-        voice_manager._enabled = updates["wake_word_enabled"]
-        if updates["wake_word_enabled"]:
-            voice_manager.start()
-        else:
-            voice_manager.stop()
-    if "nox_eye_ttl_days" in updates:
-        eye_manager.context_store.ttl_days = updates["nox_eye_ttl_days"]
-    if "nox_eye_excluded_apps" in updates:
-        eye_manager.window_monitor.excluded_apps = {
-            a.lower() for a in updates["nox_eye_excluded_apps"]
-        }
-    if "nox_eye_screenshot_interval" in updates:
-        eye_manager.screenshot_history.update_interval(updates["nox_eye_screenshot_interval"])
-    if "tts_model" in updates:
-        voice_manager.tts.model_name = updates["tts_model"]
-        voice_manager.tts._voice = None  # force reload on next use
-    if "tts_engine" in updates:
-        voice_manager.tts_engine = updates["tts_engine"]
-        # tts_model holds the voice_id for edge/kokoro engines
-        voice_manager.tts_voice_id = updates.get("tts_model", voice_manager.tts_voice_id)
-
-    # Audio device hot-reload
-    if "audio_input_device" in updates or "audio_output_device" in updates:
-        input_dev = updates.get("audio_input_device", config.get("audio_input_device", "default"))
-        output_dev = updates.get("audio_output_device", config.get("audio_output_device", "default"))
-        voice_manager.update_audio_devices(input_dev, output_dev)
-
-    # VAD / end-of-turn settings hot-reload
-    if "vad_silence_duration" in updates:
-        voice_manager.recorder.silence_duration = updates["vad_silence_duration"]
-    if "end_turn_silence_threshold" in updates:
-        voice_manager.recorder.end_turn_silence_threshold = updates["end_turn_silence_threshold"]
-    if "end_turn_max_silence" in updates:
-        voice_manager.recorder.end_turn_max_silence = updates["end_turn_max_silence"]
-    if "end_turn_fillword_extension" in updates:
-        voice_manager.recorder.end_turn_fillword_extension = updates["end_turn_fillword_extension"]
-    if "end_turn_incomplete_sentence_extension" in updates:
-        voice_manager.recorder.end_turn_incomplete_sentence_extension = updates["end_turn_incomplete_sentence_extension"]
-    if "end_turn_enabled" in updates:
-        voice_manager.recorder.end_turn_enabled = updates["end_turn_enabled"]
-
-    # Nox Files settings hot-reload
-    files_keys = {"nox_files_enabled", "nox_files_full_drive", "nox_files_custom_folders",
-                  "nox_files_excluded_dirs", "nox_files_ocr_gpu"}
-    if files_keys & updates.keys():
-        files_manager.update_settings(updates)
-
-    await manager.broadcast({"type": "settings_changed", "settings": updates})
-
+    apply_settings_update(updates)
     return {"status": "ok", "settings": updated}
 
 

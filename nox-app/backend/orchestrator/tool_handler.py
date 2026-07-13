@@ -91,6 +91,7 @@ class ToolHandler:
         self._settings_manager = settings_manager
         self._apply_settings_fn = apply_settings_fn
         self._config = config or {}
+        self._tools_cache: Optional[list[dict[str, Any]]] = None
         self._register_defaults()
 
     def _register_defaults(self) -> None:
@@ -231,7 +232,7 @@ class ToolHandler:
         self.register(Tool(
             name="musik_erkennen",
             description="Erkennt den aktuell auf dem PC abgespielten Song. "
-                        "Nimmt kurze System-Audio auf und sendet es an die AudD API zur Erkennung. "
+                        "Nimmt kurze System-Audio auf und erkennt es via Shazam. "
                         "Verwende dies wenn der Nutzer fragt was für ein Song spielt oder welche Musik läuft.",
             parameters={"type": "object", "properties": {}},
             handler=self._tool_recognize_music,
@@ -239,11 +240,14 @@ class ToolHandler:
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
+        self._tools_cache = None
         logger.debug("Tool registered: %s", tool.name)
 
     def get_ollama_tools(self) -> list[dict[str, Any]]:
-        """Get all tools in Ollama API format."""
-        return [t.to_ollama_schema() for t in self._tools.values()]
+        """Get all tools in Ollama API format (cached)."""
+        if self._tools_cache is None:
+            self._tools_cache = [t.to_ollama_schema() for t in self._tools.values()]
+        return self._tools_cache
 
     def has_tool(self, name: str) -> bool:
         return name in self._tools

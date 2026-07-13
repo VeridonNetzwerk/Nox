@@ -23,7 +23,6 @@ from typing import Any, Optional
 from .window_monitor import WindowMonitor, WindowInfo
 from .uia_reader import UIAReader
 from .ocr_fallback import OCRFallback
-from .clipboard_monitor import ClipboardMonitor
 from .context_store import ContextStore
 from .screenshot_history import ScreenshotHistory
 
@@ -52,10 +51,6 @@ class EyeManager:
         self.ocr_fallback = OCRFallback(
             gpu=config.get("nox_eye_ocr_gpu", True),
         )
-
-        # Clipboard monitor — kept for on-demand use, but not started automatically
-        self.clipboard_monitor = ClipboardMonitor()
-        self.clipboard_monitor.on_clipboard_change = self._on_clipboard_change
 
         self.context_store = ContextStore(
             db_path=config.get("memory_db_path", ""),
@@ -105,7 +100,6 @@ class EyeManager:
     def stop(self) -> None:
         self._running = False
         self.screenshot_history.stop()
-        self.clipboard_monitor.stop()
         self.context_store.close()
         if self._cleanup_thread and self._cleanup_thread.is_alive():
             self._cleanup_thread.join(timeout=2.0)
@@ -158,26 +152,6 @@ class EyeManager:
             )
             if self._log_content:
                 logger.debug("Content (opt-in): %s", content_text[:200])
-
-    def _on_clipboard_change(self, text: str) -> None:
-        """Called when clipboard text changes."""
-        if self._paused:
-            return
-
-        # Get current active window for context
-        info = self.window_monitor.get_active_window()
-        app_name = info.app_name if info else "unknown"
-        window_title = info.title if info else ""
-
-        self.context_store.insert(
-            app_name=app_name,
-            window_title=window_title,
-            content_type="clipboard",
-            content_text=text,
-        )
-        logger.debug("Captured clipboard text: %d chars from %s", len(text), app_name)
-        if self._log_content:
-            logger.debug("Clipboard content (opt-in): %s", text[:200])
 
     def get_fast_context(self) -> str:
         """Capture the current active window content on-demand (Fast Context).
@@ -296,10 +270,6 @@ class EyeManager:
             "ocr_fallback": {
                 "available": self.ocr_fallback.is_available,
                 "gpu": self.ocr_fallback.gpu,
-            },
-            "clipboard_monitor": {
-                "available": self.clipboard_monitor.is_available,
-                "running": self.clipboard_monitor._running,
             },
             "screenshot_history": self.screenshot_history.health(),
             "context_store": {

@@ -43,11 +43,11 @@ except ImportError:
 class ScreenshotEntry:
     """One screenshot snapshot with metadata."""
 
-    __slots__ = ("timestamp", "image", "app_name", "window_title")
+    __slots__ = ("timestamp", "image_bytes", "app_name", "window_title")
 
-    def __init__(self, timestamp: str, image, app_name: str, window_title: str):
+    def __init__(self, timestamp: str, image_bytes: bytes, app_name: str, window_title: str):
         self.timestamp = timestamp
-        self.image = image  # PIL Image
+        self.image_bytes = image_bytes  # JPEG-compressed bytes
         self.app_name = app_name
         self.window_title = window_title
 
@@ -137,12 +137,17 @@ class ScreenshotHistory:
         except Exception:
             return "", ""
 
-    def _capture_all_monitors(self) -> Optional[object]:
-        """Capture a screenshot of all monitors combined."""
+    def _capture_all_monitors(self) -> Optional[bytes]:
+        """Capture a screenshot of all monitors and return JPEG-compressed bytes."""
         try:
-            # all_screens=True captures the virtual screen (all monitors)
             img = ImageGrab.grab(all_screens=True)
-            return img
+            # Downscale large screenshots to save memory (max 1920px wide)
+            if img.width > 1920:
+                ratio = 1920 / img.width
+                img = img.resize((1920, int(img.height * ratio)), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=70)
+            return buf.getvalue()
         except Exception as exc:
             logger.debug("Screenshot capture failed: %s", exc)
             return None
@@ -154,21 +159,20 @@ class ScreenshotHistory:
                 continue
 
             try:
-                img = self._capture_all_monitors()
-                if img is not None:
+                img_bytes = self._capture_all_monitors()
+                if img_bytes is not None:
                     app_name, window_title = self._get_active_window_info()
                     entry = ScreenshotEntry(
                         timestamp=datetime.now().isoformat(),
-                        image=img,
+                        image_bytes=img_bytes,
                         app_name=app_name,
                         window_title=window_title,
                     )
                     with self._lock:
                         self._buffer.append(entry)
-                        # Trim to max entries
                         while len(self._buffer) > self._max_entries:
                             self._buffer.popleft()
-                    logger.debug("Screenshot captured (buffer=%d)", len(self._buffer))
+                    logger.debug("Screenshot captured (buffer=%d, size=%dKB)", len(self._buffer), len(img_bytes) // 1024)
             except Exception as exc:
                 logger.debug("Screenshot capture error: %s", exc)
 
@@ -178,17 +182,16 @@ class ScreenshotHistory:
         """Take an immediate screenshot and return it."""
         if not self.is_available:
             return None
-        img = self._capture_all_monitors()
-        if img is None:
+        img_bytes = self._capture_all_monitors()
+        if img_bytes is None:
             return None
         app_name, window_title = self._get_active_window_info()
         entry = ScreenshotEntry(
             timestamp=datetime.now().isoformat(),
-            image=img,
+            image_bytes=img_bytes,
             app_name=app_name,
             window_title=window_title,
         )
-        # Also add to buffer
         with self._lock:
             self._buffer.append(entry)
             while len(self._buffer) > self._max_entries:
@@ -222,14 +225,14 @@ class ScreenshotHistory:
         entry = self.get_latest()
         if entry is None:
             return "Kein Screenshot verfügbar."
-        return self._ocr_image(entry.image, entry.app_name, entry.window_title)
+        return self._ocr_image(entry.image_bytes, entry.app_name, entry.window_title)
 
     def extract_text_now(self) -> str:
         """Capture a fresh screenshot and OCR it immediately."""
         entry = self.capture_now()
         if entry is None:
             return "Konnte keinen Screenshot erstellen."
-        return self._ocr_image(entry.image, entry.app_name, entry.window_title)
+        return self._ocr_image(entry.image_bytes, entry.app_name, entry.window_title)
 
     def _ensure_ocr_reader(self):
         """Lazily initialize EasyOCR reader."""
@@ -245,8 +248,8 @@ class ScreenshotHistory:
         except Exception as exc:
             logger.error("Failed to initialize EasyOCR: %s", exc)
 
-    def _ocr_image(self, image, app_name: str, window_title: str) -> str:
-        """Run OCR on a PIL image and return formatted text."""
+    def _ocr_image(self, image_bytes: bytes, app_name: str, window_title: str) -> str:
+        """Run OCR on JPEG-compressed image bytes and return formatted text."""
         if not _NP_AVAILABLE:
             return "OCR nicht verfügbar (numpy fehlt)."
 
@@ -255,7 +258,8 @@ class ScreenshotHistory:
             return "OCR nicht verfügbar (EasyOCR nicht installiert)."
 
         try:
-            img_array = np.array(image)
+            img = Image.open(io.BytesIO(image_bytes))
+            img_array = np.array(img)
             results = self._ocr_reader.readtext(img_array, detail=0, paragraph=True)
             if not results:
                 return f"Aktiver Bildschirm: {window_title} (App: {app_name})\nKein Text erkannt."

@@ -61,6 +61,8 @@ class FilesManager:
         self._index_thread: Optional[threading.Thread] = None
         self._last_index_time: Optional[float] = None
         self._file_count = 0
+        self._network_drives_cache: Optional[list[Path]] = None
+        self._network_drives_cache_time: float = 0
 
     @property
     def is_paused(self) -> bool:
@@ -114,7 +116,11 @@ class FilesManager:
         return folders
 
     def _detect_network_drives(self) -> list[Path]:
-        """Detect network drives — mapped drives and UNC paths with NAS in name."""
+        """Detect network drives — cached for 10 minutes to avoid repeated subprocess calls."""
+        now = time.time()
+        if self._network_drives_cache is not None and (now - self._network_drives_cache_time) < 600:
+            return self._network_drives_cache
+
         drives: list[Path] = []
         try:
             import subprocess
@@ -182,6 +188,8 @@ class FilesManager:
         except Exception:
             pass
 
+        self._network_drives_cache = drives
+        self._network_drives_cache_time = time.time()
         return drives
 
     def start(self) -> None:

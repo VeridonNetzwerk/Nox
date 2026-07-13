@@ -104,26 +104,38 @@ class Orchestrator:
 
         self._tools_supported: Optional[bool] = None
 
+        # Persistent HTTP client for Ollama (reused across requests)
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+        # Cache for Ollama tools schema
+        self._tools_cache: Optional[list[dict[str, Any]]] = None
+
     @property
     def conversation_id(self) -> str:
         return self._conversation_id
+
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create a persistent HTTP client for Ollama."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=300.0)
+        return self._http_client
 
     async def _check_tools_support(self) -> bool:
         """Check if the current Ollama model supports native tool calling."""
         if self._tools_supported is not None:
             return self._tools_supported
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.ollama_host}/api/tags")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    for m in data.get("models", []):
-                        if m.get("name") == self.ollama_model or m.get("model") == self.ollama_model:
-                            caps = m.get("capabilities", [])
-                            self._tools_supported = "tools" in caps
-                            logger.info("Model %s tools support: %s (capabilities: %s)",
-                                        self.ollama_model, self._tools_supported, caps)
-                            return self._tools_supported
+            client = await self._get_http_client()
+            resp = await client.get(f"{self.ollama_host}/api/tags", timeout=10.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                for m in data.get("models", []):
+                    if m.get("name") == self.ollama_model or m.get("model") == self.ollama_model:
+                        caps = m.get("capabilities", [])
+                        self._tools_supported = "tools" in caps
+                        logger.info("Model %s tools support: %s (capabilities: %s)",
+                                    self.ollama_model, self._tools_supported, caps)
+                        return self._tools_supported
         except Exception as exc:
             logger.warning("Failed to check model capabilities: %s", exc)
         self._tools_supported = False
@@ -205,9 +217,7 @@ class Orchestrator:
                         except json.JSONDecodeError:
                             tool_args = {}
                         if tool_name and self.tool_handler.has_tool(tool_name):
-                            import asyncio as _asyncio
-                            loop = _asyncio.get_event_loop()
-                            tool_result = await loop.run_in_executor(
+                            tool_result = await asyncio.get_event_loop().run_in_executor(
                                 None, self.tool_handler.execute, tool_name, tool_args
                             )
                             tool_executed = True
@@ -240,8 +250,7 @@ class Orchestrator:
                         elif tool_name == "dateien_suchen":
                             tool_args = {"query": tool_params}
                         elif tool_name == "einstellung_aendern":
-                            import re as _re
-                            m = _re.match(r'key=(\S+)\s+value=(.+)', tool_params)
+                            m = re.match(r'key=(\S+)\s+value=(.+)', tool_params)
                             if m:
                                 tool_args = {"key": m.group(1), "value": m.group(2).strip()}
                             else:
@@ -252,9 +261,7 @@ class Orchestrator:
                             tool_args = {}
                         else:
                             tool_args = {"query": tool_params, "text": tool_params}
-                        import asyncio as _asyncio
-                        loop = _asyncio.get_event_loop()
-                        tool_result = await loop.run_in_executor(
+                        tool_result = await asyncio.get_event_loop().run_in_executor(
                             None, self.tool_handler.execute, tool_name, tool_args
                         )
                         tool_executed = True
@@ -391,57 +398,57 @@ class Orchestrator:
         if use_tools:
             payload["tools"] = self.tool_handler.get_ollama_tools()
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.ollama_host}/api/chat",
-                json=payload,
-            ) as resp:
-                if resp.status_code != 200:
-                    body = await resp.aread()
-                    try:
-                        err_body = json.loads(body)
-                    except Exception:
-                        err_body = {"error": body.decode(errors="replace")}
-                    raise httpx.HTTPStatusError(
-                        f"HTTP {resp.status_code}",
+        client = await self._get_http_client()
+        async with client.stream(
+            "POST",
+            f"{self.ollama_host}/api/chat",
+            json=payload,
+        ) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                try:
+                    err_body = json.loads(body)
+                except Exception:
+                    err_body = {"error": body.decode(errors="replace")}
+                raise httpx.HTTPStatusError(
+                    f"HTTP {resp.status_code}",
+                    request=resp.request,
+                    response=httpx.Response(
+                        resp.status_code,
+                        content=body,
+                        headers=dict(resp.headers),
                         request=resp.request,
-                        response=httpx.Response(
-                            resp.status_code,
-                            content=body,
-                            headers=dict(resp.headers),
-                            request=resp.request,
-                        ),
-                    )
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        logger.warning("Invalid JSON from Ollama stream: %s", line[:200])
-                        continue
-                    msg = chunk.get("message", {})
-                    token = msg.get("content", "")
-                    thinking = msg.get("thinking", "")
-                    # Check for native tool calls
-                    tool_calls = msg.get("tool_calls", [])
-                    if tool_calls:
-                        yield {"tool_calls": tool_calls}
-                        continue
-                    if token:
-                        yield token
-                    if chunk.get("done", False):
-                        break
+                    ),
+                )
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    logger.warning("Invalid JSON from Ollama stream: %s", line[:200])
+                    continue
+                msg = chunk.get("message", {})
+                token = msg.get("content", "")
+                thinking = msg.get("thinking", "")
+                # Check for native tool calls
+                tool_calls = msg.get("tool_calls", [])
+                if tool_calls:
+                    yield {"tool_calls": tool_calls}
+                    continue
+                if token:
+                    yield token
+                if chunk.get("done", False):
+                    break
 
     async def get_available_models(self) -> list[str]:
         """Fetch available models from Ollama."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{self.ollama_host}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-                return [m.get("name", "") for m in data.get("models", [])]
+            client = await self._get_http_client()
+            resp = await client.get(f"{self.ollama_host}/api/tags", timeout=5.0)
+            resp.raise_for_status()
+            data = resp.json()
+            return [m.get("name", "") for m in data.get("models", [])]
         except Exception as exc:
             logger.error("Failed to fetch models: %s", exc)
             return []
@@ -451,6 +458,7 @@ class Orchestrator:
         self.ollama_model = model
         self.conversation_store.ollama_model = model
         self._tools_supported = None
+        self._tools_cache = None  # Invalidate tools cache
         logger.info("Model changed to: %s", model)
 
     def new_conversation(self) -> str:
@@ -459,6 +467,9 @@ class Orchestrator:
         logger.info("New conversation: %s", self._conversation_id)
         return self._conversation_id
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.conversation_store.close()
+        if self._http_client and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
         logger.info("Orchestrator closed")

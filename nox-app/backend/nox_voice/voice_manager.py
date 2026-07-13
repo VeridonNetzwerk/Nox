@@ -37,6 +37,25 @@ STATE_TRANSCRIBING = "transcribing"
 STATE_THINKING = "thinking"
 STATE_SPEAKING = "speaking"
 
+# Build voice lookup dicts once at import time (avoids iterating catalogs on every call)
+_VOICE_NAME_MAP: dict[str, str] = {}  # voice_id -> human-readable name
+_VOICE_GENDER_MAP: dict[str, str] = {}  # voice_id -> "male"/"female"
+
+
+def _build_voice_catalog_maps() -> None:
+    """Pre-build voice ID -> name and gender lookup maps from Edge and Kokoro catalogs."""
+    for lang_voices in EDGE_VOICES_BY_LANG.values():
+        for vid, vname, vgender, vdesc in lang_voices:
+            _VOICE_NAME_MAP[vid] = vname
+            _VOICE_GENDER_MAP[vid] = vgender
+    for lang_voices in KOKORO_VOICES.values():
+        for vid, vname, vgender, vdesc in lang_voices:
+            _VOICE_NAME_MAP[vid] = vname
+            _VOICE_GENDER_MAP[vid] = vgender
+
+
+_build_voice_catalog_maps()
+
 
 class VoiceManager:
     """Coordinates the complete voice pipeline with event callbacks."""
@@ -51,8 +70,7 @@ class VoiceManager:
 
         # Resolve model paths: prefer NOX_MODELS_DIR env var (production),
         # fall back to project root models/ (dev)
-        import os as _os
-        env_models = _os.environ.get("NOX_MODELS_DIR")
+        env_models = os.environ.get("NOX_MODELS_DIR")
         if env_models:
             models_dir = Path(env_models)
         else:
@@ -162,6 +180,9 @@ class VoiceManager:
         self._enabled = config.get("wake_word_enabled", False)
         self._active_sentences = 0
         self._state_lock = threading.Lock()
+        # Reusable thread pool for TTS sentence playback (avoids thread-per-sentence overhead)
+        from concurrent.futures import ThreadPoolExecutor
+        self._tts_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts-sentence")
 
     @property
     def state(self) -> str:
@@ -226,6 +247,7 @@ class VoiceManager:
         """Stop all voice components."""
         self.wake_word.stop()
         self.tts.stop()
+        self._tts_pool.shutdown(wait=False, cancel_futures=True)
         self._set_state(STATE_IDLE)
 
     def pause_wake_word(self) -> None:
@@ -340,16 +362,12 @@ class VoiceManager:
                 await result
 
     def speak_response(self, text: str) -> None:
-        """Speak a complete response text (non-blocking, runs in thread)."""
-        threading.Thread(
-            target=self._speak, args=(text,), daemon=True, name="tts-playback"
-        ).start()
+        """Speak a complete response text (non-blocking, runs in pool)."""
+        self._tts_pool.submit(self._speak, text)
 
     def speak_sentence(self, sentence: str) -> None:
         """Speak a single sentence for streaming TTS (non-blocking)."""
-        threading.Thread(
-            target=self._speak_sentence, args=(sentence,), daemon=True, name="tts-sentence"
-        ).start()
+        self._tts_pool.submit(self._speak_sentence, sentence)
 
     def _speak(self, text: str) -> None:
         """Internal: speak full text (blocking thread)."""
@@ -479,43 +497,14 @@ class VoiceManager:
         """
         voice_id = self.tts_voice_id
         engine = self.tts_engine
-        gender = "male" if self._is_male_voice(voice_id) else "female"
-        name = voice_id
-
-        # Try to find a human-readable name from catalogs
-        for lang_voices in EDGE_VOICES_BY_LANG.values():
-            for vid, vname, vgender, vdesc in lang_voices:
-                if vid == voice_id:
-                    name = vname
-                    break
-        if name == voice_id:
-            for lang_voices in KOKORO_VOICES.values():
-                for vid, vname, vgender, vdesc in lang_voices:
-                    if vid == voice_id:
-                        name = vname
-                        break
+        gender = _VOICE_GENDER_MAP.get(voice_id, "female")
+        name = _VOICE_NAME_MAP.get(voice_id, voice_id)
 
         return {"name": name, "gender": gender, "engine": engine}
 
     def _is_male_voice(self, voice_id: str) -> bool:
-        """Check if the given voice ID corresponds to a male voice.
-
-        Searches Edge and Kokoro voice catalogs for the voice ID
-        and returns True if the gender is 'male'.
-        """
-        # Check Edge voices
-        for lang_voices in EDGE_VOICES_BY_LANG.values():
-            for vid, name, gender, desc in lang_voices:
-                if vid == voice_id:
-                    return gender == "male"
-
-        # Check Kokoro voices
-        for lang_voices in KOKORO_VOICES.values():
-            for vid, name, gender, desc in lang_voices:
-                if vid == voice_id:
-                    return gender == "male"
-
-        return False
+        """Check if the given voice ID corresponds to a male voice."""
+        return _VOICE_GENDER_MAP.get(voice_id) == "male"
 
     def _get_voice_for_text(self, text: str) -> tuple[str, Optional[str]]:
         """Determine which engine and voice_id to use for the given text.
