@@ -31,20 +31,33 @@ class STTWakeWordListener:
 
     SAMPLE_RATE = 16000
     CHUNK_SIZE = 1600  # 100ms chunks
-    # Energy threshold for voice activity (tunable)
-    ENERGY_THRESHOLD = 0.008
+    # Energy threshold for voice activity — low to catch quiet speech
+    ENERGY_THRESHOLD = 0.005
     # Max seconds to record for one wake-word check
-    MAX_PHRASE_DURATION = 3.0
+    MAX_PHRASE_DURATION = 2.5
     # Silence threshold to stop recording (seconds of silence after speech)
-    SILENCE_LIMIT = 0.8
+    SILENCE_LIMIT = 0.5
     # Cooldown after a detection or false positive (seconds)
-    COOLDOWN = 1.0
+    COOLDOWN = 0.5
     # Wake phrases to match (lowercase, will be fuzzy-matched)
     WAKE_PHRASES = [
         "hey nox", "hei nox", "hay nox", "hey nocks", "hey knocks", "hey noks",
         "hey nots", "hey nach", "hey nox.", "hey nox,",
         "a nox", "ae nox", "eh nox", "e nox",
-        "hi nox", "hallo nox",
+        "hi nox", "hallo nox", "hey nox!",
+        "hey no", "hey nok", "hey nax", "hey mix",
+        "hey knox", "hey nox's", "hey knows",
+    ]
+    # Standalone trigger words — if any of these appear in transcription, trigger
+    # (false triggers are acceptable per user preference)
+    TRIGGER_WORDS = [
+        "nox", "nocks", "knocks", "noks", "nots", "nach", "nok", "nax",
+        "no", "nokx", "nox's", "knows", "knax",
+    ]
+    # Greeting words that can precede the trigger word
+    GREETING_WORDS = [
+        "hey", "hei", "hay", "hi", "hallo", "eh", "ae", "a", "he",
+        "heyh", "heyy", "hhey", "hey,", "hej", "hai",
     ]
 
     def __init__(
@@ -122,32 +135,59 @@ class STTWakeWordListener:
         logger.debug("STT wake word listener resumed")
 
     def _matches_wake_phrase(self, text: str) -> bool:
-        text_lower = text.lower().strip().strip(".,!?")
+        text_lower = text.lower().strip().strip(".,!?;:'\"()[]{}")
         if not text_lower:
             return False
-        # Direct substring match
+
+        # Direct substring match against full wake phrases
         for phrase in self.WAKE_PHRASES:
             if phrase in text_lower:
                 return True
-        # Word-level match: check if "hey" (or variant) + "nox" (or variant) appear
-        words = text_lower.replace(",", " ").split()
-        has_hey = any(w in ("hey", "hei", "hay", "hi", "hallo", "eh", "ae", "a") for w in words)
-        has_nox = any(w in ("nox", "nocks", "knocks", "noks", "nots", "nach", "nox") for w in words)
-        if has_hey and has_nox:
+
+        # Compact match (no spaces): e.g. "heynox"
+        compact_text = text_lower.replace(" ", "")
+        for phrase in self.WAKE_PHRASES:
+            compact = phrase.replace(" ", "")
+            if compact in compact_text:
+                return True
+
+        # Word-level match: greeting + trigger word
+        words = text_lower.replace(",", " ").replace(".", " ").split()
+        has_greeting = any(w.strip(".,!?") in self.GREETING_WORDS for w in words)
+        has_trigger = any(w.strip(".,!?") in self.TRIGGER_WORDS for w in words)
+        if has_greeting and has_trigger:
             return True
+
+        # Standalone trigger word: if "nox" (or variant) appears as a word,
+        # trigger even without greeting (false triggers OK)
+        if has_trigger:
+            # Only trigger on standalone "nox" if the transcription is short
+            # (likely a wake word attempt, not a regular sentence mentioning nox)
+            if len(words) <= 3:
+                logger.debug("Wake word standalone trigger: '%s'", text_lower)
+                return True
+
         # Fuzzy match: check if the full text is close to a wake phrase
         import difflib
         for phrase in self.WAKE_PHRASES:
             ratio = difflib.SequenceMatcher(None, phrase, text_lower).ratio()
-            if ratio > 0.6:
+            if ratio > 0.55:
                 logger.debug("Wake word fuzzy match: '%s' vs '%s' ratio=%.2f", text_lower, phrase, ratio)
                 return True
-        # Also check if any individual wake phrase is a substring of any word combo
-        # e.g. "heynox" or "heynox" as one word
-        for phrase in self.WAKE_PHRASES:
-            compact = phrase.replace(" ", "")
-            if compact in text_lower.replace(" ", ""):
-                return True
+
+        # Partial fuzzy: check if any trigger word is close to any word in text
+        for w in words:
+            w_clean = w.strip(".,!?")
+            if len(w_clean) < 2:
+                continue
+            for trigger in self.TRIGGER_WORDS:
+                if len(trigger) < 2:
+                    continue
+                ratio = difflib.SequenceMatcher(None, trigger, w_clean).ratio()
+                if ratio > 0.7:
+                    logger.debug("Wake word partial match: '%s' ~ '%s' ratio=%.2f", w_clean, trigger, ratio)
+                    return True
+
         return False
 
     def _run(self) -> None:
@@ -183,9 +223,9 @@ class STTWakeWordListener:
                     if phrase_audio is None or len(phrase_audio) < self.SAMPLE_RATE * 0.3:
                         continue
 
-                    # Transcribe
+                    # Transcribe with higher beam_size for better accuracy
                     try:
-                        text = self.stt.transcribe(phrase_audio, beam_size=1)
+                        text = self.stt.transcribe(phrase_audio, beam_size=3)
                     except Exception as exc:
                         logger.debug("STT error in wake word: %s", exc)
                         continue

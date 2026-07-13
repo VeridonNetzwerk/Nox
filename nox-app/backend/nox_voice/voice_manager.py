@@ -83,7 +83,6 @@ class VoiceManager:
             stt_engine=stt_engine,
             threshold=config.get("wake_word_threshold", 0.5),
             input_device=input_device,
-            wake_phrases=config.get("wake_word_phrases", ["hey nox", "hei nox", "hay nox"]),
         )
 
         # Decide which listener to use: prefer openWakeWord if available,
