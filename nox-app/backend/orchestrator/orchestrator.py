@@ -141,20 +141,14 @@ class Orchestrator:
     ) -> None:
         """Process an incoming message end-to-end.
 
-        1. Retrieve context from nox_eye
-        2. Build messages with system prompt + history
-        3. Stream Ollama response
-        4. Pipe to TTS in voice mode
-        5. Handle tool calls
-        6. Persist turns
+        1. Build messages with system prompt + history
+        2. Stream Ollama response
+        3. Pipe to TTS in voice mode
+        4. Handle tool calls (including bildschirm_lesen for screen context)
+        5. Persist turns
         """
-        # 1. Retrieve context
-        context = context_override
-        if not context and self.eye_manager and not self.eye_manager.is_paused:
-            try:
-                context = self.eye_manager.get_relevant_context(message, k=5, hours=24.0)
-            except Exception as exc:
-                logger.debug("Context retrieval failed: %s", exc)
+        # No auto-context injection — AI must use bildschirm_lesen tool explicitly
+        context = context_override or ""
 
         # 2. Build system prompt
         voice_personality = None
@@ -253,6 +247,8 @@ class Orchestrator:
                             else:
                                 tool_args = {"key": "", "value": ""}
                         elif tool_name == "einstellungen_lesen":
+                            tool_args = {}
+                        elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit"):
                             tool_args = {}
                         else:
                             tool_args = {"query": tool_params, "text": tool_params}

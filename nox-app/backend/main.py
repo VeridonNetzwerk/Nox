@@ -234,6 +234,8 @@ def apply_settings_update(updates: dict[str, Any]) -> None:
         eye_manager.window_monitor.excluded_apps = {
             a.lower() for a in updates["nox_eye_excluded_apps"]
         }
+    if "nox_eye_screenshot_interval" in updates:
+        eye_manager.screenshot_history.update_interval(updates["nox_eye_screenshot_interval"])
     if "tts_model" in updates:
         voice_manager.tts.model_name = updates["tts_model"]
         voice_manager.tts._voice = None
@@ -581,6 +583,8 @@ async def update_settings(body: dict[str, Any]) -> dict[str, Any]:
         eye_manager.window_monitor.excluded_apps = {
             a.lower() for a in updates["nox_eye_excluded_apps"]
         }
+    if "nox_eye_screenshot_interval" in updates:
+        eye_manager.screenshot_history.update_interval(updates["nox_eye_screenshot_interval"])
     if "tts_model" in updates:
         voice_manager.tts.model_name = updates["tts_model"]
         voice_manager.tts._voice = None  # force reload on next use

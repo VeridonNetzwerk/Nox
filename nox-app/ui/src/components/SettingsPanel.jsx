@@ -773,6 +773,16 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
           onChange={(e) => updateSetting("nox_eye_ttl_days", parseInt(e.target.value) || 7)}
         />
       </Row>
+      <Row label="Screenshot-Historie Intervall (Sekunden)">
+        <input
+          type="number"
+          min="10"
+          max="600"
+          className={inputClass + " w-20 text-right"}
+          value={settings.nox_eye_screenshot_interval || 60}
+          onChange={(e) => updateSetting("nox_eye_screenshot_interval", parseInt(e.target.value) || 60)}
+        />
+      </Row>
       <div className="px-3 py-3 rounded-lg bg-nox-surface/40 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-nox-textDim text-sm">{s.excludedApps}</span>

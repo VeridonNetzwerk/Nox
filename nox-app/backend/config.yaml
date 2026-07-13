@@ -23,6 +23,7 @@ nox_eye_excluded_apps:
 - dashlane
 nox_eye_ocr_fallback: true
 nox_eye_ocr_gpu: true
+nox_eye_screenshot_interval: 60
 nox_eye_ttl_days: 7
 nox_files_custom_folders: []
 nox_files_db_path: ''

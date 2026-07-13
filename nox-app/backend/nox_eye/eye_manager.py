@@ -1,13 +1,16 @@
-"""Eye Manager – orchestrates all context capture components.
+"""Eye Manager – orchestrates screen context capture for Nox.
 
-Coordinates window monitoring, UI Automation, OCR fallback, and clipboard
-monitoring. Provides a unified pause/resume interface and a retrieval
-method for the orchestrator to inject context into LLM prompts.
+Nox Eye runs ONLY when Nox is actively invoked (not continuously). It provides:
+1. On-demand screen reading via 'bildschirm_lesen' tool (UIA + OCR)
+2. Periodic screenshot history (default every 60s, kept for 1h)
+3. Context search over stored history
+
+The screenshot history runs in a daemon thread and captures all monitors.
+On-demand capture uses UI Automation first, OCR as fallback.
 
 Threading:
-- Window monitor: daemon thread (lightweight hwnd polling)
-- Clipboard monitor: daemon thread
-- OCR: runs on-demand in the window change callback thread
+- Screenshot history: daemon thread (periodic capture)
+- OCR: on-demand only (expensive, GPU-bound)
 - Cleanup: runs periodically in a daemon thread
 """
 
@@ -22,15 +25,13 @@ from .uia_reader import UIAReader
 from .ocr_fallback import OCRFallback
 from .clipboard_monitor import ClipboardMonitor
 from .context_store import ContextStore
+from .screenshot_history import ScreenshotHistory
 
 logger = logging.getLogger("nox.eye.manager")
 
-# Dedup interval – don't re-capture the same window too often
-CAPTURE_COOLDOWN = 5.0  # seconds
-
 
 class EyeManager:
-    """Orchestrates context capture and retrieval."""
+    """Orchestrates on-demand screen context capture and screenshot history."""
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
@@ -44,15 +45,15 @@ class EyeManager:
             "enpass", "dashlane",
         ])
 
-        # Components
+        # Window monitor — used for on-demand queries only (not always-on)
         self.window_monitor = WindowMonitor(excluded_apps=excluded_apps)
-        self.window_monitor.on_window_change = self._on_window_change
 
         self.uia_reader = UIAReader()
         self.ocr_fallback = OCRFallback(
             gpu=config.get("nox_eye_ocr_gpu", True),
         )
 
+        # Clipboard monitor — kept for on-demand use, but not started automatically
         self.clipboard_monitor = ClipboardMonitor()
         self.clipboard_monitor.on_clipboard_change = self._on_clipboard_change
 
@@ -62,8 +63,13 @@ class EyeManager:
             ttl_days=config.get("nox_eye_ttl_days", 7),
         )
 
-        self._last_capture_time: float = 0
-        self._last_window: Optional[WindowInfo] = None
+        # Screenshot history — periodic capture of all monitors
+        self.screenshot_history = ScreenshotHistory(
+            interval_seconds=config.get("nox_eye_screenshot_interval", 60),
+            history_hours=1.0,
+            ocr_gpu=config.get("nox_eye_ocr_gpu", True),
+        )
+
         self._cleanup_thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -84,8 +90,9 @@ class EyeManager:
             return
 
         self._running = True
-        self.window_monitor.start()
-        self.clipboard_monitor.start()
+        # Only start screenshot history (lightweight periodic capture)
+        # Window monitor and clipboard monitor are NOT started continuously
+        self.screenshot_history.start()
 
         # Start periodic cleanup thread
         self._cleanup_thread = threading.Thread(
@@ -93,11 +100,11 @@ class EyeManager:
         )
         self._cleanup_thread.start()
 
-        logger.info("EyeManager started")
+        logger.info("EyeManager started (screenshot history only, on-demand capture for tools)")
 
     def stop(self) -> None:
         self._running = False
-        self.window_monitor.stop()
+        self.screenshot_history.stop()
         self.clipboard_monitor.stop()
         self.context_store.close()
         if self._cleanup_thread and self._cleanup_thread.is_alive():
@@ -106,41 +113,20 @@ class EyeManager:
         logger.info("EyeManager stopped")
 
     def pause(self) -> None:
-        """Pause all context capture immediately."""
+        """Pause screenshot history capture."""
         self._paused = True
-        self.window_monitor.pause()
-        self.clipboard_monitor.pause()
-        logger.info("EyeManager paused – context capture stopped")
+        self.screenshot_history.pause()
+        logger.info("EyeManager paused – screenshot history stopped")
 
     def resume(self) -> None:
-        """Resume context capture."""
+        """Resume screenshot history capture."""
         self._paused = False
-        self.window_monitor.resume()
-        self.clipboard_monitor.resume()
-        logger.info("EyeManager resumed – context capture active")
+        self.screenshot_history.resume()
+        logger.info("EyeManager resumed – screenshot history active")
 
     def _on_window_change(self, info: WindowInfo) -> None:
-        """Called when the foreground window changes."""
-        if self._paused:
-            return
-
-        # Cooldown – don't capture the same window too frequently
-        now = time.time()
-        if now - self._last_capture_time < CAPTURE_COOLDOWN:
-            return
-        if self._last_window and self._last_window.hwnd == info.hwnd:
-            return
-
-        self._last_capture_time = now
-        self._last_window = info
-
-        # Capture content in a separate thread to avoid blocking the monitor
-        threading.Thread(
-            target=self._capture_window_content,
-            args=(info,),
-            daemon=True,
-            name="eye-capture",
-        ).start()
+        """Called when the foreground window changes (unused in on-demand mode)."""
+        pass
 
     def _capture_window_content(self, info: WindowInfo) -> None:
         """Extract text from the active window (UIA first, OCR fallback)."""
@@ -228,6 +214,32 @@ class EyeManager:
 
         return f"Aktuelles Fenster: {info.title} (App: {info.app_name})\nInhalt:\n{content_text}"
 
+    def read_screen_now(self) -> str:
+        """On-demand screen reading: capture all monitors + OCR.
+
+        This is the primary method for the 'bildschirm_lesen' tool.
+        Captures a fresh screenshot of all monitors and runs OCR.
+        """
+        if not self.is_available:
+            return "Bildschirm-Erfassung nicht verfügbar."
+
+        # Try UIA first for the active window (faster, more accurate)
+        info = self.window_monitor.get_active_window()
+        if info and not self.window_monitor._is_excluded(info):
+            if self.uia_reader.is_available:
+                text = self.uia_reader.extract_text(info.hwnd)
+                if text:
+                    if len(text) > 3000:
+                        text = text[:3000] + "..."
+                    return f"Aktives Fenster: {info.title} (App: {info.app_name})\nInhalt:\n{text}"
+
+        # Fallback: screenshot + OCR of all monitors
+        return self.screenshot_history.extract_text_now()
+
+    def get_screenshot_history_summary(self) -> str:
+        """Return a text summary of recent screenshot history."""
+        return self.screenshot_history.get_history_summary()
+
     def get_relevant_context(
         self,
         query: str,
@@ -289,6 +301,7 @@ class EyeManager:
                 "available": self.clipboard_monitor.is_available,
                 "running": self.clipboard_monitor._running,
             },
+            "screenshot_history": self.screenshot_history.health(),
             "context_store": {
                 "db_path": self.context_store.db_path,
                 "embedding_model": self.context_store.embedding_model_name,

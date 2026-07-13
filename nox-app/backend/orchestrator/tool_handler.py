@@ -71,6 +71,7 @@ SETTINGS_DESCRIPTIONS = {
     "nox_eye_enabled": "Kontext-Erfassung aktiv (true/false)",
     "nox_eye_ttl_days": "Kontext-Aufbewahrung in Tagen",
     "nox_eye_excluded_apps": "Apps die nicht erfasst werden (Liste)",
+    "nox_eye_screenshot_interval": "Screenshot-Historie Intervall in Sekunden (Standard: 60)",
     "nox_files_enabled": "Dateisuche aktiv (true/false)",
     "nox_files_full_drive": "Ganze Festplatte indexieren (true/false)",
     "max_history_turns": "Gesprächsverlauf-Länge (Anzahl Turns)",
@@ -177,14 +178,24 @@ class ToolHandler:
             handler=self._tool_read_file,
         ))
 
-        # fast_context
+        # bildschirm_lesen
         self.register(Tool(
-            name="fast_context",
-            description="Erfasse sofort den aktuellen Bildschirminhalt (Fast Context). "
-                        "Liest den Text des aktuell aktiven Fensters über UI-Automation oder OCR. "
-                        "Verwende dies, wenn du wissen musst, was der Nutzer gerade sieht.",
+            name="bildschirm_lesen",
+            description="Liest den aktuellen Bildschirminhalt. Versucht zuerst UI-Automation "
+                        "(Text aus dem aktiven Fenster), fällt zurück auf OCR (Screenshot + Texterkennung). "
+                        "Verwende dies, wenn du wissen musst, was der Nutzer gerade auf dem Bildschirm sieht.",
             parameters={"type": "object", "properties": {}},
-            handler=self._tool_fast_context,
+            handler=self._tool_read_screen,
+        ))
+
+        # screenshot_historie
+        self.register(Tool(
+            name="screenshot_historie",
+            description="Gibt eine Übersicht der letzten Stunde Bildschirm-Historie zurück "
+                        "(Zeitstempel und aktive Fenster pro Screenshot). "
+                        "Verwende dies, um zu verstehen was der Nutzer in der letzten Stunde gemacht hat.",
+            parameters={"type": "object", "properties": {}},
+            handler=self._tool_screenshot_history,
         ))
 
         # einstellungen_lesen
@@ -341,12 +352,19 @@ class ToolHandler:
             logger.error("datei_lesen error: %s", exc, exc_info=True)
             return f"Fehler beim Lesen der Datei: {exc}"
 
-    def _tool_fast_context(self, args: dict[str, Any]) -> str:
-        """Capture current screen content on-demand (Fast Context)."""
+    def _tool_read_screen(self, args: dict[str, Any]) -> str:
+        """Read current screen content on-demand (bildschirm_lesen tool)."""
         if not self._eye_manager:
-            return "Kontext-Erfassung nicht verfügbar."
-        result = self._eye_manager.get_fast_context()
-        return result if result else "Kein Bildschirminhalt erfasst (Fenster leer oder geschützt)."
+            return "Bildschirm-Erfassung nicht verfügbar."
+        result = self._eye_manager.read_screen_now()
+        return result if result else "Kein Bildschirminhalt erfasst."
+
+    def _tool_screenshot_history(self, args: dict[str, Any]) -> str:
+        """Return screenshot history summary (screenshot_historie tool)."""
+        if not self._eye_manager:
+            return "Screenshot-Historie nicht verfügbar."
+        result = self._eye_manager.get_screenshot_history_summary()
+        return result if result else "Keine Screenshot-Historie verfügbar."
 
     def _tool_read_settings(self, args: dict[str, Any]) -> str:
         """Return all settings with current values and short descriptions."""

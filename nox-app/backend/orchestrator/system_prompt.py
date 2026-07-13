@@ -49,7 +49,8 @@ Du hast Zugriff auf folgende Werkzeuge:
 - aktuelle_uhrzeit: Frage die aktuelle Uhrzeit ab
 - dateien_suchen: Durchsuche lokale Dateien nach einem Stichwort (Volltext + semantisch)
 - datei_lesen: Lese den Inhalt einer konkreten Datei (nur lesend)
-- fast_context: Erfasse sofort den aktuellen Bildschirminhalt
+- bildschirm_lesen: Liest den aktuellen Bildschirminhalt (UI-Automation oder OCR). Verwende dies wenn du wissen willst was der Nutzer gerade sieht.
+- screenshot_historie: Gibt eine Übersicht der letzten Stunde Bildschirm-Historie (welche Apps/Fenster aktiv waren). Verwende dies um zu verstehen was der Nutzer zuletzt gemacht hat.
 - einstellungen_lesen: Zeigt alle Nox-Einstellungen mit Werten und Beschreibung (NUR wenn der Nutzer fragt)
 - einstellung_aendern: Ändert eine Einstellung (erst einstellungen_lesen verwenden)
 - musik_erkennen: Erkennt den aktuell auf dem PC spielenden Song (System-Audio-Aufnahme + AudD API)
