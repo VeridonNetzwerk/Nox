@@ -1,8 +1,9 @@
-"""Music recognition via PC audio loopback + Shazam (shazamio).
+"""Music recognition via PC audio capture + Shazam (shazamio).
 
-Captures system audio output (what the user hears) using the `soundcard`
-library's WASAPI loopback support on Windows, then sends a short clip to
-Shazam's reverse-engineered API (via shazamio) to identify the currently
+Captures system audio output (what the user hears) using `sounddevice`
+with WASAPI virtual input devices on Windows (e.g. Voicemeeter outputs,
+VB-Audio Virtual Cable), then sends a short clip to Shazam's
+reverse-engineered API (via shazamio) to identify the currently
 playing song.
 
 Shazam is free and unlimited — no API token required.
@@ -10,17 +11,16 @@ Shazam is free and unlimited — no API token required.
 
 import io
 import logging
-import threading
 import wave
 from typing import Any, Optional
 
 logger = logging.getLogger("nox.voice.music")
 
 try:
-    import soundcard as sc
-    _SC_AVAILABLE = True
+    import sounddevice as sd
+    _SD_AVAILABLE = True
 except ImportError:
-    _SC_AVAILABLE = False
+    _SD_AVAILABLE = False
 
 try:
     import numpy as np
@@ -29,42 +29,78 @@ except ImportError:
     _NP_AVAILABLE = False
 
 
-# Seconds of audio to capture for recognition (AudD recommends 5-25s)
+# Seconds of audio to capture for recognition (Shazam works best with 10-15s)
 RECORD_SECONDS = 10
 SAMPLE_RATE = 48000
-RECORD_TIMEOUT = 30  # Hard timeout for recording in seconds
 
 
-def _find_loopback_device(output_device_name: Optional[str] = None) -> Optional[Any]:
-    """Find a loopback microphone matching the configured output device.
+def _find_virtual_input_device(output_device_name: Optional[str] = None) -> Optional[int]:
+    """Find a WASAPI input device index that carries system audio.
 
-    If output_device_name is given, tries to find a matching loopback.
-    Otherwise falls back to the default loopback device.
+    On Windows with Voicemeeter or VB-Audio Virtual Cable, system audio
+    appears on virtual input devices (e.g. "CABLE Output", "Voicemeeter Out B1").
+
+    If output_device_name is given, tries to find a matching virtual input.
+    Otherwise tries common virtual cable / Voicemeeter output names.
     """
-    if not _SC_AVAILABLE:
+    if not _SD_AVAILABLE:
         return None
 
     try:
-        loopbacks = sc.all_microphones(include_loopback=True)
-        if not loopbacks:
-            logger.warning("No loopback devices found")
+        hostapis = sd.query_hostapis()
+        wasapi_idx = None
+        for i, api in enumerate(hostapis):
+            if api["name"] == "Windows WASAPI":
+                wasapi_idx = i
+                break
+        if wasapi_idx is None:
+            logger.warning("WASAPI host API not found")
+            return None
+
+        wasapi = hostapis[wasapi_idx]
+        wasapi_devices = wasapi["devices"]
+
+        input_devs = []
+        for idx in wasapi_devices:
+            info = sd.query_devices(idx)
+            if info["max_input_channels"] > 0:
+                input_devs.append((idx, info["name"]))
+
+        if not input_devs:
+            logger.warning("No WASAPI input devices found")
             return None
 
         if output_device_name and output_device_name not in ("default", "", None):
             name_lower = output_device_name.lower()
-            for lb in loopbacks:
-                if name_lower in lb.name.lower():
-                    logger.info("Matched loopback device: %s", lb.name)
-                    return lb
+            for idx, name in input_devs:
+                if name_lower in name.lower():
+                    logger.info("Matched virtual input device: %s (idx=%d)", name, idx)
+                    return idx
 
-        default_lb = sc.default_microphone()
-        if default_lb:
-            logger.info("Using default loopback device: %s", default_lb.name)
-            return default_lb
+        virtual_names = [
+            "cable output",
+            "voicemeeter out b1",
+            "voicemeeter out a1",
+            "voicemeeter out b2",
+            "voicemeeter out a2",
+            "voicemeeter out b3",
+        ]
+        for vname in virtual_names:
+            for idx, name in input_devs:
+                if vname in name.lower():
+                    logger.info("Using virtual input device: %s (idx=%d)", name, idx)
+                    return idx
 
-        return loopbacks[0]
+        for idx, name in input_devs:
+            if "mikrofon" not in name.lower() and "microphone" not in name.lower():
+                logger.info("Using fallback input device: %s (idx=%d)", name, idx)
+                return idx
+
+        logger.warning("No suitable virtual input device found")
+        return None
+
     except Exception as exc:
-        logger.error("Failed to find loopback device: %s", exc, exc_info=True)
+        logger.error("Failed to find virtual input device: %s", exc, exc_info=True)
         return None
 
 
@@ -72,65 +108,52 @@ def _capture_audio(duration_seconds: float = RECORD_SECONDS,
                    output_device: Optional[str] = None) -> Optional[bytes]:
     """Capture system audio as WAV bytes.
 
-    Returns WAV-formatted bytes (PCM 16-bit, mono) ready for API upload,
+    Returns WAV-formatted bytes (PCM 16-bit, mono) ready for Shazam,
     or None if capture fails.
     """
-    if not _SC_AVAILABLE or not _NP_AVAILABLE:
-        logger.error("soundcard or numpy not available")
+    if not _SD_AVAILABLE or not _NP_AVAILABLE:
+        logger.error("sounddevice or numpy not available")
         return None
 
-    mic = _find_loopback_device(output_device)
-    if mic is None:
-        logger.error("No loopback device available")
+    device_idx = _find_virtual_input_device(output_device)
+    if device_idx is None:
+        logger.error("No virtual input device available for audio capture")
         return None
 
     try:
-        logger.info("Recording %ss of system audio via loopback...", duration_seconds)
-        numframes = int(SAMPLE_RATE * duration_seconds)
-        result_container = {}
+        device_info = sd.query_devices(device_idx)
+        channels = min(device_info["max_input_channels"], 2)
+        logger.info("Recording %ss of audio from: %s (ch=%d)", duration_seconds, device_info["name"], channels)
 
-        def _do_record():
-            try:
-                result_container["data"] = mic.record(samplerate=SAMPLE_RATE, numframes=numframes)
-            except Exception as exc:
-                result_container["error"] = exc
+        data = sd.rec(
+            frames=int(SAMPLE_RATE * duration_seconds),
+            samplerate=SAMPLE_RATE,
+            channels=channels,
+            dtype=np.int16,
+            device=device_idx,
+        )
+        sd.wait()
 
-        t = threading.Thread(target=_do_record, daemon=True)
-        t.start()
-        t.join(timeout=RECORD_TIMEOUT)
-
-        if t.is_alive():
-            logger.error("Audio recording timed out after %ss — loopback device may be silent or unavailable", RECORD_TIMEOUT)
-            return None
-
-        if "error" in result_container:
-            raise result_container["error"]
-
-        data = result_container.get("data")
-        if data is None:
+        if data is None or len(data) == 0:
             logger.error("Audio recording returned no data")
             return None
 
-        logger.info("Captured %d samples", len(data))
+        max_val = int(np.max(np.abs(data)))
+        logger.info("Captured %d samples, max amplitude: %d (%.1f%%)", len(data), max_val, max_val / 32767 * 100)
 
-        # Convert to mono if stereo
+        if max_val < 50:
+            logger.warning("Audio is nearly silent — is music actually playing?")
+            return None
+
         if data.ndim > 1:
-            data = data.mean(axis=1)
+            data = data.mean(axis=1).astype(np.int16)
 
-        # Normalize and convert to 16-bit PCM
-        audio_float = data.flatten()
-        max_val = float(np.max(np.abs(audio_float))) if len(audio_float) > 0 else 0.0
-        if max_val > 0:
-            audio_float = audio_float / max_val
-        audio_int16 = (audio_float * 32767).astype(np.int16)
-
-        # Write to WAV in memory
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(audio_int16.tobytes())
+            wf.writeframes(data.tobytes())
 
         wav_bytes = buf.getvalue()
         logger.info("Encoded %d bytes of WAV audio", len(wav_bytes))
@@ -148,7 +171,7 @@ def recognize_song(output_device: Optional[str] = None,
     Uses Shazam via shazamio — free and unlimited, no API token needed.
 
     Args:
-        output_device: Configured audio output device name (for matching loopback).
+        output_device: Configured audio output device name (for matching virtual input).
         duration: Seconds of audio to capture (5-25 recommended).
 
     Returns:
@@ -169,20 +192,43 @@ def recognize_song(output_device: Optional[str] = None,
         tmp.close()
         tmp_path = tmp.name
 
-        # Use shazamio to recognize
+        # Use shazamio to recognize — retry once if Shazam requests more data
         import asyncio
         from shazamio import Shazam
 
-        async def _recognize():
+        async def _recognize(path):
             shazam = Shazam()
-            return await shazam.recognize(tmp_path)
+            return await shazam.recognize(path)
 
-        # Run in a new event loop (we're in a sync thread via run_in_executor)
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(_recognize())
+            result = loop.run_until_complete(_recognize(tmp_path))
         finally:
             loop.close()
+
+        # If Shazam didn't find a track but suggests retry, try once more with fresh audio
+        if not result or not result.get("track"):
+            retry_ms = result.get("retryms", 0) if result else 0
+            if retry_ms > 0:
+                logger.info("Shazam suggests retry in %dms, capturing fresh audio...", retry_ms)
+                import time as _time
+                _time.sleep(min(retry_ms / 1000, 5))
+                # Capture fresh audio
+                wav_bytes2 = _capture_audio(duration, output_device)
+                if wav_bytes2 is not None:
+                    tmp2 = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    tmp2.write(wav_bytes2)
+                    tmp2.close()
+                    tmp_path2 = tmp2.name
+                    try:
+                        loop2 = asyncio.new_event_loop()
+                        try:
+                            result = loop2.run_until_complete(_recognize(tmp_path2))
+                        finally:
+                            loop2.close()
+                    finally:
+                        if os.path.exists(tmp_path2):
+                            os.unlink(tmp_path2)
 
         if not result:
             return {"error": "Keine Antwort von Shazam erhalten."}
