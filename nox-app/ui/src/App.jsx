@@ -80,6 +80,8 @@ function App() {
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateProgress, setUpdateProgress] = useState(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [activeTool, setActiveTool] = useState(null);
+  const [thinkingIndex, setThinkingIndex] = useState(0);
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
@@ -208,6 +210,7 @@ function App() {
         }
 
         if (data.type === "tool_start") {
+          setActiveTool(data.tool || null);
           // Clear the current streaming assistant message (tool-call text)
           setMessages((prev) => {
             const last = prev[prev.length - 1];
@@ -216,6 +219,11 @@ function App() {
             }
             return prev;
           });
+          return;
+        }
+
+        if (data.type === "tool_result") {
+          setActiveTool(null);
           return;
         }
 
@@ -239,6 +247,7 @@ function App() {
             return prev;
           });
           setIsStreaming(false);
+          setActiveTool(null);
           window.nox?.setThinkingState?.(false);
         } else if (data.type === "error") {
           setMessages((prev) => [
@@ -246,6 +255,7 @@ function App() {
             { role: "error", content: data.content, streaming: false },
           ]);
           setIsStreaming(false);
+          setActiveTool(null);
           window.nox?.setThinkingState?.(false);
           addToast({ type: "error", title: "Nox", message: data.content, reportable: true });
         }
@@ -482,10 +492,50 @@ function App() {
   // Latest assistant response
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 
+  // Rotating thinking messages
+  const THINKING_MESSAGES = [
+    "Nox denkt nach…",
+    "Nox überlegt…",
+    "Nox sammelt Gedanken…",
+    "Nox formt eine Antwort…",
+    "Nox strukturiert Ideen…",
+    "Nox wählt die richtigen Worte…",
+  ];
+
+  const TOOL_MESSAGES = {
+    musik_erkennen: "Nox hört Musik…",
+    bildschirm_lesen: "Nox liest den Bildschirm…",
+    screenshot_historie: "Nox durchsucht die Bildschirm-Historie…",
+    dateien_suchen: "Nox durchsucht Dateien…",
+    datei_lesen: "Nox liest eine Datei…",
+    kontext_suche: "Nox durchsucht den Kontext…",
+    notiz_speichern: "Nox speichert eine Notiz…",
+    aktuelle_uhrzeit: "Nox schaut auf die Uhr…",
+    einstellungen_lesen: "Nox liest Einstellungen…",
+    einstellung_aendern: "Nox ändert eine Einstellung…",
+  };
+
+  // Rotate thinking messages every 3 seconds when thinking
+  useEffect(() => {
+    if (micState !== "processing" && !(isStreaming && !lastAssistant)) {
+      setThinkingIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setThinkingIndex((prev) => (prev + 1) % THINKING_MESSAGES.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [micState, isStreaming]);
+
   // Status text shown in the speech bubble
   const bubbleText = (() => {
     if (micState === "listening") return null; // No bubble while just listening — logo only
-    if (micState === "processing" || (isStreaming && !lastAssistant)) return t.app.thinking || "Ich denke nach…";
+    if (micState === "processing" || (isStreaming && !lastAssistant)) {
+      if (activeTool && TOOL_MESSAGES[activeTool]) {
+        return TOOL_MESSAGES[activeTool];
+      }
+      return THINKING_MESSAGES[thinkingIndex];
+    }
     if (micState === "speaking") return lastAssistant?.content || t.app.speaking || "Ich antworte…";
     if (lastAssistant?.content) return lastAssistant.content;
     return null;
