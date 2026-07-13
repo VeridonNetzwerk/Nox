@@ -7,6 +7,7 @@ the AudD music recognition API to identify the currently playing song.
 
 import io
 import logging
+import threading
 import wave
 from typing import Any, Optional
 
@@ -28,6 +29,7 @@ except ImportError:
 # Seconds of audio to capture for recognition (AudD recommends 5-25s)
 RECORD_SECONDS = 10
 SAMPLE_RATE = 48000
+RECORD_TIMEOUT = 30  # Hard timeout for recording in seconds
 
 
 def _find_loopback_device(output_device_name: Optional[str] = None) -> Optional[Any]:
@@ -81,7 +83,31 @@ def _capture_audio(duration_seconds: float = RECORD_SECONDS,
 
     try:
         logger.info("Recording %ss of system audio via loopback...", duration_seconds)
-        data = mic.record(samplerate=SAMPLE_RATE, numframes=int(SAMPLE_RATE * duration_seconds))
+        numframes = int(SAMPLE_RATE * duration_seconds)
+        result_container = {}
+
+        def _do_record():
+            try:
+                result_container["data"] = mic.record(samplerate=SAMPLE_RATE, numframes=numframes)
+            except Exception as exc:
+                result_container["error"] = exc
+
+        t = threading.Thread(target=_do_record, daemon=True)
+        t.start()
+        t.join(timeout=RECORD_TIMEOUT)
+
+        if t.is_alive():
+            logger.error("Audio recording timed out after %ss — loopback device may be silent or unavailable", RECORD_TIMEOUT)
+            return None
+
+        if "error" in result_container:
+            raise result_container["error"]
+
+        data = result_container.get("data")
+        if data is None:
+            logger.error("Audio recording returned no data")
+            return None
+
         logger.info("Captured %d samples", len(data))
 
         # Convert to mono if stereo

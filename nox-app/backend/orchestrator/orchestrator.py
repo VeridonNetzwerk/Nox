@@ -211,7 +211,11 @@ class Orchestrator:
                         except json.JSONDecodeError:
                             tool_args = {}
                         if tool_name and self.tool_handler.has_tool(tool_name):
-                            tool_result = self.tool_handler.execute(tool_name, tool_args)
+                            import asyncio as _asyncio
+                            loop = _asyncio.get_event_loop()
+                            tool_result = await loop.run_in_executor(
+                                None, self.tool_handler.execute, tool_name, tool_args
+                            )
                             tool_executed = True
                             await _send({"type": "tool_start", "tool": tool_name})
                             await _send({"type": "tool_result", "tool": tool_name, "result": tool_result})
@@ -252,7 +256,11 @@ class Orchestrator:
                             tool_args = {}
                         else:
                             tool_args = {"query": tool_params, "text": tool_params}
-                        tool_result = self.tool_handler.execute(tool_name, tool_args)
+                        import asyncio as _asyncio
+                        loop = _asyncio.get_event_loop()
+                        tool_result = await loop.run_in_executor(
+                            None, self.tool_handler.execute, tool_name, tool_args
+                        )
                         tool_executed = True
                         # Tell UI to clear the streamed tool-call text
                         await _send({"type": "tool_start", "tool": tool_name})
