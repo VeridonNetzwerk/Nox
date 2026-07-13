@@ -187,6 +187,8 @@ def install_requirements(python_exe: str) -> None:
         "psutil>=5.9.0",
         "Pillow>=10.0.0",
         "sentence-transformers>=2.7.0",
+        "SoundCard>=0.4.6",
+        "shazamio>=0.7.0",
         "pytest>=8.0.0",
     ]
     optional_packages = [

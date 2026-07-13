@@ -1,8 +1,11 @@
-"""Music recognition via PC audio loopback + AudD API.
+"""Music recognition via PC audio loopback + Shazam (shazamio).
 
 Captures system audio output (what the user hears) using the `soundcard`
 library's WASAPI loopback support on Windows, then sends a short clip to
-the AudD music recognition API to identify the currently playing song.
+Shazam's reverse-engineered API (via shazamio) to identify the currently
+playing song.
+
+Shazam is free and unlimited — no API token required.
 """
 
 import io
@@ -138,64 +141,99 @@ def _capture_audio(duration_seconds: float = RECORD_SECONDS,
         return None
 
 
-def recognize_song(api_token: str, output_device: Optional[str] = None,
+def recognize_song(output_device: Optional[str] = None,
                    duration: float = RECORD_SECONDS) -> dict[str, Any]:
     """Recognize the currently playing song from system audio.
 
+    Uses Shazam via shazamio — free and unlimited, no API token needed.
+
     Args:
-        api_token: AudD API token.
         output_device: Configured audio output device name (for matching loopback).
         duration: Seconds of audio to capture (5-25 recommended).
 
     Returns:
         Dict with recognition result or error info.
     """
-    if not api_token:
-        return {"error": "Kein AudD API-Token konfiguriert. Setze 'audd_api_token' in den Einstellungen."}
-
     wav_bytes = _capture_audio(duration, output_device)
     if wav_bytes is None:
         return {"error": "Konnte kein System-Audio aufnehmen. Ist ein Audio-Ausgabegerät aktiv?"}
 
+    # Write WAV to a temp file (shazamio needs a file path)
+    import tempfile
+    import os
+
+    tmp_path = None
     try:
-        import requests as req
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.write(wav_bytes)
+        tmp.close()
+        tmp_path = tmp.name
 
-        resp = req.post(
-            "https://api.audd.io/",
-            files={"file": ("clip.wav", wav_bytes, "audio/wav")},
-            data={"api_token": api_token, "return": "apple_music,spotify"},
-            timeout=15,
-        )
-        result = resp.json()
+        # Use shazamio to recognize
+        import asyncio
+        from shazamio import Shazam
 
-        if result.get("status") == "success" and result.get("result"):
-            r = result["result"]
-            info = {
-                "artist": r.get("artist", ""),
-                "title": r.get("title", ""),
-                "album": r.get("album", ""),
-                "release_date": r.get("release_date", ""),
-                "song_link": r.get("song_link", ""),
-            }
-            # Add streaming links if available
-            if r.get("spotify"):
-                info["spotify_url"] = r["spotify"].get("external_urls", {}).get("spotify", "")
-            if r.get("apple_music"):
-                info["apple_music_url"] = r["apple_music"].get("url", "")
-            # YouTube fallback: search link for the recognized song
-            artist_title = f"{info['artist']} {info['title']}".strip()
-            if artist_title:
-                info["youtube_url"] = f"https://www.youtube.com/results?search_query={artist_title.replace(' ', '+')}"
+        async def _recognize():
+            shazam = Shazam()
+            return await shazam.recognize(tmp_path)
 
-            logger.info("Recognized: %s - %s", info["artist"], info["title"])
-            return info
-        elif result.get("status") == "success" and not result.get("result"):
+        # Run in a new event loop (we're in a sync thread via run_in_executor)
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(_recognize())
+        finally:
+            loop.close()
+
+        if not result:
+            return {"error": "Keine Antwort von Shazam erhalten."}
+
+        track = result.get("track")
+        if not track:
             return {"error": "Kein Song erkannt. Vielleicht spielt gerade keine Musik."}
-        else:
-            err = result.get("error", {}).get("error_message", "Unbekannter Fehler")
-            logger.error("AudD API error: %s", err)
-            return {"error": f"AudD API Fehler: {err}"}
 
+        info = {
+            "artist": track.get("subtitle", ""),
+            "title": track.get("title", ""),
+            "album": "",
+            "release_date": "",
+            "song_link": track.get("share", {}).get("href", ""),
+        }
+
+        # Extract album and release date from sections
+        sections = track.get("sections", [])
+        for section in sections:
+            if section.get("type") == "SONG":
+                for meta in section.get("metadata", []):
+                    if meta.get("title", "") == "Album":
+                        info["album"] = meta.get("text", "")
+                    elif meta.get("title", "") == "Released":
+                        info["release_date"] = meta.get("text", "")
+
+        # Extract streaming links from sharehref / apple / spotify
+        # Shazam provides apple_music and spotify links in the share section
+        share = track.get("share", {})
+        if share.get("apple"):
+            info["apple_music_url"] = share["apple"]
+        if share.get("spotify"):
+            info["spotify_url"] = share["spotify"]
+
+        # YouTube fallback: search link
+        artist_title = f"{info['artist']} {info['title']}".strip()
+        if artist_title:
+            info["youtube_url"] = f"https://www.youtube.com/results?search_query={artist_title.replace(' ', '+')}"
+
+        logger.info("Recognized via Shazam: %s - %s", info["artist"], info["title"])
+        return info
+
+    except ImportError:
+        logger.error("shazamio not installed — run: pip install shazamio")
+        return {"error": "Musikerkennung nicht installiert. Bitte 'pip install shazamio' ausführen."}
     except Exception as exc:
         logger.error("Music recognition failed: %s", exc, exc_info=True)
         return {"error": f"Erkennung fehlgeschlagen: {exc}"}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass

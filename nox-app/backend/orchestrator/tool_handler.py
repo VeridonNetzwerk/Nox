@@ -76,7 +76,7 @@ SETTINGS_DESCRIPTIONS = {
     "nox_files_full_drive": "Ganze Festplatte indexieren (true/false)",
     "max_history_turns": "Gesprächsverlauf-Länge (Anzahl Turns)",
     "max_context_tokens": "Max Token-Kontextfenster",
-    "audd_api_token": "AudD API-Token für Musikerkennung (leer = deaktiviert, kostenlos auf audd.io)",
+    "audd_api_token": "Veraltet — Musikerkennung nutzt jetzt Shazam (kein Token nötig)",
     "music_platform": "Bevorzugte Musik-Plattform für Song-Links: spotify, apple_music, youtube (leer = Nutzer fragen)",
 }
 
@@ -398,14 +398,10 @@ class ToolHandler:
 
     def _tool_recognize_music(self, args: dict[str, Any]) -> str:
         """Recognize currently playing music from system audio loopback."""
-        api_token = self._config.get("audd_api_token", "")
-        if not api_token:
-            return ("Musikerkennung nicht konfiguriert. "
-                    "Setze 'audd_api_token' in den Einstellungen (kostenloser Token auf audd.io).")
         output_device = self._config.get("audio_output_device", "default")
         try:
             from nox_voice.music_recognizer import recognize_song
-            result = recognize_song(api_token=api_token, output_device=output_device)
+            result = recognize_song(output_device=output_device)
             if "error" in result:
                 return result["error"]
             parts = []

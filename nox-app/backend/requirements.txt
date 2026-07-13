@@ -14,8 +14,9 @@ onnxruntime>=1.17.0
 sounddevice==0.5.1
 numpy>=1.26.0
 
-# Music recognition – system audio loopback capture
+# Music recognition – system audio loopback capture + Shazam
 SoundCard>=0.4.6
+shazamio>=0.7.0
 
 # Voice pipeline – VAD
 # webrtcvad-wheels installed separately in build_backend.py (optional, --only-binary)
