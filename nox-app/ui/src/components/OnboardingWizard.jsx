@@ -164,6 +164,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const [pullStatusText, setPullStatusText] = useState("");
   const [sliderPos, setSliderPos] = useState(1);
   const [showInstalledModels, setShowInstalledModels] = useState(false);
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(true);
 
   const pollRef = useRef(null);
   const wakeTestActiveRef = useRef(false);
@@ -554,7 +555,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
       await fetch(`${API_BASE}/api/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboarding_completed: true }),
+        body: JSON.stringify({ onboarding_completed: true, analytics_enabled: analyticsOptIn }),
       });
     } catch (err) {
       console.error("Failed to save onboarding state:", err);
@@ -589,29 +590,34 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
   const prev = () => setStep((p) => Math.max(p - 1, 0));
 
   const btnClass =
-    "px-4 py-2 rounded-full text-sm font-medium transition-all";
-  const btnPrimary = btnClass + " bg-nox-accent hover:bg-nox-accentHover text-white hover:scale-105";
-  const btnSecondary = btnClass + " glass-card text-nox-text hover:scale-105";
-  const btnDisabled = btnClass + " bg-nox-border/50 text-nox-textDim cursor-not-allowed";
+    "px-4 py-2 text-xs font-medium transition-all nox-btn-primary";
+  const btnPrimary = btnClass;
+  const btnSecondary =
+    "px-4 py-2 text-xs font-medium transition-all nox-btn-secondary";
+  const btnDisabled =
+    "px-4 py-2 text-xs font-medium transition-all nox-btn-secondary opacity-40 cursor-not-allowed";
 
   return (
     <div className="flex flex-col h-full animate-slide-in-right">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-nox-border/50">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border">
+        <div className="flex items-center gap-2.5">
           <img src={noxIcon} alt="Nox" className="w-5 h-5 rounded-full" />
-          <h2 className="text-sm font-semibold text-nox-text">{s.title || "Nox einrichten"}</h2>
+          <h2 className="text-sm font-semibold text-nox-text nox-heading">{s.title || "Nox einrichten"}</h2>
         </div>
-        <span className="text-xs text-nox-textDim">
-          {step + 1} / {steps.length}
+        <span className="nox-label">
+          {String(step + 1).padStart(2, '0')} / {String(steps.length).padStart(2, '0')}
         </span>
       </div>
 
       {/* Progress bar */}
-      <div className="h-0.5 bg-nox-border/50">
+      <div className="h-0.5 bg-nox-border">
         <div
-          className="h-full bg-nox-accent transition-all duration-300 rounded-full"
-          style={{ width: `${((step + 1) / steps.length) * 100}%` }}
+          className="h-full transition-all duration-300"
+          style={{
+            width: `${((step + 1) / steps.length) * 100}%`,
+            background: 'linear-gradient(90deg, var(--nox-accent), var(--nox-violet))',
+          }}
         />
       </div>
 
@@ -619,12 +625,14 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
       <div className="flex-1 overflow-y-auto px-4 py-6" style={{ overflow: openDropdown ? 'hidden' : undefined }}>
         {/* Step 0: Welcome + Language selection + Ollama check/install + GPU info */}
         {step === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-            <img src={noxLogoGlowing} alt="Nox" className="w-48 h-auto rounded-xl" />
-            <h3 className="text-lg font-semibold text-nox-text">{s.welcomeTitle || "Willkommen bei Nox"}</h3>
-            <p className="text-sm text-nox-textDim max-w-xs">
-              {s.welcomeText || "Nox ist dein lokaler KI-Assistent. Lass uns ihn in wenigen Schritten einrichten."}
-            </p>
+          <div className="flex flex-col items-center justify-center h-full gap-5 text-center">
+            <img src={noxLogoGlowing} alt="Nox" className="w-44 h-auto" style={{ filter: 'drop-shadow(0 0 20px rgba(99, 102, 241, 0.3))' }} />
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-nox-text nox-heading">{s.welcomeTitle || "Willkommen bei Nox"}</h3>
+              <p className="text-sm text-nox-textDim max-w-xs leading-relaxed">
+                {s.welcomeText || "Nox ist dein lokaler KI-Assistent. Lass uns ihn in wenigen Schritten einrichten."}
+              </p>
+            </div>
 
             {/* Language selector — custom dropdown */}
             {voiceCatalog && (
@@ -656,23 +664,23 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               />
             )}
 
-            <div className="mt-2 space-y-3 w-full max-w-xs">
-              <div className="flex items-center justify-between px-3 py-2 rounded-lg glass-card text-sm">
-                <span className="text-nox-textDim">Ollama</span>
+            <div className="mt-2 space-y-2 w-full max-w-xs">
+              <div className="flex items-center justify-between px-3 py-2.5 nox-console-card text-sm">
+                <span className="nox-label">Ollama</span>
                 {ollamaOk === null ? (
-                  <span className="text-nox-textDim">…</span>
+                  <span className="text-nox-textDim text-xs font-mono">…</span>
                 ) : ollamaOk ? (
-                  <span className="text-green-500">✓ {s.available || "Verfügbar"}</span>
+                  <span className="text-nox-phosphor text-xs font-mono flex items-center gap-1.5"><span className="nox-status-dot" /> {s.available || "Verfügbar"}</span>
                 ) : (
-                  <span className="text-red-500">✗ {s.missing || "Nicht gefunden"}</span>
+                  <span className="text-nox-red text-xs font-mono">✗ {s.missing || "Nicht gefunden"}</span>
                 )}
               </div>
               {gpuInfo && (
-                <div className="flex items-center justify-between px-3 py-2 rounded-lg glass-card text-sm">
-                  <span className="text-nox-textDim">{s.gpu || "GPU"}</span>
-                  <span className={gpuInfo.cuda_available ? "text-green-500" : "text-yellow-500"}>
+                <div className="flex items-center justify-between px-3 py-2.5 nox-console-card text-sm">
+                  <span className="nox-label">{s.gpu || "GPU"}</span>
+                  <span className={`text-xs font-mono ${gpuInfo.cuda_available ? "text-nox-phosphor" : "text-nox-amber"}`}>
                     {gpuInfo.cuda_available
-                      ? `✓ CUDA (${gpuInfo.gpu_name || "GPU"})`
+                      ? `✓ CUDA — ${gpuInfo.gpu_name || "GPU"}`
                       : gpuInfo.nvidia_driver_present
                       ? "⚠ CPU-Fallback"
                       : "CPU-Modus"}
@@ -744,7 +752,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
         {step === 1 && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-nox-text">{s.selectVoice || "Stimme wählen"}</h3>
+              <h3 className="text-base font-bold text-nox-text nox-heading">{s.selectVoice || "Stimme wählen"}</h3>
               {selectedLang && voiceCatalog && (
                 <span className="flex items-center gap-1.5 text-xs text-nox-textDim">
                   <FlagIcon code={selectedLang} size={14} />
@@ -1036,17 +1044,17 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
         {/* Step 3: Audio device selection */}
         {step === 3 && (
           <div className="flex flex-col gap-4">
-            <h3 className="text-base font-semibold text-nox-text">{s.audioDevices || "Audio-Geräte wählen"}</h3>
+            <h3 className="text-base font-bold text-nox-text nox-heading">{s.audioDevices || "Audio-Geräte wählen"}</h3>
             <p className="text-sm text-nox-textDim">
               {s.audioDevicesHint || "Wähle welches Mikrofon und welche Lautsprecher Nox verwenden soll."}
             </p>
             <div className="space-y-3">
-              <div className="px-3 py-3 rounded-lg glass-card space-y-2">
-                <label className="text-xs font-medium text-nox-textDim uppercase tracking-wide">
+              <div className="px-3 py-3 nox-console-card space-y-2">
+                <label className="nox-label">
                   {s.audioInput || "Eingang (Mikrofon)"}
                 </label>
                 <select
-                  className="w-full bg-nox-bg text-nox-text text-sm rounded-lg px-3 py-2 border border-nox-border focus:outline-none focus:border-nox-accent"
+                  className="w-full bg-nox-bg text-nox-text text-sm rounded px-3 py-2 border border-nox-border focus:outline-none focus:border-nox-accent font-mono"
                   value={selectedInput}
                   onChange={(e) => setSelectedInput(e.target.value)}
                 >
@@ -1058,12 +1066,12 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                   ))}
                 </select>
               </div>
-              <div className="px-3 py-3 rounded-lg glass-card space-y-2">
-                <label className="text-xs font-medium text-nox-textDim uppercase tracking-wide">
+              <div className="px-3 py-3 nox-console-card space-y-2">
+                <label className="nox-label">
                   {s.audioOutput || "Ausgang (Lautsprecher)"}
                 </label>
                 <select
-                  className="w-full bg-nox-bg text-nox-text text-sm rounded-lg px-3 py-2 border border-nox-border focus:outline-none focus:border-nox-accent"
+                  className="w-full bg-nox-bg text-nox-text text-sm rounded px-3 py-2 border border-nox-border focus:outline-none focus:border-nox-accent font-mono"
                   value={selectedOutput}
                   onChange={(e) => setSelectedOutput(e.target.value)}
                 >
@@ -1087,11 +1095,11 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
         {/* Step 4: Wake word calibration */}
         {step === 4 && (
           <div className="flex flex-col gap-4">
-            <h3 className="text-base font-semibold text-nox-text">{s.wakeTitle || "Wake-Word-Kalibrierung"}</h3>
+            <h3 className="text-base font-bold text-nox-text nox-heading">{s.wakeTitle || "Wake-Word-Kalibrierung"}</h3>
             <p className="text-sm text-nox-textDim">
               {s.wakeHint || "Sage 3× 'Hey Nox', um die Erkennung zu testen."}
             </p>
-            <div className="px-3 py-4 rounded-lg glass-card">
+            <div className="px-3 py-4 nox-console-card">
               {wakeOk === null ? (
                 <span className="text-nox-textDim text-sm">…</span>
               ) : wakeOk ? (
@@ -1139,24 +1147,34 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
             <p className="text-sm text-nox-textDim max-w-xs">
               {s.setupCompleteText || "Nox ist bereit. Du kannst jetzt Fragen stellen, Sprache verwenden und Kontext erfassen lassen."}
             </p>
+            <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={analyticsOptIn}
+                onChange={(e) => setAnalyticsOptIn(e.target.checked)}
+                className="w-4 h-4 rounded accent-nox-accent"
+              />
+              <span className="text-xs text-nox-textDim text-left max-w-xs">
+                {s.analyticsOptIn || "Anonyme Nutzungs-Analyse erlauben (hilft Nox zu verbessern, keine Inhalte/IPs)"}
+              </span>
+            </label>
           </div>
         )}
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-nox-border/50">
+      <div className="flex items-center justify-between px-4 py-3 border-t border-nox-border">
         <button
-          onClick={prev}
-          disabled={step === 0}
-          className={step === 0 ? btnDisabled : btnSecondary}
+          onClick={step === 0 ? () => window.nox?.closeApp?.() : prev}
+          className={btnSecondary}
         >
-          {s.back || "Zurück"}
+          {step === 0 ? (s.closeApp || "Schließen") : (s.back || "Zurück")}
         </button>
-        <div className="flex gap-1">
+        <div className="flex gap-1.5">
           {steps.map((_, i) => (
             <div
               key={i}
-              className={`w-1.5 h-1.5 rounded-full ${i === step ? "bg-nox-accent" : "bg-nox-border"}`}
+              className={`h-1 w-3 transition-all ${i === step ? "bg-nox-accent" : i < step ? "bg-nox-accent/40" : "bg-nox-border"}`}
             />
           ))}
         </div>

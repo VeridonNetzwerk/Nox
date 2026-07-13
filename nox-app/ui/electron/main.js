@@ -65,9 +65,10 @@ console.log("Log file:", logFile);
 // Constants
 // ---------------------------------------------------------------------------
 
-const WINDOW_WIDTH = 380;
-const WINDOW_HEIGHT = 600;
+const BASE_WINDOW_WIDTH = 380;
+const BASE_WINDOW_HEIGHT = 600;
 const WINDOW_MARGIN = 8;
+let currentScale = 1.0;
 const HOTKEY = "CommandOrControl+Shift+Space";
 const ANIMATION_DURATION = 200;
 const BACKEND_URL = "http://127.0.0.1:8420";
@@ -121,9 +122,11 @@ function getDisplayAtCursor() {
  */
 function calculateBounds(display) {
   const workArea = display.workArea;
-  const x = Math.round(workArea.x + workArea.width - WINDOW_WIDTH - WINDOW_MARGIN);
-  const y = Math.round(workArea.y + workArea.height - WINDOW_HEIGHT - WINDOW_MARGIN);
-  return { x, y, width: WINDOW_WIDTH, height: WINDOW_HEIGHT };
+  const w = Math.round(BASE_WINDOW_WIDTH * currentScale);
+  const h = Math.round(BASE_WINDOW_HEIGHT * currentScale);
+  const x = Math.round(workArea.x + workArea.width - w - WINDOW_MARGIN);
+  const y = Math.round(workArea.y + workArea.height - h - WINDOW_MARGIN);
+  return { x, y, width: w, height: h };
 }
 
 // ---------------------------------------------------------------------------
@@ -638,6 +641,10 @@ app.whenReady().then(async () => {
   // IPC from renderer
   ipcMain.on("hide-window", () => hideWindow());
   ipcMain.on("show-window", () => showWindow());
+  ipcMain.on("close-app", () => {
+    isQuitting = true;
+    app.quit();
+  });
   ipcMain.on("onboarding-complete", () => {
     markOnboardingDone();
     isOnboardingActive = false;
@@ -718,6 +725,42 @@ app.whenReady().then(async () => {
       }
     });
   });
+
+  // IPC: resize window when UI scale changes
+  ipcMain.on("resize-window", (_e, scale) => {
+    if (!mainWindow || !scale) return;
+    currentScale = Math.max(0.7, Math.min(1.6, parseFloat(scale)));
+    const display = getDisplayAtCursor();
+    const bounds = calculateBounds(display);
+    mainWindow.setBounds(bounds);
+    console.log("Window resized for scale:", currentScale);
+  });
+
+  // Fetch ui_scale from backend after startup and apply it
+  setTimeout(() => {
+    const http = require("http");
+    const req = http.get(`${BACKEND_URL}/api/settings`, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          const scale = parsed?.settings?.ui_scale;
+          if (scale && !isNaN(parseFloat(scale))) {
+            currentScale = Math.max(0.7, Math.min(1.6, parseFloat(scale)));
+            if (mainWindow) {
+              const display = getDisplayAtCursor();
+              const bounds = calculateBounds(display);
+              mainWindow.setBounds(bounds);
+            }
+            console.log("Applied ui_scale from settings:", currentScale);
+          }
+        } catch {}
+      });
+    });
+    req.on("error", () => {});
+    req.setTimeout(3000, () => req.destroy());
+  }, 3000);
 
   // Auto-check for updates on startup (production only, after delay)
   if (app.isPackaged) {

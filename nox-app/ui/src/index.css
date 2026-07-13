@@ -1,35 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ---------------------------------------------------------------------------
-   CSS Variables – Theme tokens
+   CSS Variables – Theme tokens (Obsidian Console)
    --------------------------------------------------------------------------- */
 
 [data-theme="dark"] {
-  --nox-bg: rgba(13, 13, 15, 0.85);
-  --nox-surface: rgba(26, 26, 31, 0.90);
-  --nox-surface-hover: rgba(37, 37, 43, 0.95);
-  --nox-border: rgba(46, 46, 54, 0.80);
-  --nox-text: #e4e4e7;
-  --nox-text-dim: #71717a;
+  --nox-bg: rgba(6, 7, 13, 0.88);
+  --nox-surface: rgba(15, 17, 24, 0.92);
+  --nox-surface-hover: rgba(22, 26, 38, 0.95);
+  --nox-surface-raised: rgba(22, 26, 38, 0.98);
+  --nox-border: rgba(255, 255, 255, 0.08);
+  --nox-border-hover: rgba(255, 255, 255, 0.15);
+  --nox-border-accent: rgba(99, 102, 241, 0.3);
+  --nox-text: #f4f6ff;
+  --nox-text-dim: #a7afc4;
+  --nox-text-faint: #667087;
   --nox-accent: #6366f1;
   --nox-accent-hover: #818cf8;
-  --nox-scrollbar: rgba(46, 46, 54, 0.80);
-  --nox-scrollbar-hover: rgba(62, 62, 70, 0.90);
+  --nox-violet: #a855f7;
+  --nox-phosphor: #00ff9f;
+  --nox-phosphor-dim: rgba(0, 255, 159, 0.15);
+  --nox-amber: #fbbf24;
+  --nox-red: #ff3d71;
+  --nox-scrollbar: rgba(99, 102, 241, 0.3);
+  --nox-scrollbar-hover: rgba(99, 102, 241, 0.5);
+  --nox-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --nox-font-mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  --nox-font-body: "Inter", system-ui, sans-serif;
 }
 
 [data-theme="light"] {
-  --nox-bg: rgba(255, 255, 255, 0.88);
-  --nox-surface: rgba(244, 244, 245, 0.92);
-  --nox-surface-hover: rgba(228, 228, 231, 0.95);
-  --nox-border: rgba(212, 212, 216, 0.80);
+  --nox-bg: rgba(255, 255, 255, 0.90);
+  --nox-surface: rgba(244, 244, 245, 0.93);
+  --nox-surface-hover: rgba(228, 228, 231, 0.96);
+  --nox-surface-raised: rgba(234, 234, 238, 0.98);
+  --nox-border: rgba(0, 0, 0, 0.08);
+  --nox-border-hover: rgba(0, 0, 0, 0.15);
+  --nox-border-accent: rgba(99, 102, 241, 0.3);
   --nox-text: #18181b;
   --nox-text-dim: #71717a;
+  --nox-text-faint: #98a0b3;
   --nox-accent: #6366f1;
   --nox-accent-hover: #4f46e5;
-  --nox-scrollbar: rgba(212, 212, 216, 0.80);
-  --nox-scrollbar-hover: rgba(180, 180, 184, 0.90);
+  --nox-violet: #a855f7;
+  --nox-phosphor: #00cc7d;
+  --nox-phosphor-dim: rgba(0, 204, 125, 0.12);
+  --nox-amber: #d97706;
+  --nox-red: #dc2626;
+  --nox-scrollbar: rgba(99, 102, 241, 0.3);
+  --nox-scrollbar-hover: rgba(99, 102, 241, 0.5);
+  --nox-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --nox-font-mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  --nox-font-body: "Inter", system-ui, sans-serif;
 }
 
 /* ---------------------------------------------------------------------------
@@ -49,7 +75,9 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--nox-font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ---------------------------------------------------------------------------
@@ -136,32 +164,32 @@ body {
 
 @layer components {
   .glass-panel {
-    border-radius: 1.5rem;
-    background: color-mix(in srgb, var(--nox-surface) 60%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--nox-surface) 72%, transparent);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid color-mix(in srgb, var(--nox-text) 8%, transparent);
+    border: 1px solid var(--nox-border);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   }
 
   .glass-card {
-    border-radius: 1rem;
+    border-radius: 4px;
     background: var(--nox-surface);
     border: 1px solid var(--nox-border);
-    transition: background 200ms ease, border-color 200ms ease;
+    transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
   }
 
   .glass-card:hover {
     background: var(--nox-surface-hover);
-    border-color: color-mix(in srgb, var(--nox-accent) 30%, transparent);
+    border-color: var(--nox-border-hover);
   }
 
   .glass-input {
-    border-radius: 9999px;
+    border-radius: 4px;
     background: color-mix(in srgb, var(--nox-surface) 50%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid color-mix(in srgb, var(--nox-text) 8%, transparent);
+    border: 1px solid var(--nox-border);
     transition: border-color 200ms ease;
   }
 
@@ -170,11 +198,109 @@ body {
   }
 
   .accent-text-gradient {
-    background: linear-gradient(135deg, var(--nox-accent), var(--nox-accent-hover));
+    background: linear-gradient(135deg, var(--nox-accent), var(--nox-violet));
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
+
+  /* Console-style label — monospace, uppercase, letter-spacing */
+  .nox-label {
+    font-family: var(--nox-font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nox-text-dim);
+  }
+
+  /* Console-style heading — Space Grotesk display font */
+  .nox-heading {
+    font-family: var(--nox-font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* Console-style button — monospace, sharp, glow */
+  .nox-btn-primary {
+    font-family: var(--nox-font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    background: var(--nox-accent);
+    color: #06070d;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+    transition: all 0.25s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .nox-btn-primary:hover {
+    background: var(--nox-accent-hover);
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.5);
+    transform: translateY(-1px);
+  }
+
+  .nox-btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .nox-btn-secondary {
+    font-family: var(--nox-font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--nox-text);
+    border: 1px solid var(--nox-border);
+    transition: all 0.25s ease;
+    cursor: pointer;
+  }
+
+  .nox-btn-secondary:hover {
+    border-color: var(--nox-border-hover);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .nox-btn-secondary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Status dot — phosphor green pulse */
+  .nox-status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nox-phosphor);
+    animation: nox-dot-pulse 2s ease-in-out infinite;
+  }
+
+  /* Console card — raised surface with accent border */
+  .nox-console-card {
+    border-radius: 4px;
+    background: var(--nox-surface-raised);
+    border: 1px solid var(--nox-border);
+    transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+
+  .nox-console-card:hover {
+    border-color: var(--nox-border-accent);
+    box-shadow: 0 0 24px rgba(99, 102, 241, 0.1);
+  }
+}
+
+@keyframes nox-dot-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--nox-phosphor); }
+  50% { opacity: 0.4; box-shadow: 0 0 2px var(--nox-phosphor); }
 }
 
 /* ---------------------------------------------------------------------------

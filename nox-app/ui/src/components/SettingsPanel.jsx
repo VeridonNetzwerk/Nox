@@ -115,7 +115,7 @@ function LanguageDropdown({ voiceCatalog, selectedLang, onSelect, label }) {
   );
 }
 
-function SettingsPanel({ locale, onClose, onLocaleChange }) {
+function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange }) {
   const { addToast } = useToast();
   const s = locale.settings;
   const so = locale.onboarding || {};
@@ -486,18 +486,18 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
   );
 
   const Row = ({ label, children }) => (
-    <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-nox-surface/40 text-sm gap-2">
-      <span className="text-nox-textDim shrink-0">{label}</span>
+    <div className="flex items-center justify-between px-3 py-2.5 rounded bg-nox-surface/40 text-sm gap-2">
+      <span className="nox-label shrink-0">{label}</span>
       <div className="flex items-center gap-2 min-w-0">{children}</div>
     </div>
   );
 
   const selectClass =
-    "bg-nox-surface text-nox-text text-sm rounded-lg px-3 py-1.5 border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors";
+    "bg-nox-surface text-nox-text text-sm rounded px-3 py-1.5 border border-nox-border focus:outline-none focus:border-nox-accent transition-colors font-mono";
   const inputClass = selectClass;
 
   const categories = [
-    { id: "general", icon: "⚙️", label: s.general, keywords: ["hotkey", "theme", "autostart", "tastenkombination", "design", "start"] },
+    { id: "general", icon: "⚙️", label: s.general, keywords: ["hotkey", "theme", "autostart", "tastenkombination", "design", "start", "analytics", "größe", "size", "ui_scale"] },
     { id: "ai", icon: "🤖", label: s.aiModel, keywords: ["ollama", "model", "host", "preload", "vram", "ram", "ki", "künstliche intelligenz"] },
     { id: "voice", icon: "🎤", label: s.voice, keywords: ["wake", "audio", "input", "output", "tts", "stimme", "sprache", "mikrofon", "lautsprecher", "silence"] },
     { id: "context", icon: "👁️", label: s.context, keywords: ["eye", "ttl", "excluded", "apps", "kontext", "erfassung", "ausschließen"] },
@@ -561,6 +561,32 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
             label={null}
           />
         </div>
+      </Row>
+      <Row label={s.uiScale || "Größe"}>
+        <div className="flex items-center gap-2 w-48">
+          <input
+            type="range"
+            min="0.7"
+            max="1.6"
+            step="0.1"
+            value={settings.ui_scale || "1.0"}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              updateSetting("ui_scale", val);
+              if (onUiScaleChange) onUiScaleChange(val);
+            }}
+            className="flex-1 accent-nox-accent"
+          />
+          <span className="text-xs text-nox-textDim w-10 text-right tabular-nums">
+            {Math.round((settings.ui_scale || 1.0) * 100)}%
+          </span>
+        </div>
+      </Row>
+      <Row label={s.analytics || "Analytics"}>
+        <Toggle
+          checked={settings.analytics_enabled !== false}
+          onChange={(v) => updateSetting("analytics_enabled", v)}
+        />
       </Row>
     </>
   );
@@ -926,7 +952,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
         <button
           onClick={triggerReindex}
           disabled={filesHealth?.indexing}
-          className="px-4 py-2 rounded-full bg-nox-accent hover:bg-nox-accentHover text-white text-sm w-full disabled:opacity-50 transition-all hover:scale-[1.02]"
+          className="px-4 py-2 nox-btn-primary w-full"
         >
           {filesHealth?.indexing ? s.fileSearchIndexing : s.fileSearchReindex}
         </button>
@@ -969,7 +995,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
         <button
           onClick={handleCheckUpdates}
           disabled={updateChecking}
-          className="px-3 py-1.5 rounded-lg bg-nox-accent/20 hover:bg-nox-accent/30 text-nox-accent text-sm font-medium transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 nox-btn-secondary"
         >
           {updateChecking ? "Prüfe…" : "Auf Updates prüfen"}
         </button>
@@ -1000,30 +1026,30 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
   return (
     <div className="flex flex-col h-full animate-slide-in-right">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border/50">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-nox-border">
+        <div className="flex items-center gap-2.5">
           {activeCat ? (
             <button
               onClick={() => setActiveCategory(null)}
-              className="flex items-center justify-center w-8 h-8 rounded-full text-nox-textDim hover:text-nox-text hover:bg-nox-surface transition-all hover:scale-105"
+              className="flex items-center justify-center w-7 h-7 text-nox-textDim hover:text-nox-text transition-all"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
             </button>
           ) : (
-            <img src={noxLogo} alt="Nox" className="h-6 w-6 rounded-full" />
+            <img src={noxLogo} alt="Nox" className="h-5 w-5 rounded-full" />
           )}
-          <span className="text-sm font-semibold text-nox-text">
+          <span className="text-sm font-bold text-nox-text nox-heading">
             {activeCat ? activeCat.label : s.title}
           </span>
         </div>
         <button
           onClick={onClose}
-          className="flex items-center justify-center w-8 h-8 rounded-full text-nox-textDim hover:text-nox-text hover:bg-nox-surface transition-all hover:scale-105"
+          className="flex items-center justify-center w-7 h-7 text-nox-textDim hover:text-nox-text transition-all"
           aria-label={s.back}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M6 6L18 18M6 18L18 6" />
           </svg>
         </button>
@@ -1031,7 +1057,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
 
       {/* Search bar (only on main page) */}
       {!activeCategory && (
-        <div className="px-4 py-2 border-b border-nox-border/50">
+        <div className="px-4 py-2 border-b border-nox-border">
           <div className="relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nox-textDim" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <circle cx="11" cy="11" r="8" />
@@ -1042,7 +1068,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Einstellungen durchsuchen..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg bg-nox-surface text-nox-text text-sm border border-nox-border/50 focus:outline-none focus:border-nox-accent transition-colors"
+              className="w-full pl-9 pr-3 py-2 rounded bg-nox-surface text-nox-text text-sm border border-nox-border focus:outline-none focus:border-nox-accent transition-colors"
             />
             {searchQuery && (
               <button
@@ -1062,12 +1088,12 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {activeCategory && activeCat ? (
           /* Sub-page: show selected category settings */
-          <div className="glass-card p-4">
+          <div className="nox-console-card p-4">
             <div className="flex items-center gap-2.5 mb-3">
-              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-nox-accent/15 text-nox-accent text-sm">
+              <div className="flex items-center justify-center w-7 h-7 bg-nox-accent/15 text-nox-accent text-sm rounded">
                 {activeCat.icon}
               </div>
-              <h3 className="text-xs font-semibold text-nox-text uppercase tracking-wide">{activeCat.label}</h3>
+              <h3 className="nox-label">{activeCat.label}</h3>
             </div>
             <div className="space-y-2">
               {renderCategoryContent(activeCategory)}
@@ -1080,21 +1106,21 @@ function SettingsPanel({ locale, onClose, onLocaleChange }) {
               <button
                 key={cat.id}
                 onClick={() => { setActiveCategory(cat.id); setSearchQuery(""); }}
-                className="glass-card w-full p-4 flex items-center gap-3 text-left transition-all hover:scale-[1.02] hover:bg-nox-surface/60"
+                className="nox-console-card w-full p-4 flex items-center gap-3 text-left transition-all hover:scale-[1.01]"
               >
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-nox-accent/15 text-nox-accent text-lg flex-shrink-0">
+                <div className="flex items-center justify-center w-9 h-9 bg-nox-accent/15 text-nox-accent text-base flex-shrink-0 rounded">
                   {cat.icon}
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium text-nox-text">{cat.label}</span>
                   {cat.id === "ai" && settings.ollama_model && (
-                    <p className="text-xs text-nox-textDim truncate">{settings.ollama_model}</p>
+                    <p className="text-xs text-nox-textDim truncate font-mono">{settings.ollama_model}</p>
                   )}
                   {cat.id === "voice" && settings.tts_model && (
-                    <p className="text-xs text-nox-textDim truncate">{settings.tts_model}</p>
+                    <p className="text-xs text-nox-textDim truncate font-mono">{settings.tts_model}</p>
                   )}
                   {cat.id === "files" && filesHealth && (
-                    <p className="text-xs text-nox-textDim truncate">
+                    <p className="text-xs text-nox-textDim truncate font-mono">
                       {filesHealth.files_indexed ?? 0} Dateien indexiert
                     </p>
                   )}

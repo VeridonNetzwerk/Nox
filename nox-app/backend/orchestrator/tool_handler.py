@@ -56,6 +56,8 @@ SETTINGS_DESCRIPTIONS = {
     "ollama_preload": "Modell beim Start laden (true/false)",
     "ollama_think": "Thinking-Modus aktivieren – tiefere Antworten, aber langsamer (true/false)",
     "ui_theme": "Design: system, dark oder light",
+    "ui_scale": "UI-Größe (0.7 bis 1.6, Standard 1.0)",
+    "analytics_enabled": "Anonyme Nutzungs-Analyse aktiv (true/false)",
     "system_language": "UI-Sprache (leer = auto, z.B. de_DE, en_US)",
     "hotkey": "Tastenkürzel zum Öffnen (z.B. CommandOrControl+Shift+Space)",
     "wake_word_enabled": "Wake-Word-Erkennung aktiv (true/false)",

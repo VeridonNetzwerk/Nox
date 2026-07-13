@@ -84,7 +84,7 @@ begin
   end if;
 
   -- Insert each event
-  foreach v_event in array jsonb_array_elements(p_events)
+  foreach v_event in array (select array_agg(x) from jsonb_array_elements(p_events) x)
   loop
     v_locale := v_event->>'locale';
     -- Derive country from locale (e.g. de_DE -> DE, en_US -> US)

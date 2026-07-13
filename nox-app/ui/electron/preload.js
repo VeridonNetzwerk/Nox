@@ -26,12 +26,14 @@ contextBridge.exposeInMainWorld("nox", {
   // Actions
   hideWindow: () => ipcRenderer.send("hide-window"),
   showWindow: () => ipcRenderer.send("show-window"),
+  closeApp: () => ipcRenderer.send("close-app"),
   onboardingComplete: () => ipcRenderer.send("onboarding-complete"),
   onboardingActive: () => ipcRenderer.send("onboarding-active"),
   onboardingNotNeeded: () => ipcRenderer.send("onboarding-not-needed"),
   updateHotkey: (hotkey) => ipcRenderer.send("update-hotkey", hotkey),
   setThinkingState: (thinking) => ipcRenderer.send("thinking-state", thinking),
   setVoiceState: (active) => ipcRenderer.send("voice-state", active),
+  resizeWindow: (scale) => ipcRenderer.send("resize-window", scale),
 
   // Logging — forward renderer logs to main process file logger
   log: (msg) => ipcRenderer.send("renderer-log", msg),

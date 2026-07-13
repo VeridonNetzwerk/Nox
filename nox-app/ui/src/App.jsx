@@ -82,6 +82,7 @@ function App() {
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const [activeTool, setActiveTool] = useState(null);
   const [thinkingIndex, setThinkingIndex] = useState(0);
+  const [uiScale, setUiScale] = useState(1.0);
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
@@ -108,6 +109,24 @@ function App() {
       setLocaleData(mod.default);
     };
     loadLocale();
+  }, []);
+
+  // Fetch ui_scale from backend settings
+  useEffect(() => {
+    const fetchScale = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/settings`);
+        const data = await res.json();
+        if (data.status === "ok" && data.settings?.ui_scale) {
+          const scale = parseFloat(data.settings.ui_scale);
+          if (!isNaN(scale) && scale >= 0.7 && scale <= 1.6) {
+            setUiScale(scale);
+            window.nox?.resizeWindow?.(scale);
+          }
+        }
+      } catch {}
+    };
+    fetchScale();
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -556,7 +575,7 @@ function App() {
     <div
       data-theme={theme}
       className={`h-full w-full overflow-hidden ${animClass}`}
-      style={{ background: "transparent" }}
+      style={{ background: "transparent", zoom: uiScale }}
     >
       {showOnboarding ? (
         <div className="h-full w-full rounded-2xl overflow-hidden nox-window-bg backdrop-blur-xl border border-nox-border">
@@ -579,6 +598,9 @@ function App() {
             const mod = await loader();
             setLocaleData(mod.default);
           }
+        }} onUiScaleChange={(scale) => {
+          setUiScale(scale);
+          window.nox?.resizeWindow?.(scale);
         }} />
         </div>
       ) : backendStarting ? (

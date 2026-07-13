@@ -126,6 +126,13 @@ if LOCAL_CONFIG_PATH.exists():
         config.update(local)
         logger.info("Merged config.local.yaml overrides")
 
+# Analytics — fire-and-forget, respects analytics_enabled setting
+try:
+    from analytics import track_app_start as _track_app_start
+    _track_app_start(config)
+except Exception:
+    pass
+
 # ---------------------------------------------------------------------------
 # Connection manager – broadcasts events to all connected WebSocket clients
 # ---------------------------------------------------------------------------
