@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("nox", {
   showWindow: () => ipcRenderer.send("show-window"),
   onboardingComplete: () => ipcRenderer.send("onboarding-complete"),
   onboardingActive: () => ipcRenderer.send("onboarding-active"),
+  onboardingNotNeeded: () => ipcRenderer.send("onboarding-not-needed"),
   updateHotkey: (hotkey) => ipcRenderer.send("update-hotkey", hotkey),
   setThinkingState: (thinking) => ipcRenderer.send("thinking-state", thinking),
   setVoiceState: (active) => ipcRenderer.send("voice-state", active),

@@ -301,6 +301,9 @@ function App() {
           setShowOnboarding(true);
           // Make sure window is visible when onboarding shows
           window.nox?.showWindow?.();
+        } else if (data.status === "ok" && data.settings.onboarding_completed) {
+          // Onboarding already done — tell Electron it can hide normally
+          window.nox?.onboardingNotNeeded?.();
         }
       } catch {
         if (cancelled) return;

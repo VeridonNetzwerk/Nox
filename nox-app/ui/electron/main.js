@@ -94,7 +94,7 @@ let isQuitting = false;
 let suppressBlur = false;
 let lastShowTime = 0;
 let isThinking = false; // Don't hide window while Nox is generating a response
-let isOnboardingActive = false; // Don't hide window while onboarding wizard is showing
+let isOnboardingActive = true; // Assume onboarding is active until frontend confirms otherwise
 let isVoiceActive = false; // Don't hide window while listening or speaking
 
 // ---------------------------------------------------------------------------
@@ -650,6 +650,14 @@ app.whenReady().then(async () => {
     isOnboardingActive = true;
     if (mainWindow) mainWindow.setAlwaysOnTop(true, "screen-saver");
     console.log("Onboarding active — window will stay visible and on top");
+  });
+  ipcMain.on("onboarding-not-needed", () => {
+    isOnboardingActive = false;
+    if (mainWindow) {
+      const isDebug = !app.isPackaged;
+      mainWindow.setAlwaysOnTop(!isDebug, "screen-saver");
+    }
+    console.log("Onboarding not needed — window can hide normally");
   });
   ipcMain.on("thinking-state", (_e, thinking) => {
     isThinking = thinking;
