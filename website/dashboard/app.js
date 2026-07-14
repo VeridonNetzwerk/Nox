@@ -743,6 +743,8 @@ async function renderCountryMap(events) {
     svg.classList.add('map-svg');
     svg.setAttribute('aria-label', 'World map of active users');
 
+    // Group paths by country code so multi-path countries (islands) act as one
+    const pathsByCode = {};
     svg.querySelectorAll('path').forEach(path => {
       let code = (path.id || '').toUpperCase();
       if (!code) {
@@ -753,20 +755,26 @@ async function renderCountryMap(events) {
         }
       }
       if (!code) return;
+      if (!pathsByCode[code]) pathsByCode[code] = [];
+      pathsByCode[code].push(path);
+    });
+
+    Object.entries(pathsByCode).forEach(([code, paths]) => {
       const count = counts[code] || 0;
-      path.setAttribute('stroke', '#ffffff');
-      path.setAttribute('stroke-width', '0.4');
-      if (count > 0) {
-        path.setAttribute('fill', choroplethColor(count / max));
-        path.style.cursor = 'pointer';
-        path.dataset.label = `${countryFlag(code)} ${countryName(code)}`;
-        path.dataset.detail = `${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`;
-      } else {
-        path.setAttribute('fill', '#e8eaf1');
-        path.style.cursor = 'help';
-        path.dataset.label = `${countryFlag(code)} ${countryName(code)}`;
-        path.dataset.detail = 'no events';
-      }
+      const fill = count > 0 ? choroplethColor(count / max) : '#e8eaf1';
+      const label = `${countryFlag(code)} ${countryName(code)}`;
+      const detail = count > 0
+        ? `${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`
+        : 'no events';
+      paths.forEach(p => {
+        p.setAttribute('stroke', '#ffffff');
+        p.setAttribute('stroke-width', '0.4');
+        p.setAttribute('fill', fill);
+        p.style.cursor = count > 0 ? 'pointer' : 'help';
+        p.dataset.label = label;
+        p.dataset.detail = detail;
+        p.dataset.code = code;
+      });
     });
 
     const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#e0e7ff,#4f46e5)"></div><span>${max.toLocaleString()} events</span></div>`;
@@ -774,8 +782,26 @@ async function renderCountryMap(events) {
     const holder = container.querySelector('.map-holder');
     holder.appendChild(svg);
 
-    svg.querySelectorAll('path[data-label]').forEach(path => {
-      attachTooltip(path, path.dataset.label, path.dataset.detail);
+    // Attach hover events per country group (all paths with same code highlight together)
+    Object.entries(pathsByCode).forEach(([code, paths]) => {
+      const firstPath = paths[0];
+      paths.forEach(p => {
+        p.addEventListener('mouseenter', (e) => {
+          const t = getChartTooltip();
+          t.innerHTML = `<div style="font-weight:600;font-size:13px">${firstPath.dataset.label}</div><div style="color:#9ca3af;font-size:11px">${firstPath.dataset.detail}</div>`;
+          t.style.opacity = '1';
+          paths.forEach(pp => pp.style.filter = 'brightness(0.8)');
+        });
+        p.addEventListener('mousemove', (e) => {
+          const t = getChartTooltip();
+          t.style.left = (e.clientX + 14) + 'px';
+          t.style.top = (e.clientY - 10) + 'px';
+        });
+        p.addEventListener('mouseleave', () => {
+          getChartTooltip().style.opacity = '0';
+          paths.forEach(pp => pp.style.filter = '');
+        });
+      });
     });
   } catch {
     container.innerHTML = `<div class="map-section"><div class="empty">Map unavailable</div>${infoHtml}</div>`;
