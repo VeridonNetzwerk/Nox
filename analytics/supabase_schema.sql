@@ -36,6 +36,9 @@ drop policy if exists "Allow authenticated reads" on public.nox_events;
 drop policy if exists "No updates" on public.nox_events;
 drop policy if exists "No deletes" on public.nox_events;
 
+-- Grant SELECT to authenticated role (required in addition to RLS policy)
+grant select on public.nox_events to authenticated;
+
 -- Only authenticated users can read (dashboard login)
 create policy "Allow authenticated reads"
   on public.nox_events
