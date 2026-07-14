@@ -247,16 +247,35 @@ async function supabaseSelect(table, select = '*', limit = 1000, orderBy = null)
   return resp.json();
 }
 
+let allEvents = [];
+let timelineDays = 30;
+
+function filteredEvents() {
+  const period = document.getElementById('period-select')?.value || 'Year to Date';
+  const now = new Date();
+  let cutoff;
+  if (period === 'Today') { cutoff = new Date(now); cutoff.setHours(0, 0, 0, 0); }
+  else if (period === 'Last 7 days') cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  else if (period === 'Last 30 days') cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  else { cutoff = new Date(now.getFullYear(), 0, 1); }
+  return allEvents.filter(e => new Date(e.created_at) >= cutoff);
+}
+
+function renderAll() {
+  const events = filteredEvents();
+  renderStats(events);
+  renderTimeline(events, timelineDays);
+  renderWeeklyTraffic(events);
+  renderCountryMap(events);
+  renderBounceRate(events);
+  renderUsersByTime(events);
+  renderRecentEvents(events.slice(0, 50));
+}
+
 async function loadAnalytics() {
   try {
-    const events = await supabaseSelect('nox_events', '*', 5000, 'created_at.desc');
-    renderStats(events);
-    renderTimeline(events);
-    renderWeeklyTraffic(events);
-    renderCountryMap(events);
-    renderBounceRate(events);
-    renderUsersByTime(events);
-    renderRecentEvents(events.slice(0, 50));
+    allEvents = await supabaseSelect('nox_events', '*', 5000, 'created_at.desc');
+    renderAll();
   } catch (e) {
     document.querySelectorAll('.loading').forEach(el => {
       el.innerHTML = `<span style="color: var(--red)">Error: ${e.message}</span>`;
@@ -267,43 +286,11 @@ async function loadAnalytics() {
 // --- Chart colors ---
 const CHART_COLORS = ['#6366f1', '#22c55e', '#eab308', '#ef4444', '#818cf8', '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#a855f7'];
 
-// --- Country code to lat/lng (approximate, for world map) ---
-const COUNTRY_COORDS = {
-  'US': [39.8, -98.5], 'DE': [51.2, 10.4], 'FR': [46.2, 2.2], 'GB': [55.3, -3.4],
-  'JP': [36.2, 138.2], 'CN': [35.0, 104.0], 'IN': [20.6, 78.9], 'BR': [-14.2, -51.9],
-  'RU': [61.5, 105.3], 'CA': [56.1, -106.3], 'AU': [-25.3, 133.8], 'KR': [35.9, 127.8],
-  'IT': [41.9, 12.6], 'ES': [40.5, -3.7], 'NL': [52.1, 5.3], 'SE': [60.1, 18.6],
-  'NO': [60.5, 8.5], 'FI': [61.9, 25.7], 'DK': [56.3, 9.5], 'PL': [51.9, 19.1],
-  'TR': [38.9, 35.2], 'MX': [23.6, -102.5], 'AR': [-38.4, -63.6], 'CL': [-35.7, -71.5],
-  'ZA': [-30.6, 22.9], 'EG': [26.8, 30.8], 'NG': [9.1, 8.7], 'KE': [-0.0, 37.9],
-  'SA': [23.9, 45.1], 'AE': [23.4, 53.8], 'IL': [31.0, 34.9], 'IR': [32.4, 53.7],
-  'TH': [15.9, 100.9], 'VN': [14.1, 108.3], 'ID': [-0.8, 113.9], 'PH': [12.9, 121.8],
-  'MY': [4.2, 101.9], 'SG': [1.3, 103.8], 'PK': [30.4, 69.3], 'BD': [23.7, 90.4],
-  'UA': [48.9, 31.2], 'GR': [39.1, 21.8], 'PT': [39.4, -8.2], 'CH': [46.8, 8.2],
-  'AT': [47.5, 14.5], 'BE': [50.5, 4.5], 'CZ': [49.8, 15.5], 'HU': [47.2, 19.5],
-  'RO': [45.9, 24.9], 'BG': [42.7, 25.5], 'HR': [45.1, 15.2], 'SK': [48.7, 19.7],
-  'SI': [46.2, 14.9], 'LT': [55.2, 23.9], 'LV': [56.9, 24.6], 'EE': [58.6, 25.0],
-  'IE': [53.1, -7.7], 'IS': [64.9, -19.0], 'LU': [49.8, 6.1], 'MT': [35.9, 14.4],
-  'CY': [35.1, 33.4], 'AL': [41.2, 20.2], 'RS': [44.0, 21.0], 'BA': [43.9, 17.7],
-  'NZ': [-40.9, 174.9], 'CO': [4.6, -74.3], 'PE': [-9.2, -75.0], 'VE': [6.4, -66.6],
-  'EC': [-1.8, -78.2], 'UY': [-32.5, -55.8], 'PY': [-23.4, -58.4], 'BO': [-16.3, -63.6],
-  'CR': [9.7, -83.8], 'PA': [8.5, -80.8], 'GT': [15.8, -90.2], 'CU': [21.5, -77.8],
-  'DO': [18.7, -70.2], 'HN': [15.2, -86.2], 'SV': [13.8, -88.9], 'NI': [12.9, -85.2],
-  'MA': [31.8, -7.1], 'DZ': [28.0, 1.7], 'TN': [33.9, 9.5], 'LY': [26.3, 17.2],
-  'GH': [7.9, -1.0], 'CI': [7.5, -5.5], 'SN': [14.5, -14.5], 'CM': [7.4, 12.4],
-  'AO': [-11.2, 17.9], 'MZ': [-18.7, 35.5], 'TZ': [-6.4, 34.9], 'UG': [1.4, 32.3],
-  'ET': [9.1, 40.5], 'SD': [12.9, 30.2], 'IQ': [33.2, 43.7], 'JO': [30.6, 36.2],
-  'LB': [33.9, 35.9], 'SY': [34.8, 38.9], 'AF': [33.9, 67.7], 'KZ': [48.0, 66.9],
-  'UZ': [41.4, 64.6], 'TM': [38.9, 59.6], 'MN': [46.9, 103.8], 'KH': [12.6, 104.9],
-  'LA': [19.9, 102.5], 'MM': [21.9, 95.9], 'LK': [7.9, 80.8], 'NP': [28.4, 84.1],
-  'TW': [23.7, 121.0], 'HK': [22.3, 114.2],
-};
-
-// Convert lat/lng to SVG x/y (equirectangular projection)
-function latLngToXY(lat, lng, width, height) {
-  const x = ((lng + 180) / 360) * width;
-  const y = ((90 - lat) / 180) * height;
-  return [x, y];
+// Country code to display name (Intl API, full coverage)
+const REGION_NAMES = new Intl.DisplayNames(['en'], { type: 'region' });
+function countryName(code) {
+  if (!code || code === 'Unknown') return 'Unknown';
+  try { return REGION_NAMES.of(code) || code; } catch { return code; }
 }
 
 // Convert country code to flag emoji
@@ -362,8 +349,7 @@ function renderStats(events) {
 }
 
 // --- SVG Line/Area Chart for Timeline ---
-function renderTimeline(events) {
-  const days = 30;
+function renderTimeline(events, days = 30) {
   const now = new Date();
   const buckets = [];
   for (let i = days - 1; i >= 0; i--) {
@@ -409,8 +395,9 @@ function renderTimeline(events) {
     yTicks.push(`<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" /><text class="axis-text" x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end">${val}</text>`);
   }
 
-  // X-axis labels (every 5th)
-  const xLabels = points.filter((p, i) => i % 5 === 0).map(p =>
+  // X-axis labels (adaptive spacing)
+  const labelStep = Math.max(1, Math.round(days / 6));
+  const xLabels = points.filter((p, i) => i % labelStep === 0).map(p =>
     `<text class="axis-text" x="${p[0].toFixed(1)}" y="${H - 8}" text-anchor="middle">${p[2].label}</text>`
   ).join('');
 
@@ -430,32 +417,6 @@ function renderTimeline(events) {
     <path class="line-stroke" d="${linePath}" stroke="#84cc16" />
     ${dots}
     ${xLabels}
-  </svg>`;
-}
-
-function buildMiniLineChart(values, color, secondaryValues = []) {
-  const W = 520, H = 180, padL = 34, padR = 10, padT = 12, padB = 24;
-  const chartW = W - padL - padR;
-  const chartH = H - padT - padB;
-  const allValues = values.concat(secondaryValues);
-  const max = Math.max(...allValues, 1);
-  const stepX = values.length > 1 ? chartW / (values.length - 1) : chartW;
-  const points = values.map((value, index) => [padL + index * stepX, padT + chartH - (value / max) * chartH]);
-  const secondary = secondaryValues.map((value, index) => [padL + index * stepX, padT + chartH - (value / max) * chartH]);
-  const line = points.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  const secondLine = secondary.length ? secondary.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ') : '';
-  const area = `${line} L${points[points.length - 1][0].toFixed(1)},${padT + chartH} L${points[0][0].toFixed(1)},${padT + chartH} Z`;
-  const grid = [0, 1, 2, 3].map(index => {
-    const y = padT + (chartH / 3) * index;
-    return `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" />`;
-  }).join('');
-  const labels = ['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Dec'].map((label, index) => {
-    const x = padL + (chartW / 5) * index;
-    return `<text class="axis-text" x="${x}" y="${H - 6}" text-anchor="middle">${label}</text>`;
-  }).join('');
-  return `<svg class="svg-chart" viewBox="0 0 ${W} ${H}">
-    <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
-    ${grid}<path d="${area}" fill="url(#trendFill)"/><path class="line-stroke" d="${line}" stroke="${color}"/>${secondLine ? `<path class="line-stroke" d="${secondLine}" stroke="#84cc16"/>` : ''}${labels}
   </svg>`;
 }
 
@@ -535,92 +496,35 @@ function renderUsersByTime(events) {
   container.innerHTML = `<svg viewBox="0 0 ${totalW} ${totalH}" style="width:100%;height:auto;display:block">${dayHeaders}${rows}</svg><div class="heatmap-legend"><span>Less</span><div class="heatmap-legend-bar">${[0.12,0.3,0.5,0.7,0.9].map(a => `<span class="sq" style="background:rgba(99,102,241,${a})"></span>`).join('')}</div><span>More</span></div>`;
 }
 
-// --- SVG Donut Chart for Event Types ---
-function renderEventTypes(events) {
-  const counts = {};
-  events.forEach(e => {
-    counts[e.event_type] = (counts[e.event_type] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const total = sorted.reduce((s, [, c]) => s + c, 0);
+// --- World Map for Countries (real SVG choropleth) ---
+let worldMapSvgCache = null;
 
-  const container = document.getElementById('event-types');
-  if (!container) return;
-  if (sorted.length === 0) {
-    container.innerHTML = '<div class="empty">No events yet</div>';
-    return;
-  }
-
-  const R = 70, r = 42, cx = 90, cy = 90;
-  let angle = -Math.PI / 2;
-
-  const slices = sorted.map(([type, count], i) => {
-    const pct = count / total;
-    const endAngle = angle + pct * Math.PI * 2;
-    const x1 = cx + R * Math.cos(angle), y1 = cy + R * Math.sin(angle);
-    const x2 = cx + R * Math.cos(endAngle), y2 = cy + R * Math.sin(endAngle);
-    const x3 = cx + r * Math.cos(endAngle), y3 = cy + r * Math.sin(endAngle);
-    const x4 = cx + r * Math.cos(angle), y4 = cy + r * Math.sin(angle);
-    const largeArc = pct > 0.5 ? 1 : 0;
-    const path = `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${R} ${R} 0 ${largeArc} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L ${x3.toFixed(1)} ${y3.toFixed(1)} A ${r} ${r} 0 ${largeArc} 0 ${x4.toFixed(1)} ${y4.toFixed(1)} Z`;
-    const color = CHART_COLORS[i % CHART_COLORS.length];
-    angle = endAngle;
-    return { path, color, type, count, pct };
-  });
-
-  const svg = `<svg class="donut-svg" width="180" height="180" viewBox="0 0 180 180">
-    ${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--surface)" stroke-width="1.5"><title>${s.type}: ${s.count} (${(s.pct*100).toFixed(1)}%)</title></path>`).join('')}
-    <text class="donut-center-num donut-center-text" x="${cx}" y="${cy - 6}">${total.toLocaleString()}</text>
-    <text class="donut-center-label donut-center-text" x="${cx}" y="${cy + 14}">Events</text>
-  </svg>`;
-
-  const legend = `<div class="donut-legend">
-    ${slices.map(s => `<div class="donut-legend-item">
-      <span class="donut-legend-dot" style="background:${s.color}"></span>
-      <span class="donut-legend-label">${s.type}</span>
-      <span class="donut-legend-value">${s.count}</span>
-    </div>`).join('')}
-  </div>`;
-
-  container.innerHTML = `<div class="donut-container">${svg}${legend}</div>`;
+async function loadWorldMapSvg() {
+  if (worldMapSvgCache) return worldMapSvgCache;
+  const resp = await fetch('world-map.svg');
+  if (!resp.ok) throw new Error('map_load_failed');
+  const text = await resp.text();
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const svg = doc.querySelector('svg');
+  if (!svg) throw new Error('map_parse_failed');
+  worldMapSvgCache = svg;
+  return svg;
 }
 
-// --- World Map for Countries ---
-const WORLD_MAP_PATHS = [
-  // North America
-  'M120 55 L180 45 L220 55 L250 70 L270 90 L260 110 L240 120 L210 125 L180 120 L160 110 L140 95 L125 80 Z',
-  // Greenland
-  'M280 30 L320 28 L340 40 L335 55 L310 60 L285 50 Z',
-  // South America
-  'M230 145 L260 140 L280 155 L290 180 L285 210 L270 235 L250 245 L235 230 L225 200 L220 175 Z',
-  // Europe
-  'M360 50 L420 45 L450 55 L460 70 L440 80 L410 82 L380 75 L365 65 Z',
-  // Africa
-  'M380 85 L430 80 L460 95 L475 120 L480 150 L470 180 L450 200 L420 205 L395 190 L380 165 L375 135 L370 110 Z',
-  // Middle East
-  'M460 85 L495 82 L510 95 L505 110 L485 115 L465 105 Z',
-  // Asia (Russia + China + India)
-  'M460 45 L560 40 L640 50 L700 60 L720 80 L700 95 L660 100 L620 95 L580 85 L540 80 L500 75 L470 65 Z',
-  'M520 90 L570 85 L600 100 L610 120 L595 140 L565 145 L535 135 L520 115 Z',
-  // Southeast Asia
-  'M590 130 L620 128 L640 140 L635 155 L610 158 L595 148 Z',
-  // Japan
-  'M680 80 L700 75 L710 90 L705 105 L690 100 Z',
-  // Australia
-  'M610 175 L660 170 L690 180 L695 200 L680 215 L650 218 L620 210 L605 195 Z',
-  // New Zealand
-  'M705 210 L720 208 L725 220 L715 228 L705 222 Z',
-  // UK + Ireland
-  'M345 52 L365 50 L370 62 L355 68 L345 60 Z',
-  // Scandinavia
-  'M380 30 L420 25 L445 35 L440 48 L410 50 L385 42 Z',
-  // Indonesia archipelago
-  'M595 150 L625 148 L640 158 L635 168 L610 170 L598 162 Z',
-  // Madagascar
-  'M490 165 L502 160 L508 175 L500 190 L492 185 Z',
-];
+// Choropleth color scale: light gray (no data) -> indigo (max)
+function choroplethColor(intensity) {
+  // interpolate between #e8eaf1 and #4f46e5
+  const from = [232, 234, 241];
+  const to = [79, 70, 229];
+  const t = Math.pow(intensity, 0.55); // ease so small counts remain visible
+  const rgb = from.map((f, i) => Math.round(f + (to[i] - f) * t));
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
 
-function renderCountryMap(events) {
+async function renderCountryMap(events) {
+  const container = document.getElementById('country-breakdown');
+  if (!container) return;
+
   const counts = {};
   events.forEach(event => {
     const country = event.country || 'Unknown';
@@ -628,129 +532,56 @@ function renderCountryMap(events) {
   });
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const total = Math.max(events.length, 1);
-  const max = Math.max(...sorted.map(([, count]) => count), 1);
-  const container = document.getElementById('country-breakdown');
-  if (!container || sorted.length === 0) {
-    if (container) container.innerHTML = '<div class="empty">No country data yet</div>';
+  const max = Math.max(...sorted.filter(([code]) => code !== 'Unknown').map(([, count]) => count), 1);
+
+  if (sorted.length === 0) {
+    container.innerHTML = '<div class="empty">No country data yet</div>';
     return;
   }
-
-  const W = 760;
-  const H = 260;
-  const scaleX = W / 360;
-  const scaleY = H / 180;
-
-  const dots = sorted.filter(([code]) => COUNTRY_COORDS[code]).map(([code, count]) => {
-    const [lat, lng] = COUNTRY_COORDS[code];
-    const [x, y] = latLngToXY(lat, lng, W, H);
-    const radius = 3 + Math.sqrt(count / max) * 10;
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius.toFixed(1)}" fill="#6366f1" fill-opacity="0.6" stroke="#4f46e5" stroke-width="1" style="cursor:pointer"><title>${countryFlag(code)} ${code}: ${count} events</title></circle>`;
-  }).join('');
-
-  const continents = WORLD_MAP_PATHS.map(d =>
-    `<path d="${d}" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/>`
-  ).join('');
-
-  const mapSvg = `<svg class="map-svg" viewBox="0 0 ${W} ${H}" aria-label="World map of active users"><rect x="0" y="0" width="${W}" height="${H}" rx="8" fill="#f9fafb"/>${continents}${dots}</svg>`;
-
-  const countryNames = {
-    US: 'United States', GB: 'United Kingdom', CA: 'Canada', DE: 'Germany',
-    FR: 'France', IT: 'Italy', ES: 'Spain', NL: 'Netherlands', JP: 'Japan',
-    CN: 'China', IN: 'India', BR: 'Brazil', AU: 'Australia', RU: 'Russia',
-    KR: 'South Korea', MX: 'Mexico', AR: 'Argentina', SE: 'Sweden', NO: 'Norway',
-    PL: 'Poland', TR: 'Turkey', CH: 'Switzerland', AT: 'Austria', BE: 'Belgium',
-    Unknown: 'Unknown'
-  };
 
   const list = sorted.slice(0, 8).map(([code, count]) => {
     const percent = Math.round((count / total) * 100);
-    return `<div class="country-row"><span class="country-flag">${countryFlag(code)}</span><span class="country-name">${countryNames[code] || code}</span><span class="country-bar-bg"><span class="country-bar-fill" style="width:${Math.max(percent, 4)}%"></span></span><span class="country-pct">${percent}%</span></div>`;
+    return `<div class="country-row"><span class="country-flag">${countryFlag(code)}</span><span class="country-name">${countryName(code)}</span><span class="country-bar-bg"><span class="country-bar-fill" style="width:${Math.max(percent, 4)}%"></span></span><span class="country-pct">${percent}%</span></div>`;
   }).join('');
 
   const totalSessions = new Set(events.map(e => e.session_id).filter(Boolean)).size;
-  const totalCountries = sorted.length;
+  const totalCountries = sorted.filter(([code]) => code !== 'Unknown').length;
 
-  container.innerHTML = `<div class="map-section"><div>${mapSvg}</div><div><div style="font-size:22px;font-weight:700;margin-bottom:2px">${totalSessions.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:2px">Active users from ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'}</div><div class="country-list" style="margin-top:14px">${list}</div></div></div>`;
-}
+  const mapWrap = document.createElement('div');
+  const infoHtml = `<div><div style="font-size:22px;font-weight:700;margin-bottom:2px">${totalSessions.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:2px">Active users from ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'}</div><div class="country-list" style="margin-top:14px">${list}</div></div>`;
 
-// --- Bar Chart for Error Codes ---
-function renderErrorCodes(events) {
-  const errorEvents = events.filter(e => e.event_type === 'error' || e.error_code);
-  const counts = {};
-  errorEvents.forEach(e => {
-    const code = e.error_code || 'UNKNOWN';
-    counts[code] = (counts[code] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const max = Math.max(...sorted.map(s => s[1]), 1);
+  try {
+    const svgTemplate = await loadWorldMapSvg();
+    const svg = svgTemplate.cloneNode(true);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.classList.add('map-svg');
+    svg.setAttribute('aria-label', 'World map of active users');
 
-  const container = document.getElementById('error-codes');
-  if (!container) return;
-  if (sorted.length === 0) {
-    container.innerHTML = '<div class="empty">No errors recorded</div>';
-    return;
+    svg.querySelectorAll('path').forEach(path => {
+      const code = (path.id || '').toUpperCase();
+      const count = counts[code] || 0;
+      path.setAttribute('stroke', '#ffffff');
+      path.setAttribute('stroke-width', '0.4');
+      if (count > 0) {
+        path.setAttribute('fill', choroplethColor(count / max));
+        path.style.cursor = 'pointer';
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        title.textContent = `${countryFlag(code)} ${countryName(code)}: ${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`;
+        path.appendChild(title);
+      } else {
+        path.setAttribute('fill', '#e8eaf1');
+      }
+    });
+
+    const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#e8eaf1,#4f46e5)"></div><span>${max.toLocaleString()} events</span></div>`;
+    mapWrap.innerHTML = `<div class="map-section"><div><div class="map-holder"></div>${legendHtml}</div>${infoHtml}</div>`;
+    mapWrap.querySelector('.map-holder').appendChild(svg);
+  } catch {
+    mapWrap.innerHTML = `<div class="map-section"><div class="empty">Map unavailable</div>${infoHtml}</div>`;
   }
-  container.innerHTML = sorted.map(([code, count]) =>
-    `<div class="bar-row">
-      <span class="bar-label"><span class="event-badge error">${code}</span></span>
-      <div class="bar-track">
-        <div class="bar-fill" style="width: ${(count / max * 100).toFixed(0)}%; background: var(--red)">${count}</div>
-      </div>
-    </div>`
-  ).join('');
-}
 
-// --- Bar Chart for Top Tools ---
-function renderTopTools(events) {
-  const toolEvents = events.filter(e => e.event_type === 'tool_use');
-  const counts = {};
-  toolEvents.forEach(e => {
-    const name = e.metadata?.tool || 'unknown';
-    counts[name] = (counts[name] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const max = Math.max(...sorted.map(s => s[1]), 1);
-
-  const container = document.getElementById('top-tools');
-  if (!container) return;
-  if (sorted.length === 0) {
-    container.innerHTML = '<div class="empty">No tool usage yet</div>';
-    return;
-  }
-  container.innerHTML = sorted.map(([name, count]) =>
-    `<div class="bar-row">
-      <span class="bar-label">${name}</span>
-      <div class="bar-track">
-        <div class="bar-fill" style="width: ${(count / max * 100).toFixed(0)}%">${count}</div>
-      </div>
-    </div>`
-  ).join('');
-}
-
-// --- Bar Chart for App Versions ---
-function renderVersionBreakdown(events) {
-  const counts = {};
-  events.forEach(e => {
-    const v = e.app_version || 'unknown';
-    counts[v] = (counts[v] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const max = Math.max(...sorted.map(s => s[1]), 1);
-
-  const container = document.getElementById('version-breakdown');
-  if (!container) return;
-  if (sorted.length === 0) {
-    container.innerHTML = '<div class="empty">No version data yet</div>';
-    return;
-  }
-  container.innerHTML = sorted.map(([ver, count]) =>
-    `<div class="bar-row">
-      <span class="bar-label">v${ver}</span>
-      <div class="bar-track">
-        <div class="bar-fill" style="width: ${(count / max * 100).toFixed(0)}%; background: var(--green)">${count}</div>
-      </div>
-    </div>`
-  ).join('');
+  container.replaceChildren(...mapWrap.childNodes);
 }
 
 function exportAnalytics() {
@@ -822,18 +653,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('recent-events')?.scrollIntoView({ behavior: 'smooth' });
   });
 
-  document.querySelectorAll('.nav-item').forEach(item => {
-    if (item.id === 'logout-nav') return;
-    item.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-      item.classList.add('active');
-    });
+  const periodSelect = document.getElementById('period-select');
+  if (periodSelect) periodSelect.addEventListener('change', () => {
+    if (allEvents.length) renderAll();
   });
 
   document.querySelectorAll('.card-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       tab.parentElement.querySelectorAll('.card-tab').forEach(other => other.classList.remove('active'));
       tab.classList.add('active');
+      timelineDays = tab.dataset.days ? parseInt(tab.dataset.days, 10) : 30;
+      if (allEvents.length) renderTimeline(filteredEvents(), timelineDays);
     });
   });
 
