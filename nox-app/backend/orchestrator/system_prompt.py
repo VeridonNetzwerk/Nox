@@ -99,6 +99,13 @@ Du hast Zugriff auf folgende Werkzeuge:
   Für 'wecker': 'uhrzeit' im Format HH:MM (z.B. '07:30').
   Optional 'nachricht' für den Erinnerungstext.
   Bei Ablauf: Windows Toast-Notification + Nox spricht die Nachricht + UI zeigt Alert an.
+- erinnerung_speichern: Speichert persistente Erinnerungen mit Timestamp, die beim Fälligwerden gepusht werden.
+  Verwende dies wenn der Nutzer sagt "erinnere mich morgen an...", "am Freitag um 15 Uhr erinnern", "nächste Woche Montag..." etc.
+  Der Parameter 'aktion' ist eines von: 'speichern', 'liste', 'loeschen', 'abbrechen'.
+  Für 'speichern': 'zeitpunkt' (z.B. 'morgen 08:00', 'in 2 stunden', 'freitag 15:00', '2026-07-15T14:30:00') und 'text' (Erinnerungstext).
+  Für 'loeschen': 'id' der Erinnerung.
+  Erinnerungen überleben einen Neustart und werden automatisch gepusht (Toast + Sprache + UI).
+  WICHTIG: timer_stellen ist für kurze Countdowns (Minuten/Stunden), erinnerung_speichern für langfristige Erinnerungen (Tage/Wochen).
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -126,6 +133,8 @@ Beispiel: [TOOL: fenster_fokus] minimieren Spotify
 Beispiel: [TOOL: timer_stellen] timer minuten=10
 Beispiel: [TOOL: timer_stellen] wecker uhrzeit=07:30
 Beispiel: [TOOL: timer_stellen] timer minuten=5 nachricht=Pizza aus dem Ofen holen
+Beispiel: [TOOL: erinnerung_speichern] speichern zeitpunkt=morgen 08:00 text=Müll rausbringen
+Beispiel: [TOOL: erinnerung_speichern] speichern zeitpunkt=freitag 15:00 text=Meeting mit Chef
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """

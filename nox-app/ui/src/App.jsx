@@ -588,6 +588,7 @@ function App() {
     website_oeffnen: "Nox öffnet eine Website…",
     fenster_fokus: "Nox wechselt das Fenster…",
     timer_stellen: "Nox stellt einen Timer…",
+    erinnerung_speichern: "Nox speichert eine Erinnerung…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };

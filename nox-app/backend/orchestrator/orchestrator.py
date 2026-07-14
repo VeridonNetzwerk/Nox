@@ -83,6 +83,42 @@ def _parse_timer_params(params: str) -> dict[str, Any]:
     return result
 
 
+def _parse_reminder_params(params: str) -> dict[str, Any]:
+    """Parse erinnerung_speichern fallback params: 'speichern zeitpunkt=morgen 08:00 text=Müll rausbringen' etc."""
+    parts = params.split()
+    if not parts:
+        return {"aktion": ""}
+    result: dict[str, Any] = {"aktion": parts[0]}
+    # Find key=value pairs — but zeitpunkt and text values may contain spaces
+    # Strategy: find keys, then everything between keys is the value
+    remaining = parts[1:]
+    keys = ["zeitpunkt", "text", "id"]
+    i = 0
+    while i < len(remaining):
+        part = remaining[i]
+        if "=" in part:
+            key, value = part.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            # Collect continuation parts until next key=value or end
+            j = i + 1
+            while j < len(remaining) and "=" not in remaining[j]:
+                value += " " + remaining[j]
+                j += 1
+            if key in keys:
+                if key == "id":
+                    try:
+                        result[key] = int(value)
+                    except ValueError:
+                        pass
+                else:
+                    result[key] = value
+            i = j
+        else:
+            i += 1
+    return result
+
+
 class Orchestrator:
     """Central orchestrator for processing chat messages."""
 
@@ -326,6 +362,8 @@ class Orchestrator:
                                 tool_args = {"aktion": parts[0] if parts else "", "name": ""}
                         elif tool_name == "timer_stellen":
                             tool_args = _parse_timer_params(tool_params)
+                        elif tool_name == "erinnerung_speichern":
+                            tool_args = _parse_reminder_params(tool_params)
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:

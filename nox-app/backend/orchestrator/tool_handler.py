@@ -97,6 +97,7 @@ class ToolHandler:
         self._tools_cache: Optional[list[dict[str, Any]]] = None
         self._last_music_result: Optional[dict[str, Any]] = None
         self._register_defaults()
+        self._start_reminder_checker()
 
     def _register_defaults(self) -> None:
         """Register built-in tools."""
@@ -429,6 +430,40 @@ class ToolHandler:
                 "required": ["aktion"],
             },
             handler=self._tool_timer,
+        ))
+
+        # erinnerung_speichern
+        self.register(Tool(
+            name="erinnerung_speichern",
+            description="Speichert eine persistente Erinnerung mit Timestamp, die beim Fälligwerden gepusht wird. "
+                        "Verwende dies wenn der Nutzer sagt 'erinnere mich morgen an...', 'am Freitag um 15 Uhr erinnern', 'nächste Woche Montag...' etc. "
+                        "Der Parameter 'aktion' bestimmt was passieren soll: 'speichern', 'liste', 'loeschen', 'abbrechen'. "
+                        "Für 'speichern': 'zeitpunkt' ist der Fälligkeitszeitpunkt (ISO-Format oder natürliche Sprache), 'text' ist die Erinnerung. "
+                        "Für 'loeschen': 'id' ist die Erinnerungs-ID. "
+                        "Erinnerungen überleben einen Neustart und werden automatisch gepusht wenn sie fällig sind.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "Erinnerungs-Aktion: 'speichern' (neue Erinnerung), 'liste' (alle Erinnerungen), 'loeschen' (eine Erinnerung löschen), 'abbrechen' (alle löschen)",
+                    },
+                    "zeitpunkt": {
+                        "type": "string",
+                        "description": "Fälligkeitszeitpunkt: ISO-Format (2026-07-15T14:30:00) oder relativ ('in 2 stunden', 'morgen 08:00', 'freitag 15:00')",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Erinnerungstext der gesprochen und angezeigt wird",
+                    },
+                    "id": {
+                        "type": "number",
+                        "description": "Erinnerungs-ID (für Aktion 'loeschen')",
+                    },
+                },
+                "required": ["aktion"],
+            },
+            handler=self._tool_reminder,
         ))
 
     def register(self, tool: Tool) -> None:
@@ -1782,3 +1817,332 @@ class ToolHandler:
             requests.post("http://127.0.0.1:8420/api/tts/speak", json={"text": message}, timeout=5)
         except Exception as exc:
             logger.warning("Timer TTS trigger failed: %s", exc)
+
+    # ── Persistent reminders ──────────────────────────────────────────────
+
+    _REMINDERS_FILE: Optional[str] = None
+    _reminder_checker_thread = None
+    _reminder_checker_stop = False
+
+    def _get_reminders_file(self) -> str:
+        """Get path to persistent reminders JSON file."""
+        if self._REMINDERS_FILE is not None:
+            return self._REMINDERS_FILE
+        import os
+        from pathlib import Path
+        data_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self._REMINDERS_FILE = str(data_dir / "reminders.json")
+        return self._REMINDERS_FILE
+
+    def _load_reminders(self) -> list[dict[str, Any]]:
+        """Load reminders from JSON file."""
+        import json
+        import os
+        path = self._get_reminders_file()
+        if not os.path.isfile(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as exc:
+            logger.warning("Failed to load reminders: %s", exc)
+            return []
+
+    def _save_reminders(self, reminders: list[dict[str, Any]]) -> None:
+        """Save reminders to JSON file."""
+        import json
+        path = self._get_reminders_file()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(reminders, f, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            logger.error("Failed to save reminders: %s", exc)
+
+    def _parse_datetime_natural(self, text: str) -> Optional[str]:
+        """Parse a datetime from natural language or ISO format.
+        Returns ISO format string or None if parsing fails."""
+        import datetime
+        import re
+
+        text = text.strip().lower()
+        if not text:
+            return None
+
+        now = datetime.datetime.now()
+
+        # Try ISO format first: 2026-07-15T14:30:00 or 2026-07-15 14:30
+        iso_match = re.match(r'(\d{4})-(\d{2})-(\d{2})[tT\s](\d{2}):(\d{2})(?::(\d{2}))?', text)
+        if iso_match:
+            try:
+                y, mo, d, h, mi = int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3)), int(iso_match.group(4)), int(iso_match.group(5))
+                s = int(iso_match.group(6)) if iso_match.group(6) else 0
+                return datetime.datetime(y, mo, d, h, mi, s).isoformat()
+            except ValueError:
+                pass
+
+        # Date-only ISO: 2026-07-15 → default to 09:00
+        date_only = re.match(r'(\d{4})-(\d{2})-(\d{2})$', text)
+        if date_only:
+            try:
+                y, mo, d = int(date_only.group(1)), int(date_only.group(2)), int(date_only.group(3))
+                return datetime.datetime(y, mo, d, 9, 0, 0).isoformat()
+            except ValueError:
+                pass
+
+        # Time-only: HH:MM or HH:MM:SS → today (or tomorrow if past)
+        time_only = re.match(r'(\d{1,2}):(\d{2})(?::(\d{2}))?$', text)
+        if time_only:
+            h, mi = int(time_only.group(1)), int(time_only.group(2))
+            s = int(time_only.group(3)) if time_only.group(3) else 0
+            target = now.replace(hour=h, minute=mi, second=s, microsecond=0)
+            if target <= now:
+                target += datetime.timedelta(days=1)
+            return target.isoformat()
+
+        # Relative: 'in X stunden/minuten/tagen/wochen'
+        rel = re.match(r'in\s+(\d+)\s+(stunde|stunden|minuten|minute|tag|tagen|tagen|woche|wochen|stunden|h|min)', text)
+        if rel:
+            num = int(rel.group(1))
+            unit = rel.group(2)
+            if unit.startswith("stunde") or unit == "h":
+                delta = datetime.timedelta(hours=num)
+            elif unit.startswith("minute") or unit == "min":
+                delta = datetime.timedelta(minutes=num)
+            elif unit.startswith("tag") or unit == "tagen":
+                delta = datetime.timedelta(days=num)
+            elif unit.startswith("woche"):
+                delta = datetime.timedelta(weeks=num)
+            else:
+                delta = datetime.timedelta(hours=num)
+            return (now + delta).isoformat()
+
+        # 'morgen' [+ optional time]
+        if text.startswith("morgen"):
+            target = now + datetime.timedelta(days=1)
+            target = target.replace(hour=9, minute=0, second=0, microsecond=0)
+            time_match = re.search(r'(\d{1,2}):(\d{2})', text)
+            if time_match:
+                target = target.replace(hour=int(time_match.group(1)), minute=int(time_match.group(2)))
+            return target.isoformat()
+
+        # 'übermorgen' [+ optional time]
+        if text.startswith("übermorgen") or text.startswith("uebermorgen"):
+            target = now + datetime.timedelta(days=2)
+            target = target.replace(hour=9, minute=0, second=0, microsecond=0)
+            time_match = re.search(r'(\d{1,2}):(\d{2})', text)
+            if time_match:
+                target = target.replace(hour=int(time_match.group(1)), minute=int(time_match.group(2)))
+            return target.isoformat()
+
+        # Weekday names
+        weekdays = {
+            "montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3,
+            "freitag": 4, "samstag": 5, "sonntag": 6,
+            "mo": 0, "di": 1, "mi": 2, "do": 3, "fr": 4, "sa": 5, "so": 6,
+        }
+        for day_name, day_num in weekdays.items():
+            if text.startswith(day_name):
+                days_ahead = (day_num - now.weekday()) % 7
+                if days_ahead == 0:
+                    days_ahead = 7  # Next week, not today
+                target = now + datetime.timedelta(days=days_ahead)
+                target = target.replace(hour=9, minute=0, second=0, microsecond=0)
+                time_match = re.search(r'(\d{1,2}):(\d{2})', text)
+                if time_match:
+                    target = target.replace(hour=int(time_match.group(1)), minute=int(time_match.group(2)))
+                return target.isoformat()
+
+        # 'heute' [+ optional time]
+        if text.startswith("heute"):
+            target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+            time_match = re.search(r'(\d{1,2}):(\d{2})', text)
+            if time_match:
+                target = target.replace(hour=int(time_match.group(1)), minute=int(time_match.group(2)))
+            if target <= now:
+                return None  # Time already passed today
+            return target.isoformat()
+
+        return None
+
+    def _tool_reminder(self, args: dict[str, Any]) -> str:
+        """Persistent reminder management — save, list, delete, cancel."""
+        import datetime
+
+        aktion = args.get("aktion", "").strip().lower()
+        if not aktion:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: speichern, liste, loeschen, abbrechen."
+
+        if aktion == "liste":
+            reminders = self._load_reminders()
+            if not reminders:
+                return "Keine gespeicherten Erinnerungen."
+            lines = []
+            now = datetime.datetime.now()
+            for r in reminders:
+                try:
+                    fire = datetime.datetime.fromisoformat(r["zeitpunkt"])
+                    delta = fire - now
+                    secs = int(delta.total_seconds())
+                    if secs > 0:
+                        mins, s = divmod(secs, 60)
+                        hours, mins = divmod(mins, 60)
+                        days, hours = divmod(hours, 24)
+                        if days > 0:
+                            remaining = f"in {days}d {hours}h"
+                        elif hours > 0:
+                            remaining = f"in {hours}h {mins}m"
+                        else:
+                            remaining = f"in {mins}m {s}s"
+                    else:
+                        remaining = "überfällig"
+                except Exception:
+                    remaining = "?"
+                lines.append(f"#{r['id']}: {remaining} — {r.get('text', '')}")
+            return "Gespeicherte Erinnerungen:\n" + "\n".join(lines)
+
+        if aktion == "abbrechen":
+            reminders = self._load_reminders()
+            if not reminders:
+                return "Keine Erinnerungen zum Abbrechen."
+            self._save_reminders([])
+            return f"{len(reminders)} Erinnerung(en) gelöscht."
+
+        if aktion == "loeschen":
+            rid = args.get("id")
+            if rid is None:
+                return "Für 'loeschen' muss eine Erinnerungs-ID angegeben werden."
+            try:
+                rid = int(rid)
+            except (ValueError, TypeError):
+                return f"Ungültige ID '{rid}'."
+            reminders = self._load_reminders()
+            new_reminders = [r for r in reminders if r.get("id") != rid]
+            if len(new_reminders) == len(reminders):
+                return f"Keine Erinnerung mit ID {rid} gefunden."
+            self._save_reminders(new_reminders)
+            return f"Erinnerung #{rid} gelöscht."
+
+        if aktion == "speichern":
+            zeitpunkt_raw = args.get("zeitpunkt", "").strip()
+            text = args.get("text", "").strip()
+            if not zeitpunkt_raw:
+                return "Für 'speichern' muss ein Zeitpunkt angegeben werden (z.B. 'morgen 08:00', 'in 2 stunden', '2026-07-15T14:30:00')."
+            if not text:
+                return "Für 'speichern' muss ein Erinnerungstext angegeben werden."
+
+            # Parse the datetime
+            iso_time = self._parse_datetime_natural(zeitpunkt_raw)
+            if iso_time is None:
+                return f"Konnte Zeitpunkt '{zeitpunkt_raw}' nicht parsen. Beispiele: 'in 2 stunden', 'morgen 08:00', 'freitag 15:00', '2026-07-15T14:30:00'."
+
+            # Generate ID
+            reminders = self._load_reminders()
+            max_id = max((r.get("id", 0) for r in reminders), default=0)
+            new_id = max_id + 1
+
+            reminder = {
+                "id": new_id,
+                "zeitpunkt": iso_time,
+                "text": text,
+                "created": datetime.datetime.now().isoformat(),
+                "fired": False,
+            }
+            reminders.append(reminder)
+            self._save_reminders(reminders)
+
+            # Human-readable time
+            try:
+                fire = datetime.datetime.fromisoformat(iso_time)
+                pretty = fire.strftime("%d.%m.%Y um %H:%M")
+            except Exception:
+                pretty = iso_time
+
+            return f"Erinnerung #{new_id} gespeichert für {pretty}: {text}"
+
+        return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: speichern, liste, loeschen, abbrechen."
+
+    def _start_reminder_checker(self) -> None:
+        """Start background thread that checks for due reminders every 30 seconds."""
+        import threading
+        import time
+        import datetime
+
+        self._reminder_checker_stop = False
+
+        def _checker_loop():
+            while not self._reminder_checker_stop:
+                try:
+                    reminders = self._load_reminders()
+                    if reminders:
+                        now = datetime.datetime.now()
+                        changed = False
+                        for r in reminders:
+                            if r.get("fired"):
+                                continue
+                            try:
+                                fire = datetime.datetime.fromisoformat(r["zeitpunkt"])
+                                if fire <= now:
+                                    r["fired"] = True
+                                    changed = True
+                                    self._fire_reminder_alert(r)
+                            except Exception:
+                                continue
+                        if changed:
+                            # Remove fired reminders older than 24 hours
+                            cutoff = now - datetime.timedelta(hours=24)
+                            reminders = [
+                                r for r in reminders
+                                if not (r.get("fired") and datetime.datetime.fromisoformat(r.get("zeitpunkt", now.isoformat())) < cutoff)
+                            ]
+                            self._save_reminders(reminders)
+                except Exception as exc:
+                    logger.warning("Reminder checker error: %s", exc)
+                time.sleep(30)
+
+        self._reminder_checker_thread = threading.Thread(target=_checker_loop, daemon=True)
+        self._reminder_checker_thread.start()
+        logger.info("Reminder checker started")
+
+    def _fire_reminder_alert(self, reminder: dict[str, Any]) -> None:
+        """Fire reminder alert: toast notification + broadcast to UI + TTS."""
+        rid = reminder.get("id", 0)
+        message = reminder.get("text", "Erinnerung!")
+
+        logger.info("Reminder #%d fired: %s", rid, message)
+
+        # 1. Windows toast notification via PowerShell
+        try:
+            import subprocess
+            ps_script = (
+                f"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;"
+                f"$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+                f"$textNodes = $template.GetElementsByTagName('text');"
+                f"$textNodes.Item(0).AppendChild($template.CreateTextNode('Nox Erinnerung')) | Out-Null;"
+                f"$textNodes.Item(1).AppendChild($template.CreateTextNode('{message.replace(chr(39), chr(96))}')) | Out-Null;"
+                f"$toast = [Windows.UI.Notifications.ToastNotification]::new($template);"
+                f"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Nox').Show($toast);"
+            )
+            subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_script], shell=True)
+        except Exception as exc:
+            logger.warning("Reminder toast notification failed: %s", exc)
+
+        # 2. Broadcast reminder_alert event to UI
+        if self._broadcast:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._broadcast({"type": "timer_alert", "message": message, "reminder_id": rid}),
+                        loop
+                    )
+            except Exception:
+                pass
+
+        # 3. Trigger TTS via API call
+        try:
+            import requests
+            requests.post("http://127.0.0.1:8420/api/tts/speak", json={"text": f"Erinnerung: {message}"}, timeout=5)
+        except Exception as exc:
+            logger.warning("Reminder TTS trigger failed: %s", exc)
