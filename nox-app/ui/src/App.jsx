@@ -83,6 +83,7 @@ function App() {
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const [activeTool, setActiveTool] = useState(null);
   const [thinkingIndex, setThinkingIndex] = useState(0);
+  const [thinkingOpacity, setThinkingOpacity] = useState(1);
   const [uiScale, setUiScale] = useState(1.0);
   const [musicResult, setMusicResult] = useState(null);
   const wsRef = useRef(null);
@@ -561,16 +562,28 @@ function App() {
     einstellung_aendern: "Nox ändert eine Einstellung…",
   };
 
-  // Rotate thinking messages every 3 seconds when thinking
+  // Rotate thinking messages every 4 seconds with a smooth fade transition
   useEffect(() => {
     if (micState !== "processing" && !(isStreaming && !lastAssistant)) {
       setThinkingIndex(0);
+      setThinkingOpacity(1);
       return;
     }
+
+    let mounted = true;
     const interval = setInterval(() => {
-      setThinkingIndex((prev) => (prev + 1) % THINKING_MESSAGES.length);
-    }, 3000);
-    return () => clearInterval(interval);
+      if (!mounted) return;
+      setThinkingOpacity(0);
+      setTimeout(() => {
+        if (!mounted) return;
+        setThinkingIndex((prev) => (prev + 1) % THINKING_MESSAGES.length);
+        setThinkingOpacity(1);
+      }, 300);
+    }, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [micState, isStreaming]);
 
   // Status text shown in the speech bubble
@@ -744,7 +757,16 @@ function App() {
                   className="text-sm leading-relaxed text-nox-text whitespace-pre-wrap break-words max-h-48 overflow-y-auto"
                   ref={messagesEndRef}
                 >
-                  {bubbleText}
+                  {bubbleText && (micState === "processing" || (isStreaming && !lastAssistant)) && !activeTool ? (
+                    <span
+                      className="transition-opacity duration-300 ease-in-out"
+                      style={{ opacity: thinkingOpacity }}
+                    >
+                      {bubbleText}
+                    </span>
+                  ) : (
+                    <span>{bubbleText}</span>
+                  )}
                   {isStreaming && lastAssistant?.streaming && (
                     <span className="inline-block w-1.5 h-4 ml-0.5 bg-nox-accent animate-pulse rounded-sm align-middle" />
                   )}
