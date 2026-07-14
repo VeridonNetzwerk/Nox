@@ -286,6 +286,32 @@ async function loadAnalytics() {
 // --- Chart colors ---
 const CHART_COLORS = ['#6366f1', '#22c55e', '#eab308', '#ef4444', '#818cf8', '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#a855f7'];
 
+// --- Shared custom tooltip ---
+let chartTooltip = null;
+function getChartTooltip() {
+  if (!chartTooltip) {
+    chartTooltip = document.createElement('div');
+    chartTooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;background:#1f2937;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-family:Inter,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity .12s;white-space:nowrap;line-height:1.5';
+    document.body.appendChild(chartTooltip);
+  }
+  return chartTooltip;
+}
+function attachTooltip(el, label, detail) {
+  el.addEventListener('mouseenter', () => {
+    const t = getChartTooltip();
+    t.innerHTML = `<div style="font-weight:600;font-size:13px">${label}</div>${detail ? `<div style="color:#9ca3af;font-size:11px">${detail}</div>` : ''}`;
+    t.style.opacity = '1';
+  });
+  el.addEventListener('mousemove', (e) => {
+    const t = getChartTooltip();
+    t.style.left = (e.clientX + 14) + 'px';
+    t.style.top = (e.clientY - 10) + 'px';
+  });
+  el.addEventListener('mouseleave', () => {
+    getChartTooltip().style.opacity = '0';
+  });
+}
+
 // Country code to display name (Intl API, full coverage)
 const REGION_NAMES = new Intl.DisplayNames(['en'], { type: 'region' });
 function countryName(code) {
@@ -443,10 +469,10 @@ function renderTimeline(events, days = 30) {
     `<text x="${p.x.toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="10" font-family="Inter,sans-serif">${p.label}</text>`
   ).join('');
 
-  // Hover dots (CSS hover via class, no inline JS for CSP)
+  // Hover dots
   const dots = pts.map(p => {
     const isZero = p.count === 0;
-    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="#6366f1" stroke="#fff" stroke-width="2" opacity="${isZero ? 0 : 1}"><title>${p.label}: ${p.count} events</title></circle>`;
+    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="#6366f1" stroke="#fff" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} events"></circle>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">
@@ -460,6 +486,9 @@ function renderTimeline(events, days = 30) {
     ${dots}
     ${xLabels}
   </svg>`;
+  container.querySelectorAll('.chart-dot[data-label]').forEach(el => {
+    attachTooltip(el, el.dataset.label, el.dataset.detail);
+  });
 }
 
 // --- SVG Column Chart for Weekly Traffic ---
@@ -489,10 +518,13 @@ function renderWeeklyTraffic(events) {
     const y = padT + chartH - h;
     const isMax = val === Math.max(...values) && val > 0;
     const color = isMax ? '#4f46e5' : '#6366f1';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar"><title>${day}: ${val} events</title></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="10" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="11" font-family="Inter,sans-serif">${day}</text>`;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="10" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="11" font-family="Inter,sans-serif">${day}</text>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
+  container.querySelectorAll('.chart-bar[data-label]').forEach(el => {
+    attachTooltip(el, el.dataset.label, el.dataset.detail);
+  });
 }
 
 // --- SVG Donut Chart for Event Types ---
@@ -521,9 +553,12 @@ function renderEventTypes(events) {
     return { path, color, type, count, pct };
   });
 
-  const svg = `<svg width="170" height="170" viewBox="0 0 170 170" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s"><title>${s.type}: ${s.count} (${(s.pct*100).toFixed(1)}%)</title></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="22" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#9ca3af" font-size="9" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
+  const svg = `<svg width="170" height="170" viewBox="0 0 170 170" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="22" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#9ca3af" font-size="9" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:#6b7280">${s.type}</span><span style="margin-left:auto;font-weight:600;color:#111827">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
+  container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
+    attachTooltip(el, el.dataset.label, el.dataset.detail);
+  });
 }
 
 function renderUsersByTime(events) {
@@ -545,11 +580,14 @@ function renderUsersByTime(events) {
     const cells = days.map((_, di) => {
       const intensity = counts[hi][di] / max;
       const alpha = intensity > 0 ? 0.12 + intensity * 0.88 : 0;
-      return `<rect x="${labelW + di * (cellSize + gap)}" y="${y}" width="${cellSize}" height="${cellSize}" rx="3" fill="rgba(99,102,241,${alpha.toFixed(2)})"><title>${days[di]} ${h}:00 — ${counts[hi][di]} events</title></rect>`;
+      return `<rect x="${labelW + di * (cellSize + gap)}" y="${y}" width="${cellSize}" height="${cellSize}" rx="3" fill="rgba(99,102,241,${alpha.toFixed(2)})" class="heatmap-cell" data-label="${days[di]} ${h.toString().padStart(2,'0')}:00" data-detail="${counts[hi][di]} events"></rect>`;
     }).join('');
     return label + cells;
   }).join('');
   container.innerHTML = `<svg viewBox="0 0 ${totalW} ${totalH}" style="width:100%;height:auto;display:block">${dayHeaders}${rows}</svg><div class="heatmap-legend"><span>Less</span><div class="heatmap-legend-bar">${[0.12,0.3,0.5,0.7,0.9].map(a => `<span class="sq" style="background:rgba(99,102,241,${a})"></span>`).join('')}</div><span>More</span></div>`;
+  container.querySelectorAll('.heatmap-cell[data-label]').forEach(el => {
+    attachTooltip(el, el.dataset.label, el.dataset.detail);
+  });
 }
 
 // --- SVG World Map (choropleth from world-map.svg) ---
@@ -643,32 +681,9 @@ async function renderCountryMap(events) {
     const holder = container.querySelector('.map-holder');
     holder.appendChild(svg);
 
-    const tooltip = document.createElement('div');
-    tooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;background:#1f2937;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-family:Inter,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity .12s;white-space:nowrap;line-height:1.5';
-    document.body.appendChild(tooltip);
-
     svg.querySelectorAll('path[data-label]').forEach(path => {
-      path.addEventListener('mouseenter', (e) => {
-        tooltip.innerHTML = `<div style="font-weight:600;font-size:13px">${path.dataset.label}</div><div style="color:#9ca3af;font-size:11px">${path.dataset.detail}</div>`;
-        tooltip.style.opacity = '1';
-      });
-      path.addEventListener('mousemove', (e) => {
-        tooltip.style.left = (e.clientX + 14) + 'px';
-        tooltip.style.top = (e.clientY - 10) + 'px';
-      });
-      path.addEventListener('mouseleave', () => {
-        tooltip.style.opacity = '0';
-      });
+      attachTooltip(path, path.dataset.label, path.dataset.detail);
     });
-
-    const origHolder = holder;
-    new MutationObserver((mutations, obs) => {
-      if (!document.body.contains(tooltip)) { obs.disconnect(); return; }
-      if (!document.body.contains(origHolder)) {
-        tooltip.remove();
-        obs.disconnect();
-      }
-    }).observe(document.body, { childList: true, subtree: true });
   } catch {
     container.innerHTML = `<div class="map-section"><div class="empty">Map unavailable</div>${infoHtml}</div>`;
   }
