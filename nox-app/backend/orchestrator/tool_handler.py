@@ -325,6 +325,30 @@ class ToolHandler:
             handler=self._tool_volume_control,
         ))
 
+        # search_web
+        self.register(Tool(
+            name="search_web",
+            description="Durchsucht das Web nach aktuellen Informationen. Verwende dies wenn der Nutzer nach aktuellen Fakten, "
+                        "Nachrichten, Definitionen oder Dingen fragt die du nicht sicher weisst. "
+                        "Gibt Suchergebnisse mit Titel, URL und kurzem Textausschnitt zurück. "
+                        "Keine API benötigt — nutzt DuckDuckGo.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Suchbegriff oder Frage",
+                    },
+                    "count": {
+                        "type": "number",
+                        "description": "Anzahl der Ergebnisse (Standard: 5, Max: 10)",
+                    },
+                },
+                "required": ["query"],
+            },
+            handler=self._tool_search_web,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -1128,3 +1152,109 @@ class ToolHandler:
 
         else:
             return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
+
+    def _tool_search_web(self, args: dict[str, Any]) -> str:
+        """Search the web via DuckDuckGo HTML scraping — no API key needed."""
+        query = args.get("query", "").strip()
+        if not query:
+            return "Kein Suchbegriff angegeben."
+
+        count = args.get("count", 5)
+        try:
+            count = int(count)
+        except (ValueError, TypeError):
+            count = 5
+        count = max(1, min(10, count))
+
+        try:
+            import requests
+            from html.parser import HTMLParser
+            import re
+            import urllib.parse
+
+            # DuckDuckGo HTML endpoint — no API key needed
+            url = "https://html.duckduckgo.com/html/"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "de,en;q=0.9",
+            }
+            data = {"q": query}
+
+            resp = requests.post(url, headers=headers, data=data, timeout=10)
+            resp.raise_for_status()
+            html = resp.text
+
+            # Parse results from DuckDuckGo HTML
+            results = []
+
+            # DDG HTML results have result blocks with class="result__body"
+            # Each has: result__a (title link), result__snippet (text), result__url (display URL)
+            # We use regex parsing since it's more resilient than HTMLParser for this
+
+            # Extract result blocks
+            result_blocks = re.findall(
+                r'<a[^>]+class="result__a"[^>]*>(.*?)</a>.*?'
+                r'<a[^>]+class="result__url"[^>]*>(.*?)</a>.*?'
+                r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
+                html,
+                re.DOTALL
+            )
+
+            if not result_blocks:
+                # Fallback: try alternative DDG HTML structure
+                result_blocks = re.findall(
+                    r'<a[^>]+rel="nofollow"[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?'
+                    r'class="result__snippet"[^>]*>(.*?)</a>',
+                    html,
+                    re.DOTALL
+                )
+                # Reformat to match expected structure
+                result_blocks = [(title, url, snippet) for url, title, snippet in result_blocks]
+
+            for title_html, url_html, snippet_html in result_blocks[:count]:
+                # Strip HTML tags from title and snippet
+                title = re.sub(r'<[^>]+>', '', title_html).strip()
+                url_text = re.sub(r'<[^>]+>', '', url_html).strip()
+                snippet = re.sub(r'<[^>]+>', '', snippet_html).strip()
+
+                # Decode HTML entities
+                title = title.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#x27;", "'")
+                snippet = snippet.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#x27;", "'")
+                url_text = url_text.replace("&amp;", "&")
+
+                if title and snippet:
+                    results.append(f"Titel: {title}\nURL: {url_text}\nAusschnitt: {snippet}")
+
+            if not results:
+                # Last resort: try DuckDuckGo Instant Answer API (still no key needed)
+                try:
+                    ia_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
+                    ia_resp = requests.get(ia_url, headers=headers, timeout=10)
+                    ia_data = ia_resp.json()
+
+                    if ia_data.get("AbstractText"):
+                        abstract = ia_data["AbstractText"]
+                        source = ia_data.get("AbstractURL", "")
+                        results.append(f"Titel: {ia_data.get('Heading', query)}\nURL: {source}\nAusschnitt: {abstract}")
+
+                    for topic in (ia_data.get("RelatedTopics") or [])[:count - len(results)]:
+                        if isinstance(topic, dict) and topic.get("Text"):
+                            text = topic["Text"]
+                            first_url = topic.get("FirstURL", "")
+                            results.append(f"URL: {first_url}\nAusschnitt: {text}")
+                except Exception as exc:
+                    logger.warning("DuckDuckGo Instant Answer API failed: %s", exc)
+
+            if not results:
+                return f"Keine Suchergebnisse gefunden für '{query}'."
+
+            return f"Web-Suche nach '{query}' ({len(results)} Ergebnisse):\n\n" + "\n---\n".join(results)
+
+        except requests.exceptions.Timeout:
+            return f"Web-Suche hat das Zeitlimit überschritten. Bitte später erneut versuchen."
+        except requests.exceptions.ConnectionError:
+            return f"Keine Internetverbindung für Web-Suche verfügbar."
+        except Exception as exc:
+            logger.error("search_web error: %s", exc, exc_info=True)
+            return f"Web-Suche fehlgeschlagen: {exc}"

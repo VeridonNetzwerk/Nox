@@ -79,6 +79,10 @@ Du hast Zugriff auf folgende Werkzeuge:
   Für 'setzen' muss zusätzlich 'wert' (0-100) angegeben werden.
   Erkennt automatisch VoiceMeeter wenn es läuft und steuert es darüber, sonst Windows-Lautstärke.
   Vor jeder Änderung wird die aktuelle Lautstärke gespeichert und kann mit 'restore' wiederhergestellt werden.
+- search_web: Durchsucht das Web nach aktuellen Informationen (DuckDuckGo, keine API nötig).
+  Verwende dies wenn der Nutzer nach aktuellen Fakten, Nachrichten, Definitionen oder Dingen fragt die du nicht sicher weisst.
+  Der Parameter 'query' ist der Suchbegriff. Optional 'count' (1-10, Standard 5) für die Anzahl Ergebnisse.
+  Gibt Titel, URL und Textausschnitt der Suchergebnisse zurück.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -98,6 +102,7 @@ Beispiel: [TOOL: system_steuerung] sperren
 Beispiel: [TOOL: system_steuerung] herunterfahren
 Beispiel: [TOOL: lautstaerke] lauter
 Beispiel: [TOOL: lautstaerke] setzen wert=50
+Beispiel: [TOOL: search_web] Was ist die Hauptstadt von Australien
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """
