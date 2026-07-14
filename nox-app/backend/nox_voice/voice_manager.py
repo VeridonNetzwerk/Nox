@@ -190,6 +190,10 @@ class VoiceManager:
         self._last_tts_time: float = 0.0
         self._tts_suppress_window = 2.5  # seconds after TTS to suppress wake word
 
+        # Auto-listen: track last spoken text to detect questions
+        self._last_spoken_text: str = ""
+        self._auto_listen_enabled = config.get("auto_listen_after_question", True)
+
     @property
     def state(self) -> str:
         return self._state
@@ -281,7 +285,25 @@ class VoiceManager:
             return
 
         logger.info("Wake word detected – starting recording")
+        self._start_recording()
 
+    def _auto_listen_after_question(self) -> None:
+        """Auto-trigger listening after TTS if the response ended with a question."""
+        if not self._auto_listen_enabled:
+            return
+        text = self._last_spoken_text.strip()
+        if not text:
+            return
+        # Check if the last sentence ends with a question mark
+        if text.rstrip().endswith("?"):
+            logger.info("Auto-listen: response ended with a question – auto-triggering listening")
+            # Skip echo suppression since we intentionally want to listen
+            self._start_recording()
+        else:
+            self.wake_word.resume()
+
+    def _start_recording(self) -> None:
+        """Start the recording + transcription pipeline."""
         # Notify UI
         self._set_state(STATE_LISTENING)
         if self._on_wake:
@@ -431,6 +453,7 @@ class VoiceManager:
         self._set_state(STATE_SPEAKING)
         self.wake_word.pause()
         self._track_tts_output(text)
+        self._last_spoken_text = text
         try:
             engine, voice_id = self._get_voice_for_text(text)
             if engine == "edge" and voice_id:
@@ -443,7 +466,8 @@ class VoiceManager:
             # Brief pause before re-enabling wake word to avoid the microphone
             # picking up the tail of TTS output and immediately triggering again.
             time.sleep(1.5)
-            self.wake_word.resume()
+            # Auto-listen if the response ended with a question, else resume wake word
+            self._auto_listen_after_question()
             self._set_state(STATE_IDLE)
 
     def _speak_sentence(self, sentence: str) -> None:
@@ -454,6 +478,8 @@ class VoiceManager:
             self._set_state(STATE_SPEAKING)
         self.wake_word.pause()
         self._track_tts_output(sentence)
+        # Track the latest sentence spoken (will be checked when last sentence finishes)
+        self._last_spoken_text = sentence
         try:
             engine, voice_id = self._get_voice_for_text(sentence)
             if engine == "edge" and voice_id:
@@ -469,7 +495,8 @@ class VoiceManager:
             if is_last:
                 # Brief pause before re-enabling wake word to avoid audio feedback loops.
                 time.sleep(1.5)
-                self.wake_word.resume()
+                # Auto-listen if the response ended with a question, else resume wake word
+                self._auto_listen_after_question()
                 if self._state == STATE_SPEAKING:
                     self._set_state(STATE_IDLE)
 
