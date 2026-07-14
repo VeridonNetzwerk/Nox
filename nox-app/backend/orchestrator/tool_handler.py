@@ -281,6 +281,25 @@ class ToolHandler:
             handler=self._tool_open_app,
         ))
 
+        # system_steuerung
+        self.register(Tool(
+            name="system_steuerung",
+            description="Steuert das System: PC sperren, herunterfahren, neu starten oder in den Ruhezustand versetzen. "
+                        "Verwende dies wenn der Nutzer sagt 'fahr den PC runter', 'starte neu', 'sperre den PC', 'Ruhezustand' etc. "
+                        "Der Parameter 'aktion' bestimmt was passieren soll: 'sperren', 'herunterfahren', 'neustart' oder 'ruhezustand'.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "System-Aktion: 'sperren' (PC sperren), 'herunterfahren' (PC ausschalten), 'neustart' (PC neu starten), 'ruhezustand' (Standby/Ruhezustand)",
+                    },
+                },
+                "required": ["aktion"],
+            },
+            handler=self._tool_system_control,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -725,3 +744,90 @@ class ToolHandler:
             return f"App gestartet: {name}"
         except Exception as exc:
             return f"Konnte '{name}' nicht finden oder starten: {exc}"
+
+    # System control action aliases
+    _SYSTEM_ACTION_ALIASES = {
+        # Sperren
+        "sperren": "sperren",
+        "sperre": "sperren",
+        "lock": "sperren",
+        "pc sperren": "sperren",
+        "sitzung sperren": "sperren",
+        # Herunterfahren
+        "herunterfahren": "herunterfahren",
+        "herunterfahren": "herunterfahren",
+        "ausschalten": "herunterfahren",
+        "shutdown": "herunterfahren",
+        "pc ausschalten": "herunterfahren",
+        "pc herunterfahren": "herunterfahren",
+        "power off": "herunterfahren",
+        # Neustart
+        "neustart": "neustart",
+        "neu starten": "neustart",
+        "neustarten": "neustart",
+        "restart": "neustart",
+        "reboot": "neustart",
+        "pc neustart": "neustart",
+        "pc neu starten": "neustart",
+        # Ruhezustand
+        "ruhezustand": "ruhezustand",
+        "standby": "ruhezustand",
+        "sleep": "ruhezustand",
+        "hibernate": "ruhezustand",
+        "energiesparen": "ruhezustand",
+        "pc in ruhezustand": "ruhezustand",
+        "pc schlafen": "ruhezustand",
+    }
+
+    def _tool_system_control(self, args: dict[str, Any]) -> str:
+        """Control the system: lock, shutdown, restart, or hibernate."""
+        import subprocess
+        import ctypes
+
+        aktion_raw = args.get("aktion", "").strip().lower()
+        if not aktion_raw:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: sperren, herunterfahren, neustart, ruhezustand."
+
+        # Resolve alias
+        aktion = self._SYSTEM_ACTION_ALIASES.get(aktion_raw, aktion_raw)
+
+        if aktion == "sperren":
+            try:
+                # LockWorkStation from user32.dll
+                ctypes.windll.user32.LockWorkStation()
+                return "PC wird gesperrt."
+            except Exception as exc:
+                logger.error("system_steuerung sperren failed: %s", exc)
+                return f"Konnte PC nicht sperren: {exc}"
+
+        elif aktion == "herunterfahren":
+            try:
+                # shutdown /s /t 0 — immediate shutdown
+                subprocess.Popen(["shutdown", "/s", "/t", "0"])
+                return "PC wird heruntergefahren. Bis bald!"
+            except Exception as exc:
+                logger.error("system_steuerung herunterfahren failed: %s", exc)
+                return f"Konnte PC nicht herunterfahren: {exc}"
+
+        elif aktion == "neustart":
+            try:
+                # shutdown /r /t 0 — immediate restart
+                subprocess.Popen(["shutdown", "/r", "/t", "0"])
+                return "PC wird neu gestartet. Bis gleich!"
+            except Exception as exc:
+                logger.error("system_steuerung neustart failed: %s", exc)
+                return f"Konnte PC nicht neu starten: {exc}"
+
+        elif aktion == "ruhezustand":
+            try:
+                # Try hibernate first (saves to disk), fall back to sleep
+                # rundll32.exe powrprof.dll,SetSuspendState 0,1,0 = hibernate
+                # rundll32.exe powrprof.dll,SetSuspendState 0,0,0 = sleep (standby)
+                subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                return "PC geht in den Ruhezustand."
+            except Exception as exc:
+                logger.error("system_steuerung ruhezustand failed: %s", exc)
+                return f"Konnte PC nicht in den Ruhezustand versetzen: {exc}"
+
+        else:
+            return f"Unbekannte Aktion '{aktion_raw}'. Verfügbare Aktionen: sperren, herunterfahren, neustart, ruhezustand."
