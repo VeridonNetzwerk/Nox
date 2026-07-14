@@ -617,15 +617,17 @@ async function renderCountryMap(events) {
       const count = counts[code] || 0;
       path.setAttribute('stroke', '#ffffff');
       path.setAttribute('stroke-width', '0.4');
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
       if (count > 0) {
         path.setAttribute('fill', choroplethColor(count / max));
         path.style.cursor = 'pointer';
-        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
         title.textContent = `${countryFlag(code)} ${countryName(code)}: ${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`;
-        path.appendChild(title);
       } else {
         path.setAttribute('fill', '#e8eaf1');
+        path.style.cursor = 'help';
+        title.textContent = `${countryFlag(code)} ${countryName(code)}: no events`;
       }
+      path.appendChild(title);
     });
 
     const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#e0e7ff,#4f46e5)"></div><span>${max.toLocaleString()} events</span></div>`;
