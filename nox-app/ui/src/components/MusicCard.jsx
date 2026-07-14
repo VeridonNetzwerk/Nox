@@ -4,6 +4,11 @@ const PLATFORM_META = {
   spotify: { label: "Spotify", color: "#1DB954" },
   apple_music: { label: "Apple Music", color: "#FA2D48" },
   youtube: { label: "YouTube", color: "#FF0000" },
+  youtube_music: { label: "YouTube Music", color: "#FF0000" },
+  amazon_music: { label: "Amazon Music", color: "#00A8E1" },
+  deezer: { label: "Deezer", color: "#FF0092" },
+  tidal: { label: "Tidal", color: "#000000" },
+  soundcloud: { label: "SoundCloud", color: "#FF5500" },
 };
 
 export default function MusicCard({ data, onOpen, onSetPlatform, locale }) {
@@ -16,6 +21,11 @@ export default function MusicCard({ data, onOpen, onSetPlatform, locale }) {
     spotify_url,
     apple_music_url,
     youtube_url,
+    youtube_music_url,
+    amazon_music_url,
+    deezer_url,
+    tidal_url,
+    soundcloud_url,
     opened_platform,
   } = data;
 
@@ -23,13 +33,45 @@ export default function MusicCard({ data, onOpen, onSetPlatform, locale }) {
     { key: "spotify", url: spotify_url },
     { key: "apple_music", url: apple_music_url },
     { key: "youtube", url: youtube_url },
+    { key: "youtube_music", url: youtube_music_url },
+    { key: "amazon_music", url: amazon_music_url },
+    { key: "deezer", url: deezer_url },
+    { key: "tidal", url: tidal_url },
+    { key: "soundcloud", url: soundcloud_url },
   ].filter((p) => p.url);
+
+  const primary = platforms.slice(0, 4);
+  const secondary = platforms.slice(4);
 
   const handleClick = (platform) => {
     const entry = platforms.find((p) => p.key === platform);
     if (!entry) return;
     onSetPlatform?.(platform);
     onOpen?.(entry.url, platform);
+  };
+
+  const PlatformButton = ({ pKey }) => {
+    const meta = PLATFORM_META[pKey];
+    const isOpened = opened_platform === pKey;
+    return (
+      <button
+        onClick={() => handleClick(pKey)}
+        className={`flex-1 min-w-[70px] px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
+          isOpened
+            ? "bg-white/10 text-white ring-1 ring-white/30"
+            : "bg-nox-surface hover:bg-nox-border text-nox-text"
+        }`}
+        style={isOpened ? { borderColor: meta.color } : {}}
+      >
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta.color }} />
+        {meta.label}
+        {isOpened && (
+          <svg className="w-3 h-3 text-nox-textLight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        )}
+      </button>
+    );
   };
 
   return (
@@ -70,32 +112,19 @@ export default function MusicCard({ data, onOpen, onSetPlatform, locale }) {
         </div>
       </div>
 
-      <div className="px-2.5 pb-2.5 pt-1.5 flex flex-wrap gap-1.5">
-        {platforms.map(({ key }) => {
-          const meta = PLATFORM_META[key];
-          const isOpened = opened_platform === key;
-          return (
-            <button
-              key={key}
-              onClick={() => handleClick(key)}
-              className={`flex-1 min-w-[70px] px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
-                isOpened
-                  ? "bg-white/10 text-white ring-1 ring-white/30"
-                  : "bg-nox-surface hover:bg-nox-border text-nox-text"
-              }`}
-              style={isOpened ? { borderColor: meta.color } : {}}
-            >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta.color }} />
-              {meta.label}
-              {isOpened && (
-                <svg className="w-3 h-3 text-nox-textLight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              )}
-            </button>
-          );
-        })}
+      <div className="px-2.5 pt-1.5 flex flex-wrap gap-1.5">
+        {primary.map((p) => (
+          <PlatformButton key={p.key} pKey={p.key} />
+        ))}
       </div>
+      {secondary.length > 0 && (
+        <div className="px-2.5 pb-2.5 pt-1.5 flex flex-wrap gap-1.5">
+          {secondary.map((p) => (
+            <PlatformButton key={p.key} pKey={p.key} />
+          ))}
+        </div>
+      )}
+      {secondary.length === 0 && <div className="pb-1" />}
     </div>
   );
 }

@@ -273,10 +273,16 @@ def recognize_song(output_device: Optional[str] = None,
         if share.get("spotify"):
             info["spotify_url"] = share["spotify"]
 
-        # YouTube fallback: search link
+        # Generate search links for all common music platforms
         artist_title = f"{info['artist']} {info['title']}".strip()
         if artist_title:
-            info["youtube_url"] = f"https://www.youtube.com/results?search_query={artist_title.replace(' ', '+')}"
+            query = artist_title.replace(' ', '+')
+            info["youtube_url"] = f"https://www.youtube.com/results?search_query={query}"
+            info["youtube_music_url"] = f"https://music.youtube.com/search?q={query}"
+            info["amazon_music_url"] = f"https://music.amazon.com/search/{query}"
+            info["deezer_url"] = f"https://www.deezer.com/search/{artist_title.replace(' ', '%20')}"
+            info["tidal_url"] = f"https://tidal.com/search?q={artist_title.replace(' ', '%20')}"
+            info["soundcloud_url"] = f"https://soundcloud.com/search?q={artist_title.replace(' ', '%20')}"
 
         logger.info("Recognized via Shazam: %s - %s", info["artist"], info["title"])
         return info

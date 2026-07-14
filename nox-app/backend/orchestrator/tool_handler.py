@@ -408,6 +408,11 @@ class ToolHandler:
                     "spotify": self._last_music_result.get("spotify_url", ""),
                     "apple_music": self._last_music_result.get("apple_music_url", ""),
                     "youtube": self._last_music_result.get("youtube_url", ""),
+                    "youtube_music": self._last_music_result.get("youtube_music_url", ""),
+                    "amazon_music": self._last_music_result.get("amazon_music_url", ""),
+                    "deezer": self._last_music_result.get("deezer_url", ""),
+                    "tidal": self._last_music_result.get("tidal_url", ""),
+                    "soundcloud": self._last_music_result.get("soundcloud_url", ""),
                 }
                 url = url_map.get(platform, "")
                 if not url:
@@ -491,6 +496,11 @@ class ToolHandler:
                 "spotify_url": result.get("spotify_url", ""),
                 "apple_music_url": result.get("apple_music_url", ""),
                 "youtube_url": result.get("youtube_url", ""),
+                "youtube_music_url": result.get("youtube_music_url", ""),
+                "amazon_music_url": result.get("amazon_music_url", ""),
+                "deezer_url": result.get("deezer_url", ""),
+                "tidal_url": result.get("tidal_url", ""),
+                "soundcloud_url": result.get("soundcloud_url", ""),
                 "opened_platform": opened_platform,
             }
             loop = asyncio.get_event_loop()
