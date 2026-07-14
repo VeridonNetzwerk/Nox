@@ -578,7 +578,7 @@ function renderWeeklyTraffic2(events) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const maxVal = Math.max(...values, 1);
-  const W = 760, H = 185, padL = 36, padR = 12, padT = 14, padB = 25;
+  const W = 760, H = 140, padL = 36, padR = 12, padT = 10, padB = 22;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const barW = chartW / days.length * 0.6;
   const gap = chartW / days.length * 0.4;
