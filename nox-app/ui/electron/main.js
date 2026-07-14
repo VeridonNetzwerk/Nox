@@ -671,11 +671,19 @@ app.whenReady().then(async () => {
     isThinking = thinking;
     if (mainWindow) mainWindow.setAlwaysOnTop(thinking || isVoiceActive || isOnboardingActive, "screen-saver");
     console.log("Thinking state:", thinking);
+    // If no longer thinking/voice and window lost focus while blocked, hide now
+    if (!thinking && !isVoiceActive && !isOnboardingActive && mainWindow && !mainWindow.isFocused()) {
+      hideWindow();
+    }
   });
   ipcMain.on("voice-state", (_e, active) => {
     isVoiceActive = active;
     if (mainWindow) mainWindow.setAlwaysOnTop(active || isThinking || isOnboardingActive, "screen-saver");
     console.log("Voice active state:", active);
+    // If no longer voice/thinking and window lost focus while blocked, hide now
+    if (!active && !isThinking && !isOnboardingActive && mainWindow && !mainWindow.isFocused()) {
+      hideWindow();
+    }
   });
   ipcMain.on("renderer-log", (_e, msg) => console.log(`[RENDERER] ${msg}`));
   ipcMain.on("renderer-error", (_e, msg) => console.error(`[RENDERER ERROR] ${msg}`));
