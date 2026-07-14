@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta http-equiv="Referrer-Policy" content="no-referrer" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https:; frame-src https:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>Nox Analytics</title>
   <style>
     :root {
@@ -341,6 +341,11 @@
     .heatmap-legend-bar { display: flex; gap: 2px; }
     .heatmap-legend-bar .sq { width: 14px; height: 14px; border-radius: 3px; }
 
+    /* Chart hover effects */
+    .chart-dot:hover { r: 6; }
+    .chart-bar:hover { opacity: 1; }
+    .chart-slice:hover { opacity: 0.8; }
+
     /* Country map */
     .map-section { display: grid; grid-template-columns: 1.6fr 1fr; gap: 24px; align-items: center; }
     .map-holder { background: #f8fafc; border-radius: 10px; padding: 8px; }
@@ -570,8 +575,6 @@
   </main>
 </div>
 
-<script src="https://www.gstatic.com/charts/loader.js"></script>
-<script src="https://www.google.com/jsapi"></script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>
