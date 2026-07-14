@@ -143,7 +143,6 @@ class STTWakeWordListener:
     # Fuzzy match thresholds — stricter to reduce false positives
     FULL_PHRASE_FUZZY_THRESHOLD = 0.78
     WORD_FUZZY_THRESHOLD = 0.85
-    PHONETIC_THRESHOLD = 0.75
 
     def __init__(
         self,

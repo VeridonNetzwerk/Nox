@@ -6,12 +6,10 @@ Stores conversation turns per session and provides:
 - Session management (conversation_id)
 """
 
-import json
 import logging
 import os
 import sqlite3
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional

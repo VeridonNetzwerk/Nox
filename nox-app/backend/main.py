@@ -10,6 +10,11 @@ import json
 import logging
 import logging.handlers
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +26,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from settings_manager import SettingsManager
 from autostart import AutostartManager
+
+# All Nox sub-loggers that should share the same handlers and log level
+_NOX_LOGGERS = (
+    "nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt",
+    "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation",
+    "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye",
+    "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store",
+    "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings",
+)
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -69,7 +83,7 @@ _console_handler.setFormatter(
 logger.addHandler(_console_handler)
 
 # Wire voice/orchestrator loggers to the same handlers
-for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt", "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation", "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye", "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store", "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings"):
+for _name in _NOX_LOGGERS:
     _l = logging.getLogger(_name)
     _l.setLevel(_log_level)
     _l.addHandler(_file_handler)
@@ -82,36 +96,33 @@ for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voic
 # ---------------------------------------------------------------------------
 
 # In dev mode, reset config to bundled defaults on every start
-import sys as _sys
 _is_dev_mode = (
-    "--reload" in _sys.argv
-    or any("--reload" in str(a) for a in _sys.argv)
+    "--reload" in sys.argv
+    or any("--reload" in str(a) for a in sys.argv)
     or not (Path(__file__).parent / ".prod").exists()  # source tree without .prod marker
 )
 # Set log level based on mode
 if _is_dev_mode:
     _log_level = logging.DEBUG
     logger.setLevel(logging.DEBUG)
-    for _name in ("nox.voice", "nox.voice.manager", "nox.voice.wake_word", "nox.voice.stt", "nox.voice.tts", "nox.voice.vad", "nox.orchestrator", "nox.orchestrator.conversation", "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye", "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store", "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings"):
+    for _name in _NOX_LOGGERS:
         logging.getLogger(_name).setLevel(logging.DEBUG)
 else:
     logger.setLevel(logging.INFO)
 if _is_dev_mode:
-    import shutil as _shutil
     _bundled = Path(__file__).parent / "config.yaml"
     _user_config = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "config.yaml"
     if _bundled.exists():
         _user_config.parent.mkdir(parents=True, exist_ok=True)
-        _shutil.copy2(_bundled, _user_config)
+        shutil.copy2(_bundled, _user_config)
         logger.info("Dev mode: config reset to bundled defaults")
     # Also ensure onboarding_completed is false so onboarding shows every dev start
     if _user_config.exists():
-        import yaml as _yaml_dev
         with open(_user_config, "r", encoding="utf-8") as _f:
-            _dev_cfg = _yaml_dev.safe_load(_f) or {}
+            _dev_cfg = yaml.safe_load(_f) or {}
         _dev_cfg["onboarding_completed"] = False
         with open(_user_config, "w", encoding="utf-8") as _f:
-            _yaml_dev.dump(_dev_cfg, _f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            yaml.dump(_dev_cfg, _f, default_flow_style=False, allow_unicode=True, sort_keys=False)
         logger.info("Dev mode: onboarding_completed reset to false")
 
 settings_mgr = SettingsManager()
@@ -799,9 +810,6 @@ async def system_status() -> dict[str, Any]:
 # Onboarding endpoints – install Ollama, download models, check GPU
 # ---------------------------------------------------------------------------
 
-import subprocess
-import tempfile
-
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 ONBOARDING_STATE: dict[str, Any] = {}
 
@@ -929,13 +937,12 @@ async def install_ollama() -> dict[str, Any]:
         ONBOARDING_STATE["ollama_installing"] = True
         ONBOARDING_STATE["ollama_install_error"] = None
         try:
-            import httpx as _httpx
             tmp_dir = Path(tempfile.gettempdir())
             installer_path = tmp_dir / "OllamaSetup.exe"
 
             # Download
             logger.info("Downloading Ollama installer from %s", OLLAMA_INSTALLER_URL)
-            async with _httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
                 async with client.stream("GET", OLLAMA_INSTALLER_URL) as resp:
                     resp.raise_for_status()
                     total = int(resp.headers.get("content-length", 0))
@@ -1018,7 +1025,6 @@ async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
         ONBOARDING_STATE["pull_speed"] = 0
         ONBOARDING_STATE["pull_error"] = None
         ONBOARDING_STATE["pull_status_text"] = "starting"
-        import time
         last_completed = 0
         last_time = time.monotonic()
         try:

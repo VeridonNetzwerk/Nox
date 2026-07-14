@@ -5,7 +5,6 @@ for Nox, allowing the user to toggle autostart from the settings panel.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any

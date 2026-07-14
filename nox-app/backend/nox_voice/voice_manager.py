@@ -13,6 +13,8 @@ FastAPI event loop.
 """
 
 import asyncio
+import difflib
+import hashlib
 import logging
 import os
 import threading
@@ -110,10 +112,8 @@ class VoiceManager:
         if oww_listener.is_available:
             # Test if the model actually works by checking if it's a real custom model
             # (not a copy of hey_jarvis). We check file hash against known hey_jarvis hash.
-            import hashlib
             try:
-                import os as _os2
-                if _os2.path.exists(wake_model_path):
+                if os.path.exists(wake_model_path):
                     h = hashlib.md5()
                     with open(wake_model_path, "rb") as f:
                         while True:
@@ -421,7 +421,6 @@ class VoiceManager:
         """Check if a transcript matches recent TTS output (audio feedback)."""
         if not self._recent_tts_text:
             return False
-        import difflib
         transcript_lower = transcript.lower().strip()
         for tts_text in self._recent_tts_text:
             tts_lower = tts_text.lower().strip()

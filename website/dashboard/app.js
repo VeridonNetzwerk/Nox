@@ -600,41 +600,6 @@ function renderWeeklyTraffic(events) {
   });
 }
 
-function renderWeeklyTraffic2(events) {
-  const container = document.getElementById('weekly-traffic-2');
-  if (!container) return;
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
-  const maxVal = Math.max(...values, 1);
-  const W = 760, H = 110, padL = 36, padR = 12, padT = 8, padB = 20;
-  const chartW = W - padL - padR, chartH = H - padT - padB;
-  const barW = chartW / days.length * 0.6;
-  const gap = chartW / days.length * 0.4;
-  const stepX = chartW / days.length;
-
-  const yTicks = [];
-  for (let i = 0; i <= 4; i++) {
-    const val = Math.round(maxVal * i / 4);
-    const y = padT + chartH - (i / 4) * chartH;
-    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--grid-line)" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif">${val}</text>`);
-  }
-
-  const bars = days.map((day, i) => {
-    const val = values[i];
-    const h = (val / maxVal) * chartH;
-    const x = padL + i * stepX + gap / 2;
-    const y = padT + chartH - h;
-    const isMax = val === Math.max(...values) && val > 0;
-    const color = isMax ? 'var(--accent2)' : 'var(--accent)';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="var(--legend-text)" font-size="10" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif">${day}</text>`;
-  }).join('');
-
-  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
-  container.querySelectorAll('.chart-bar[data-label]').forEach(el => {
-    attachTooltip(el, el.dataset.label, el.dataset.detail);
-  });
-}
-
 // --- SVG Donut Chart for Event Types ---
 function renderEventTypes(events) {
   const container = document.getElementById('event-types');

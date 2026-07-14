@@ -379,7 +379,6 @@ function App() {
           setTimeout(checkOnboarding, 3000);
         } else {
           // Backend never responded — keep showing loading screen, don't force onboarding
-          console.log("Backend unreachable after retries — keeping loading screen");
         }
       }
     };
