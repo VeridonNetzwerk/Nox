@@ -237,12 +237,22 @@ def recognize_song(output_device: Optional[str] = None,
         if not track:
             return {"error": "Kein Song erkannt. Vielleicht spielt gerade keine Musik."}
 
+        # Extract cover image from track images (Shazam provides several sizes)
+        cover_url = ""
+        images = track.get("images", {})
+        if isinstance(images, dict):
+            for size in ("coverarthq", "coverart", "avatar", "background"):
+                cover_url = images.get(size, "")
+                if cover_url:
+                    break
+
         info = {
             "artist": track.get("subtitle", ""),
             "title": track.get("title", ""),
             "album": "",
             "release_date": "",
             "song_link": track.get("share", {}).get("href", ""),
+            "cover_url": cover_url,
         }
 
         # Extract album and release date from sections

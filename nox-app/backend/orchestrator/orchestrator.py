@@ -95,6 +95,7 @@ class Orchestrator:
             settings_manager=settings_manager,
             apply_settings_fn=apply_settings_fn,
             config=config,
+            broadcast=self._broadcast,
         )
 
         # Active conversation ID (could be session-based in future)

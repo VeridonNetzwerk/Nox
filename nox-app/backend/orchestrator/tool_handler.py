@@ -86,14 +86,16 @@ SETTINGS_DESCRIPTIONS = {
 class ToolHandler:
     """Manages tool registration, execution, and fallback parsing."""
 
-    def __init__(self, eye_manager=None, files_manager=None, settings_manager=None, apply_settings_fn=None, config=None):
+    def __init__(self, eye_manager=None, files_manager=None, settings_manager=None, apply_settings_fn=None, config=None, broadcast=None):
         self._tools: dict[str, Tool] = {}
         self._eye_manager = eye_manager
         self._files_manager = files_manager
         self._settings_manager = settings_manager
         self._apply_settings_fn = apply_settings_fn
         self._config = config or {}
+        self._broadcast = broadcast
         self._tools_cache: Optional[list[dict[str, Any]]] = None
+        self._last_music_result: Optional[dict[str, Any]] = None
         self._register_defaults()
 
     def _register_defaults(self) -> None:
@@ -398,6 +400,24 @@ class ToolHandler:
             self._settings_manager.save(updates)
             if self._apply_settings_fn:
                 self._apply_settings_fn(updates)
+
+            # If the user just picked their music platform, open the last recognized song
+            if key == "music_platform" and self._last_music_result:
+                platform = str(value).strip().lower()
+                url_map = {
+                    "spotify": self._last_music_result.get("spotify_url", ""),
+                    "apple_music": self._last_music_result.get("apple_music_url", ""),
+                    "youtube": self._last_music_result.get("youtube_url", ""),
+                }
+                url = url_map.get(platform, "")
+                if not url:
+                    url = self._last_music_result.get("youtube_url", "")
+                    platform = "youtube"
+                if url:
+                    self._open_url_external(url)
+                    self._broadcast_music_result(self._last_music_result, opened_platform=platform)
+                    return f"Ich öffne den Song auf {platform}."
+
             return f"Einstellung '{key}' geändert auf: {value}"
         except Exception as exc:
             return f"Fehler beim Ändern von '{key}': {exc}"
@@ -422,6 +442,9 @@ class ToolHandler:
             if not parts:
                 return "Kein Song erkannt."
 
+            self._last_music_result = result
+            self._broadcast_music_result(result)
+
             # Check preferred music platform and open song there
             platform = self._config.get("music_platform", "").strip().lower()
             platform_urls = {
@@ -441,20 +464,40 @@ class ToolHandler:
                     self._open_url_external(yt)
                     parts.append(f"Geöffnet auf YouTube (kein {platform}-Link verfügbar)")
             else:
-                # No platform set — ask user and remember answer
-                available = [p for p, url in platform_urls.items() if url]
+                # No platform set — UI will let the user pick; ask them to choose in UI
                 return (
-                    " | ".join(parts) + "\n\n"
-                    "FRAGE AN NUTZER: Welche Musik-Plattform nutzt du normalerweise? "
-                    f"Verfügbar: {', '.join(available) if available else 'keine'}. "
-                    "Antworte z.B. 'Spotify', 'Apple Music' oder 'YouTube'. "
-                    "Ich merke mir deine Wahl für das nächste Mal."
+                    "Ich habe den Song erkannt. Wähle in der Karte eine Plattform, "
+                    "auf der du den Song öffnen möchtest."
                 )
 
             return " | ".join(parts)
         except Exception as exc:
             logger.error("musik_erkennen error: %s", exc, exc_info=True)
             return f"Musikerkennung fehlgeschlagen: {exc}"
+
+    def _broadcast_music_result(self, result: dict[str, Any], opened_platform: str = "") -> None:
+        """Send a structured music result event to the UI."""
+        if not self._broadcast:
+            return
+        try:
+            import asyncio
+            payload = {
+                "type": "music_result",
+                "artist": result.get("artist", ""),
+                "title": result.get("title", ""),
+                "album": result.get("album", ""),
+                "cover_url": result.get("cover_url", ""),
+                "release_date": result.get("release_date", ""),
+                "spotify_url": result.get("spotify_url", ""),
+                "apple_music_url": result.get("apple_music_url", ""),
+                "youtube_url": result.get("youtube_url", ""),
+                "opened_platform": opened_platform,
+            }
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._broadcast(payload), loop)
+        except Exception:
+            pass
 
     def _open_url_external(self, url: str) -> None:
         """Open a URL in the system default browser."""

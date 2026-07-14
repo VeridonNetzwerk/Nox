@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import SettingsPanel from "./components/SettingsPanel.jsx";
 import OnboardingWizard from "./components/OnboardingWizard.jsx";
+import MusicCard from "./components/MusicCard.jsx";
 import { useToast } from "./components/Toast.jsx";
 import noxIcon from "./assets/nox-icon.png";
 import deLocale from "./locales/de.json";
@@ -83,6 +84,7 @@ function App() {
   const [activeTool, setActiveTool] = useState(null);
   const [thinkingIndex, setThinkingIndex] = useState(0);
   const [uiScale, setUiScale] = useState(1.0);
+  const [musicResult, setMusicResult] = useState(null);
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
@@ -224,7 +226,13 @@ function App() {
             { role: "user", content: data.content, streaming: false, voice: data.voice_input },
           ]);
           setIsStreaming(true);
+          setMusicResult(null); // clear music card when user asks something new
           window.nox?.setThinkingState?.(true);
+          return;
+        }
+
+        if (data.type === "music_result") {
+          setMusicResult(data);
           return;
         }
 
@@ -431,6 +439,25 @@ function App() {
     }
   };
 
+  const handleOpenMusicUrl = (url, platform) => {
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    setMusicResult((prev) => (prev ? { ...prev, opened_platform: platform } : prev));
+  };
+
+  const handleSetMusicPlatform = async (platform) => {
+    try {
+      await fetch(`${API_BASE}/api/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { music_platform: platform } }),
+      });
+    } catch (err) {
+      console.error("Failed to save music platform:", err);
+    }
+  };
+
   const handleMicClick = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       if (micState === "idle") {
@@ -560,7 +587,7 @@ function App() {
     return null;
   })();
 
-  const showBubble = bubbleText !== null;
+  const showBubble = bubbleText !== null || musicResult !== null;
 
   // Logo state classes for animation
   const logoAnimClass = micState === "listening"
@@ -720,6 +747,16 @@ function App() {
                   {bubbleText}
                   {isStreaming && lastAssistant?.streaming && (
                     <span className="inline-block w-1.5 h-4 ml-0.5 bg-nox-accent animate-pulse rounded-sm align-middle" />
+                  )}
+                  {musicResult && (
+                    <div className="mt-2">
+                      <MusicCard
+                        data={musicResult}
+                        onOpen={handleOpenMusicUrl}
+                        onSetPlatform={handleSetMusicPlatform}
+                        locale={t}
+                      />
+                    </div>
                   )}
                 </div>
                 {/* Replay button when response is done */}
