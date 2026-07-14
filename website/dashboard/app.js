@@ -258,10 +258,19 @@ function ensureGoogleCharts() {
         reject(new Error('Google Charts not loaded'));
         return;
       }
+      let settled = false;
       google.charts.load('current', {
         packages: ['corechart', 'geochart'],
-        callback: () => resolve(),
       });
+      google.charts.setOnLoadCallback(() => {
+        if (!settled) { settled = true; resolve(); }
+      });
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('Google Charts load timeout (10s)'));
+        }
+      }, 10000);
     });
   }
   return googleChartsPromise;
