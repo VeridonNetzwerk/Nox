@@ -254,23 +254,48 @@ let googleChartsPromise = null;
 function ensureGoogleCharts() {
   if (!googleChartsPromise) {
     googleChartsPromise = new Promise((resolve, reject) => {
-      if (typeof google === 'undefined' || !google.charts) {
-        reject(new Error('Google Charts not loaded'));
-        return;
-      }
       let settled = false;
-      google.charts.load('current', {
-        packages: ['corechart', 'geochart'],
-      });
-      google.charts.setOnLoadCallback(() => {
-        if (!settled) { settled = true; resolve(); }
-      });
+
+      function startLoading() {
+        if (typeof google === 'undefined' || !google.charts) {
+          console.error('[Nox] Google Charts loader not available');
+          if (!settled) { settled = true; reject(new Error('Google Charts loader not available')); }
+          return;
+        }
+        try {
+          google.charts.load('current', {
+            packages: ['corechart', 'geochart'],
+          });
+          google.charts.setOnLoadCallback(() => {
+            console.log('[Nox] Google Charts loaded successfully');
+            if (!settled) { settled = true; resolve(); }
+          });
+        } catch (err) {
+          console.error('[Nox] google.charts.load threw:', err);
+          if (!settled) { settled = true; reject(err); }
+        }
+      }
+
+      if (typeof google !== 'undefined' && google.charts) {
+        startLoading();
+      } else {
+        console.log('[Nox] Google Charts not yet defined, injecting loader script dynamically');
+        const s = document.createElement('script');
+        s.src = 'https://www.gstatic.com/charts/loader.js';
+        s.onload = () => setTimeout(startLoading, 0);
+        s.onerror = () => {
+          console.error('[Nox] Failed to load Google Charts loader script');
+          if (!settled) { settled = true; reject(new Error('Failed to load Google Charts loader')); }
+        };
+        document.head.appendChild(s);
+      }
+
       setTimeout(() => {
         if (!settled) {
           settled = true;
-          reject(new Error('Google Charts load timeout (10s)'));
+          reject(new Error('Google Charts load timeout (8s)'));
         }
-      }, 10000);
+      }, 8000);
     });
   }
   return googleChartsPromise;
@@ -297,22 +322,34 @@ function getChart(containerId, factory) {
 }
 
 async function renderAll() {
+  const events = filteredEvents();
+  let chartsReady = false;
+  let chartError = '';
   try {
     await ensureGoogleCharts();
+    chartsReady = true;
   } catch (e) {
-    document.querySelectorAll('.loading').forEach(el => {
-      el.innerHTML = `<span style="color: var(--red)">Chart library failed: ${e.message}</span>`;
+    console.error('[Nox] Google Charts failed:', e.message);
+    chartError = e.message;
+  }
+
+  renderStats(events);
+  renderRecentEvents(events.slice(0, 50));
+
+  if (!chartsReady) {
+    const errMsg = `<span style="color: var(--red);font-size:12px">Charts unavailable (${chartError}). Data loads below.</span>`;
+    ['timeline', 'weekly-traffic', 'event-types', 'country-breakdown', 'users-by-time'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.querySelector('.loading')) el.innerHTML = errMsg;
     });
     return;
   }
-  const events = filteredEvents();
-  renderStats(events);
+
   renderTimeline(events, timelineDays);
   renderWeeklyTraffic(events);
   renderCountryMap(events);
   renderEventTypes(events);
   renderUsersByTime(events);
-  renderRecentEvents(events.slice(0, 50));
 }
 
 async function loadAnalytics() {
