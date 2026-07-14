@@ -261,11 +261,27 @@ function filteredEvents() {
   return allEvents.filter(e => new Date(e.created_at) >= cutoff);
 }
 
+let currentView = 'overview';
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-section').forEach(s => {
+    s.classList.toggle('active', s.dataset.view === view);
+  });
+  document.querySelectorAll('.nav-item[data-view]').forEach(n => {
+    n.classList.toggle('active', n.dataset.view === view);
+  });
+  const titles = { overview: 'Overview', traffic: 'Traffic', errors: 'Errors' };
+  const titleEl = document.getElementById('page-title');
+  if (titleEl) titleEl.textContent = titles[view] || view;
+}
+
 function renderAll() {
   const events = filteredEvents();
   renderStats(events);
   renderTimeline(events, timelineDays);
   renderWeeklyTraffic(events);
+  renderWeeklyTraffic2(events);
   renderCountryMap(events);
   renderEventTypes(events);
   renderErrorBreakdown(events);
@@ -519,6 +535,41 @@ function renderWeeklyTraffic(events) {
     const isMax = val === Math.max(...values) && val > 0;
     const color = isMax ? '#4f46e5' : '#6366f1';
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="10" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="11" font-family="Inter,sans-serif">${day}</text>`;
+  }).join('');
+
+  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
+  container.querySelectorAll('.chart-bar[data-label]').forEach(el => {
+    attachTooltip(el, el.dataset.label, el.dataset.detail);
+  });
+}
+
+function renderWeeklyTraffic2(events) {
+  const container = document.getElementById('weekly-traffic-2');
+  if (!container) return;
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
+  const maxVal = Math.max(...values, 1);
+  const W = 760, H = 240, padL = 40, padR = 16, padT = 20, padB = 32;
+  const chartW = W - padL - padR, chartH = H - padT - padB;
+  const barW = chartW / days.length * 0.6;
+  const gap = chartW / days.length * 0.4;
+  const stepX = chartW / days.length;
+
+  const yTicks = [];
+  for (let i = 0; i <= 4; i++) {
+    const val = Math.round(maxVal * i / 4);
+    const y = padT + chartH - (i / 4) * chartH;
+    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="10" font-family="Inter,sans-serif">${val}</text>`);
+  }
+
+  const bars = days.map((day, i) => {
+    const val = values[i];
+    const h = (val / maxVal) * chartH;
+    const x = padL + i * stepX + gap / 2;
+    const y = padT + chartH - h;
+    const isMax = val === Math.max(...values) && val > 0;
+    const color = isMax ? '#4f46e5' : '#6366f1';
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="11" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="12" font-family="Inter,sans-serif">${day}</text>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
@@ -788,6 +839,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const loginForm = document.getElementById('login-form');
   if (loginForm) loginForm.addEventListener('submit', doLogin);
 
+  // View switching via sidebar nav
+  document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      switchView(item.dataset.view);
+    });
+  });
+
   // Logout controls
   const logoutNav = document.getElementById('logout-nav');
   if (logoutNav) logoutNav.addEventListener('click', doLogout);
@@ -797,7 +855,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const reportBtn = document.getElementById('report-btn');
   if (reportBtn) reportBtn.addEventListener('click', () => {
-    document.getElementById('recent-events')?.scrollIntoView({ behavior: 'smooth' });
+    switchView('errors');
+    setTimeout(() => document.getElementById('recent-events')?.scrollIntoView({ behavior: 'smooth' }), 50);
   });
 
   const periodSelect = document.getElementById('period-select');
