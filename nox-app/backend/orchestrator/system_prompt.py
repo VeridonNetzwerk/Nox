@@ -65,6 +65,10 @@ Du hast Zugriff auf folgende Werkzeuge:
 - nox_beenden: Beendet Nox komplett. Der gesamte Prozess wird geschlossen und Nox ist nicht mehr verfügbar bis man ihn neu startet.
   Verwende dies NUR wenn der Nutzer ausdrücklich sagt "beenden", "quit", "schalt dich ab", "mach dich aus" etc.
   WICHTIG: "Beenden" bedeutet Nox vollkommen herunterzufahren — nicht nur das Fenster!
+- app_oeffnen: Startet ein Programm oder öffnet eine App auf dem PC.
+  Verwende dies wenn der Nutzer sagt "öffne Chrome", "starte Spotify", "mach Word auf", "öffne den Rechner" etc.
+  Der Parameter 'name' ist der Name der App (z.B. 'chrome', 'spotify', 'notepad', 'calculator') oder ein vollständiger Pfad zur .exe.
+  Bekannte Apps: chrome, firefox, edge, spotify, discord, vscode, notepad, calculator, explorer, steam, word, excel, powerpoint, etc.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -78,6 +82,8 @@ Beispiel: [TOOL: notiz_speichern] Kaufe Milch heute Abend
 Beispiel: [TOOL: dateien_suchen] Rechnung Q1
 Beispiel: [TOOL: datei_lesen] C:\\\\Users\\\\Ich\\\\Documents\\\\Notiz.txt
 Beispiel: [TOOL: einstellung_aendern] key=ui_theme value=dark
+Beispiel: [TOOL: app_oeffnen] chrome
+Beispiel: [TOOL: app_oeffnen] spotify
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """

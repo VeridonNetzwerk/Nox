@@ -577,6 +577,7 @@ function App() {
     aktuelle_uhrzeit: "Nox schaut auf die Uhr…",
     einstellungen_lesen: "Nox liest Einstellungen…",
     einstellung_aendern: "Nox ändert eine Einstellung…",
+    app_oeffnen: "Nox öffnet eine App…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };

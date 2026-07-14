@@ -262,6 +262,25 @@ class ToolHandler:
             handler=self._tool_quit_app,
         ))
 
+        # app_oeffnen
+        self.register(Tool(
+            name="app_oeffnen",
+            description="Startet ein Programm oder öffnet eine App auf dem PC. "
+                        "Verwende dies wenn der Nutzer sagt 'öffne Chrome', 'starte Spotify', 'mach Word auf' etc. "
+                        "Der Parameter 'name' ist der Name der App oder der Pfad zur ausführbaren Datei.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name der App (z.B. 'chrome', 'spotify', 'notepad') oder vollständiger Pfad zur .exe",
+                    },
+                },
+                "required": ["name"],
+            },
+            handler=self._tool_open_app,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -564,3 +583,145 @@ class ToolHandler:
             except Exception:
                 pass
         return "Nox wird beendet. Bis zum nächsten Mal."
+
+    # Known app aliases → executable name or command
+    _APP_ALIASES = {
+        # Browsers
+        "chrome": "chrome",
+        "google chrome": "chrome",
+        "firefox": "firefox",
+        "edge": "msedge",
+        "microsoft edge": "msedge",
+        "brave": "brave",
+        "opera": "opera",
+        # Media
+        "spotify": "spotify",
+        "vlc": "vlc",
+        "netflix": "start netflix:",
+        # Communication
+        "discord": "discord",
+        "teams": "teams",
+        "microsoft teams": "teams",
+        "zoom": "zoom",
+        "skype": "skype",
+        "slack": "slack",
+        # Office
+        "word": "winword",
+        "excel": "excel",
+        "powerpoint": "powerpnt",
+        "outlook": "outlook",
+        "onenote": "onenote",
+        # Dev tools
+        "vscode": "code",
+        "visual studio code": "code",
+        "code": "code",
+        "notepad": "notepad",
+        "notepad++": "notepad++",
+        "terminal": "wt",
+        "cmd": "cmd",
+        "powershell": "powershell",
+        "git": "git",
+        # System
+        "calculator": "calc",
+        "rechner": "calc",
+        "explorer": "explorer",
+        "file explorer": "explorer",
+        "task manager": "taskmgr",
+        "task-manager": "taskmgr",
+        "settings": "start ms-settings:",
+        "einstellungen": "start ms-settings:",
+        # Games
+        "steam": "steam",
+        "epic games": "epicgames",
+        "battle.net": "battle.net",
+        # Other
+        "paint": "mspaint",
+        "snipping tool": "snippingtool",
+        "screenshot": "snippingtool",
+        "clock": "clock",
+        "uhr": "clock",
+        "calculator": "calc",
+    }
+
+    # UWP apps that need 'start <protocol>:' instead of direct exe
+    _UWP_APPS = {
+        "netflix": "start netfix:",
+        "settings": "start ms-settings:",
+        "einstellungen": "start ms-settings:",
+        "calculator": "calc",
+        "rechner": "calc",
+        "clock": "start ms-clock:",
+        "uhr": "start ms-clock:",
+        "snipping tool": "snippingtool",
+        "screenshot": "snippingtool",
+    }
+
+    def _tool_open_app(self, args: dict[str, Any]) -> str:
+        """Open an application on the PC."""
+        import subprocess
+        import shutil
+        import os
+
+        name = args.get("name", "").strip()
+        if not name:
+            return "Kein App-Name angegeben."
+
+        name_lower = name.lower().strip()
+
+        # If it's a URL, open in browser
+        if name_lower.startswith(("http://", "https://")):
+            try:
+                os.startfile(name)
+                return f"Geöffnet: {name}"
+            except Exception as exc:
+                return f"Konnte URL nicht öffnen: {exc}"
+
+        # If it's a full path to an .exe, launch directly
+        if name_lower.endswith(".exe") and os.path.isfile(name):
+            try:
+                subprocess.Popen([name])
+                return f"App gestartet: {os.path.basename(name)}"
+            except Exception as exc:
+                return f"Konnte App nicht starten: {exc}"
+
+        # Check alias mapping
+        alias_cmd = self._APP_ALIASES.get(name_lower)
+        if alias_cmd:
+            try:
+                # UWP apps use 'start protocol:' syntax
+                if alias_cmd.startswith("start "):
+                    subprocess.Popen(alias_cmd, shell=True)
+                    return f"App gestartet: {name}"
+                # Built-in Windows apps (calc, notepad, etc.)
+                if alias_cmd in ("calc", "notepad", "mspaint", "explorer", "cmd", "taskmgr", "wt"):
+                    subprocess.Popen(alias_cmd, shell=True)
+                    return f"App gestartet: {name}"
+                # Try to find the executable on PATH
+                exe_path = shutil.which(alias_cmd)
+                if exe_path:
+                    subprocess.Popen([exe_path])
+                    return f"App gestartet: {name}"
+                # Fallback: try shell=True with the command
+                subprocess.Popen(alias_cmd, shell=True)
+                return f"App gestartet: {name}"
+            except Exception as exc:
+                logger.error("app_oeffnen alias failed for '%s': %s", name, exc)
+                return f"Konnte '{name}' nicht starten: {exc}"
+
+        # No alias found — try to find executable on PATH by the given name
+        exe_candidates = [name_lower, f"{name_lower}.exe"]
+        for candidate in exe_candidates:
+            exe_path = shutil.which(candidate)
+            if exe_path:
+                try:
+                    subprocess.Popen([exe_path])
+                    return f"App gestartet: {name}"
+                except Exception as exc:
+                    return f"Konnte '{name}' nicht starten: {exc}"
+
+        # Last resort: try 'start' command which uses Windows shell resolution
+        try:
+            subprocess.Popen(f"start {name}", shell=True)
+            return f"App gestartet: {name}"
+        except Exception as exc:
+            return f"Konnte '{name}' nicht finden oder starten: {exc}"
