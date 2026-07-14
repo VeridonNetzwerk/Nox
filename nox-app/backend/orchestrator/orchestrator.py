@@ -119,6 +119,31 @@ def _parse_reminder_params(params: str) -> dict[str, Any]:
     return result
 
 
+def _parse_translate_params(params: str) -> dict[str, Any]:
+    """Parse uebersetzen fallback params: 'text=Hallo Welt zielsprache=en quellsprache=de' etc."""
+    result: dict[str, Any] = {}
+    remaining = params.split()
+    keys = ["text", "zielsprache", "quellsprache"]
+    i = 0
+    while i < len(remaining):
+        part = remaining[i]
+        if "=" in part:
+            key, value = part.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            # Collect continuation parts until next key=value or end
+            j = i + 1
+            while j < len(remaining) and "=" not in remaining[j]:
+                value += " " + remaining[j]
+                j += 1
+            if key in keys:
+                result[key] = value
+            i = j
+        else:
+            i += 1
+    return result
+
+
 class Orchestrator:
     """Central orchestrator for processing chat messages."""
 
@@ -376,6 +401,8 @@ class Orchestrator:
                                 tool_args = {"ort": m.group(1).strip(), "tage": int(m.group(2))}
                             else:
                                 tool_args = {"ort": tool_params}
+                        elif tool_name == "uebersetzen":
+                            tool_args = _parse_translate_params(tool_params)
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:

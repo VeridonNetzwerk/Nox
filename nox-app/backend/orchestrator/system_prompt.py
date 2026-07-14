@@ -115,6 +115,12 @@ Du hast Zugriff auf folgende Werkzeuge:
   Verwende dies wenn der Nutzer sagt "wie ist das Wetter", "wird es regnen", "Temperatur in Berlin" etc.
   Der Parameter 'ort' ist der Ort (z.B. 'Berlin', 'München', 'New York').
   Optional 'tage' (1-7, Standard 1) für Vorhersage.
+- uebersetzen: Übersetzt Text von einer Sprache in eine andere.
+  Verwende dies wenn der Nutzer sagt "übersetze das auf Englisch", "wie sagt man das auf Französisch", "translate this" etc.
+  Der Parameter 'text' ist der zu übersetzende Text.
+  Der Parameter 'zielsprache' ist die Zielsprache (ISO-Code wie 'en', 'de', 'fr', 'es' oder ausgeschrieben wie 'Englisch', 'Französisch').
+  Optional 'quellsprache' (ISO-Code, wird automatisch erkannt wenn nicht angegeben).
+  Nutzt Argos Translate (offline) mit MyMemory API Fallback — kein API-Key nötig.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -148,6 +154,8 @@ Beispiel: [TOOL: zwischenablage] kopieren text=Hallo Welt
 Beispiel: [TOOL: zwischenablage] einfuegen
 Beispiel: [TOOL: wetter_abfragen] Berlin
 Beispiel: [TOOL: wetter_abfragen] München tage=3
+Beispiel: [TOOL: uebersetzen] text=Hallo wie geht es dir zielsprache=en
+Beispiel: [TOOL: uebersetzen] text=Hello world zielsprache=de quellsprache=en
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """

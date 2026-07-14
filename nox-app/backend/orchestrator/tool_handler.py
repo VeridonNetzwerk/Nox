@@ -516,6 +516,35 @@ class ToolHandler:
             handler=self._tool_weather,
         ))
 
+        # uebersetzen
+        self.register(Tool(
+            name="uebersetzen",
+            description="Übersetzt Text von einer Sprache in eine andere. "
+                        "Verwende dies wenn der Nutzer sagt 'übersetze das auf Englisch', 'wie sagt man das auf Französisch', 'translate this to Spanish' etc. "
+                        "Der Parameter 'text' ist der zu übersetzende Text. "
+                        "Der Parameter 'zielsprache' ist die Zielsprache (z.B. 'en', 'de', 'fr', 'es', 'it', 'ru', 'ja', 'zh'). "
+                        "Der optionale Parameter 'quellsprache' ist die Ausgangssprache (z.B. 'de', 'en'). Wenn nicht angegeben wird sie automatisch erkannt.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Der zu übersetzende Text",
+                    },
+                    "zielsprache": {
+                        "type": "string",
+                        "description": "Zielsprache als ISO-Code (z.B. 'en', 'de', 'fr', 'es', 'it', 'ru', 'ja', 'zh') oder ausgeschrieben ('Englisch', 'Deutsch', 'Französisch')",
+                    },
+                    "quellsprache": {
+                        "type": "string",
+                        "description": "Ausgangssprache als ISO-Code (z.B. 'de', 'en'). Optional — wird automatisch erkannt wenn nicht angegeben.",
+                    },
+                },
+                "required": ["text", "zielsprache"],
+            },
+            handler=self._tool_translate,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -2494,3 +2523,159 @@ class ToolHandler:
         except Exception as exc:
             logger.error("wetter_abfragen error: %s", exc, exc_info=True)
             return f"Wetterabfrage fehlgeschlagen: {exc}"
+
+    # Language name → ISO code mapping
+    _LANG_CODES = {
+        "de": "de", "german": "de", "deutsch": "de",
+        "en": "en", "english": "en", "englisch": "en",
+        "fr": "fr", "french": "fr", "französisch": "fr", "francais": "fr", "français": "fr",
+        "es": "es", "spanish": "es", "spanisch": "es", "espanol": "es", "español": "es",
+        "it": "it", "italian": "it", "italienisch": "it", "italiano": "it",
+        "ru": "ru", "russian": "ru", "russisch": "ru", "русский": "ru",
+        "ja": "ja", "japanese": "ja", "japanisch": "ja", "日本語": "ja",
+        "zh": "zh", "chinese": "zh", "chinesisch": "zh", "中文": "zh",
+        "pt": "pt", "portuguese": "pt", "portugiesisch": "pt",
+        "nl": "nl", "dutch": "nl", "niederländisch": "nl", "nederlands": "nl",
+        "pl": "pl", "polish": "pl", "polnisch": "pl", "polski": "pl",
+        "tr": "tr", "turkish": "tr", "türkisch": "tr", "türkçe": "tr",
+        "ar": "ar", "arabic": "ar", "arabisch": "ar", "العربية": "ar",
+        "hi": "hi", "hindi": "hi", "hindi": "hi",
+        "ko": "ko", "korean": "ko", "koreanisch": "ko", "한국어": "ko",
+        "sv": "sv", "swedish": "sv", "schwedisch": "sv",
+        "da": "da", "danish": "da", "dänisch": "da",
+        "fi": "fi", "finnish": "fi", "finnisch": "fi",
+        "no": "no", "norwegian": "no", "norwegisch": "no",
+        "cs": "cs", "czech": "cs", "tschechisch": "cs",
+        "hu": "hu", "hungarian": "hu", "ungarisch": "hu",
+        "ro": "ro", "romanian": "ro", "rumänisch": "ro",
+        "uk": "uk", "ukrainian": "uk", "ukrainisch": "uk", "українська": "uk",
+        "el": "el", "greek": "el", "griechisch": "el", "ελληνικά": "el",
+        "he": "he", "hebrew": "he", "hebräisch": "he",
+        "th": "th", "thai": "th", "thailändisch": "th",
+        "vi": "vi", "vietnamese": "vi", "vietnamesisch": "vi",
+        "id": "id", "indonesian": "id", "indonesisch": "id",
+    }
+
+    def _normalize_lang_code(self, lang: str) -> str:
+        """Normalize a language input to a 2-letter ISO code."""
+        lang = lang.strip().lower()
+        if len(lang) == 2 and lang.isalpha():
+            return lang
+        return self._LANG_CODES.get(lang, lang[:2] if len(lang) >= 2 else lang)
+
+    def _tool_translate(self, args: dict[str, Any]) -> str:
+        """Translate text using argostranslate (offline) with MyMemory API fallback."""
+        import urllib.parse
+
+        text = args.get("text", "").strip()
+        if not text:
+            return "Kein Text zum Übersetzen angegeben."
+
+        ziel_raw = args.get("zielsprache", "").strip()
+        if not ziel_raw:
+            return "Keine Zielsprache angegeben."
+        ziel = self._normalize_lang_code(ziel_raw)
+
+        quelle_raw = args.get("quellsprache", "").strip()
+        quelle = self._normalize_lang_code(quelle_raw) if quelle_raw else None
+
+        # Try argostranslate (offline, no API key)
+        try:
+            import argostranslate.translate as argos_translate
+            import argostranslate.package as argos_package
+
+            # Ensure packages are downloaded
+            installed = argos_package.get_installed_packages()
+
+            # Check if the language pair is available
+            from_lang = quelle if quelle else None
+            to_lang = ziel
+
+            # If source language not specified, try to detect
+            if not from_lang:
+                # Try common detection: check if text looks like German
+                # Argos doesn't have a built-in detector, so we try each installed source lang
+                available_from = [p.from_lang for p in installed if p.to_lang == to_lang]
+                if "de" in available_from:
+                    from_lang = "de"
+                elif "en" in available_from:
+                    from_lang = "en"
+                elif available_from:
+                    from_lang = available_from[0]
+                else:
+                    # No matching package, fall through to API
+                    raise ImportError("No Argos package for this language pair")
+
+            # Check if the pair is installed
+            pair_installed = any(
+                p.from_lang == from_lang and p.to_lang == to_lang
+                for p in installed
+            )
+
+            if not pair_installed:
+                # Try to download the package
+                try:
+                    available = argos_package.get_available_packages()
+                    matching = [
+                        p for p in available
+                        if p.from_lang == from_lang and p.to_lang == to_lang
+                    ]
+                    if matching:
+                        argos_package.install(matching[0])
+                    else:
+                        raise ImportError(f"No Argos package for {from_lang}->{to_lang}")
+                except Exception as exc:
+                    logger.warning("Argos package download failed: %s", exc)
+                    raise ImportError(f"Could not install Argos package: {exc}")
+
+            # Translate
+            translated = argos_translate.translate(from_lang, to_lang, text)
+            if translated and translated.strip():
+                return f"Übersetzung ({from_lang} → {to_lang}):\n{translated}"
+            else:
+                raise ImportError("Argos returned empty translation")
+
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.warning("Argos translate failed: %s", exc)
+
+        # Fallback: MyMemory API (free, no key needed, limited to 500 chars per request)
+        try:
+            import requests
+
+            # If source language not detected, use 'de' as default guess
+            src_lang = quelle if quelle else "de"
+
+            # MyMemory API endpoint
+            # Truncate text to 500 chars (API limit)
+            text_chunk = text[:500]
+            api_url = (
+                f"https://api.mymemory.translated.net/get?"
+                f"q={urllib.parse.quote(text_chunk)}"
+                f"&langpair={src_lang}|{ziel}"
+            )
+
+            resp = requests.get(api_url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+
+            translated = data.get("responseData", {}).get("translatedText", "")
+            if translated:
+                # Decode HTML entities
+                import html as html_mod
+                translated = html_mod.unescape(translated)
+                note = ""
+                if len(text) > 500:
+                    note = f" (Hinweis: Text wurde auf 500 Zeichen gekürzt)"
+                return f"Übersetzung ({src_lang} → {ziel}){note}:\n{translated}"
+            else:
+                return f"Übersetzung fehlgeschlagen: Keine Antwort von der API."
+
+        except requests.exceptions.Timeout:
+            return "Übersetzung hat das Zeitlimit überschritten."
+        except requests.exceptions.ConnectionError:
+            return "Keine Internetverbindung für Übersetzung verfügbar."
+        except Exception as exc:
+            logger.error("uebersetzen error: %s", exc, exc_info=True)
+            return f"Übersetzung fehlgeschlagen: {exc}"

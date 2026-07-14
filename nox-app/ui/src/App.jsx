@@ -591,6 +591,7 @@ function App() {
     erinnerung_speichern: "Nox speichert eine Erinnerung…",
     zwischenablage: "Nox nutzt die Zwischenablage…",
     wetter_abfragen: "Nox fragt das Wetter ab…",
+    uebersetzen: "Nox übersetzt…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };
