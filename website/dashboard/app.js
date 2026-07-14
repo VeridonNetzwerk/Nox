@@ -285,7 +285,7 @@ function renderAll() {
   renderCountryMap(events);
   renderEventTypes(events);
   renderErrorBreakdown(events);
-  renderRecentEvents(events.slice(0, 50));
+  renderRecentEvents(events.slice(0, 15));
 }
 
 async function loadAnalytics() {
@@ -445,7 +445,7 @@ function renderTimeline(events, days = 30) {
   });
   if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
-  const W = 800, H = 220, padL = 44, padR = 16, padT = 16, padB = 32;
+  const W = 800, H = 180, padL = 40, padR = 12, padT = 10, padB = 28;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const maxCount = Math.max(...buckets.map(b => b.count), 1);
   const stepX = chartW / (days - 1);
@@ -514,7 +514,7 @@ function renderWeeklyTraffic(events) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const maxVal = Math.max(...values, 1);
-  const W = 360, H = 200, padL = 36, padR = 12, padT = 20, padB = 30;
+  const W = 360, H = 170, padL = 34, padR = 10, padT = 14, padB = 26;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const barW = chartW / days.length * 0.55;
   const gap = chartW / days.length * 0.45;
@@ -549,7 +549,7 @@ function renderWeeklyTraffic2(events) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const maxVal = Math.max(...values, 1);
-  const W = 760, H = 240, padL = 40, padR = 16, padT = 20, padB = 32;
+  const W = 760, H = 200, padL = 38, padR = 14, padT = 16, padB = 28;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const barW = chartW / days.length * 0.6;
   const gap = chartW / days.length * 0.4;
@@ -588,7 +588,7 @@ function renderEventTypes(events) {
   const total = sorted.reduce((s, [, c]) => s + c, 0);
   if (sorted.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
-  const cx = 80, cy = 80, R = 62, r = 38;
+  const cx = 70, cy = 70, R = 54, r = 34;
   let angle = -Math.PI / 2;
   const slices = sorted.map(([type, count], i) => {
     const pct = count / total;
@@ -604,7 +604,7 @@ function renderEventTypes(events) {
     return { path, color, type, count, pct };
   });
 
-  const svg = `<svg width="170" height="170" viewBox="0 0 170 170" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="22" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#9ca3af" font-size="9" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
+  const svg = `<svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="20" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:#6b7280">${s.type}</span><span style="margin-left:auto;font-weight:600;color:#111827">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
   container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
@@ -629,7 +629,7 @@ function renderErrorBreakdown(events) {
   const sorted = Object.entries(codeCounts).sort((a, b) => b[1] - a[1]);
   const total = sorted.reduce((s, [, c]) => s + c, 0);
 
-  const cx = 80, cy = 80, R = 62, r = 38;
+  const cx = 70, cy = 70, R = 54, r = 34;
   let angle = -Math.PI / 2;
   const errorColors = ['#ef4444', '#f97316', '#eab308', '#f43f5e', '#fb923c', '#facc15', '#f87171', '#fdba74', '#fde047', '#fca5a5'];
   const slices = sorted.map(([code, count], i) => {
@@ -646,7 +646,7 @@ function renderErrorBreakdown(events) {
     return { path, color, code, count, pct };
   });
 
-  const svg = `<svg width="170" height="170" viewBox="0 0 170 170" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.code}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="22" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#9ca3af" font-size="9" font-family="Inter,sans-serif" letter-spacing="1">ERRORS</text></svg>`;
+  const svg = `<svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.code}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="20" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter,sans-serif" letter-spacing="1">ERRORS</text></svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:#6b7280;font-family:monospace;font-size:11px">${s.code}</span><span style="margin-left:auto;font-weight:600;color:#111827">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
   container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
@@ -804,6 +804,7 @@ function renderRecentEvents(events) {
     return;
   }
   container.innerHTML = `
+    <div style="max-height:calc(100vh - 320px); overflow-y:auto">
     <table class="events-table">
       <thead>
         <tr>
@@ -830,6 +831,7 @@ function renderRecentEvents(events) {
         `).join('')}
       </tbody>
     </table>
+    </div>
   `;
 }
 
