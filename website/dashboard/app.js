@@ -893,7 +893,7 @@ function renderRecentEvents(events) {
 }
 
 // --- Init: attach event listeners (no inline handlers for CSP) ---
-document.addEventListener('DOMContentLoaded', () => {
+function initListeners() {
   // Login form
   const loginForm = document.getElementById('login-form');
   if (loginForm) loginForm.addEventListener('submit', doLogin);
@@ -967,4 +967,10 @@ document.addEventListener('DOMContentLoaded', () => {
     startLockoutCountdown();
     document.getElementById('login-btn').disabled = true;
   }
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initListeners);
+} else {
+  initListeners();
+}
