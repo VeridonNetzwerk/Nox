@@ -617,22 +617,50 @@ async function renderCountryMap(events) {
       const count = counts[code] || 0;
       path.setAttribute('stroke', '#ffffff');
       path.setAttribute('stroke-width', '0.4');
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
       if (count > 0) {
         path.setAttribute('fill', choroplethColor(count / max));
         path.style.cursor = 'pointer';
-        title.textContent = `${countryFlag(code)} ${countryName(code)}: ${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`;
+        path.dataset.label = `${countryFlag(code)} ${countryName(code)}`;
+        path.dataset.detail = `${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`;
       } else {
         path.setAttribute('fill', '#e8eaf1');
         path.style.cursor = 'help';
-        title.textContent = `${countryFlag(code)} ${countryName(code)}: no events`;
+        path.dataset.label = `${countryFlag(code)} ${countryName(code)}`;
+        path.dataset.detail = 'no events';
       }
-      path.appendChild(title);
     });
 
     const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#e0e7ff,#4f46e5)"></div><span>${max.toLocaleString()} events</span></div>`;
-    container.innerHTML = `<div class="map-section"><div><div class="map-holder"></div>${legendHtml}</div>${infoHtml}</div>`;
-    container.querySelector('.map-holder').appendChild(svg);
+    container.innerHTML = `<div class="map-section"><div><div class="map-holder" style="position:relative"></div>${legendHtml}</div>${infoHtml}</div>`;
+    const holder = container.querySelector('.map-holder');
+    holder.appendChild(svg);
+
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;background:#1f2937;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-family:Inter,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity .12s;white-space:nowrap;line-height:1.5';
+    document.body.appendChild(tooltip);
+
+    svg.querySelectorAll('path[data-label]').forEach(path => {
+      path.addEventListener('mouseenter', (e) => {
+        tooltip.innerHTML = `<div style="font-weight:600;font-size:13px">${path.dataset.label}</div><div style="color:#9ca3af;font-size:11px">${path.dataset.detail}</div>`;
+        tooltip.style.opacity = '1';
+      });
+      path.addEventListener('mousemove', (e) => {
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top = (e.clientY - 10) + 'px';
+      });
+      path.addEventListener('mouseleave', () => {
+        tooltip.style.opacity = '0';
+      });
+    });
+
+    const origHolder = holder;
+    new MutationObserver((mutations, obs) => {
+      if (!document.body.contains(tooltip)) { obs.disconnect(); return; }
+      if (!document.body.contains(origHolder)) {
+        tooltip.remove();
+        obs.disconnect();
+      }
+    }).observe(document.body, { childList: true, subtree: true });
   } catch {
     container.innerHTML = `<div class="map-section"><div class="empty">Map unavailable</div>${infoHtml}</div>`;
   }
