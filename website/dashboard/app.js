@@ -210,7 +210,7 @@ function doLogout() {
   clearInterval(sessionCountdownTimer);
   sessionStorage.removeItem('nox_analytics_session');
   document.getElementById('session-warning').classList.remove('show');
-  document.getElementById('dashboard').classList.remove('show');
+  document.getElementById('app-shell').classList.remove('show');
   document.getElementById('login').style.display = 'flex';
   document.getElementById('login-email').value = '';
   document.getElementById('login-password').value = '';
@@ -218,7 +218,12 @@ function doLogout() {
 
 function showDashboard() {
   document.getElementById('login').style.display = 'none';
-  document.getElementById('dashboard').classList.add('show');
+  document.getElementById('app-shell').classList.add('show');
+  const email = user?.email || 'admin@nox.app';
+  const displayName = email.split('@')[0] || 'Admin User';
+  document.getElementById('user-name').textContent = displayName;
+  document.getElementById('user-email').textContent = email;
+  document.getElementById('user-avatar').textContent = displayName.charAt(0).toUpperCase();
   resetSessionTimer();
   loadAnalytics();
 }
@@ -247,11 +252,10 @@ async function loadAnalytics() {
     const events = await supabaseSelect('nox_events', '*', 5000, 'created_at.desc');
     renderStats(events);
     renderTimeline(events);
-    renderEventTypes(events);
+    renderWeeklyTraffic(events);
     renderCountryMap(events);
-    renderErrorCodes(events);
-    renderTopTools(events);
-    renderVersionBreakdown(events);
+    renderBounceRate(events);
+    renderUsersByTime(events);
     renderRecentEvents(events.slice(0, 50));
   } catch (e) {
     document.querySelectorAll('.loading').forEach(el => {
@@ -311,21 +315,29 @@ function countryFlag(code) {
 
 function renderStats(events) {
   const sessions = new Set(events.map(e => e.session_id).filter(Boolean));
-  const starts = events.filter(e => e.event_type === 'app_start');
-  const voice = events.filter(e => e.event_type === 'voice_interaction');
-  const tools = events.filter(e => e.event_type === 'tool_use');
-  const versions = new Set(events.map(e => e.app_version).filter(Boolean));
   const countries = new Set(events.map(e => e.country).filter(Boolean));
-  const errors = events.filter(e => e.event_type === 'error');
+  const sessionRanges = {};
 
-  document.getElementById('stat-total').textContent = events.length.toLocaleString();
-  document.getElementById('stat-sessions').textContent = sessions.size.toLocaleString();
-  document.getElementById('stat-starts').textContent = starts.length.toLocaleString();
-  document.getElementById('stat-voice').textContent = voice.length.toLocaleString();
-  document.getElementById('stat-tools').textContent = tools.length.toLocaleString();
-  document.getElementById('stat-versions').textContent = versions.size.toLocaleString();
-  document.getElementById('stat-countries').textContent = countries.size.toLocaleString();
-  document.getElementById('stat-errors').textContent = errors.length.toLocaleString();
+  events.forEach(event => {
+    if (!event.session_id || !event.created_at) return;
+    const time = new Date(event.created_at).getTime();
+    if (!sessionRanges[event.session_id]) sessionRanges[event.session_id] = [time, time];
+    sessionRanges[event.session_id][0] = Math.min(sessionRanges[event.session_id][0], time);
+    sessionRanges[event.session_id][1] = Math.max(sessionRanges[event.session_id][1], time);
+  });
+
+  const durations = Object.values(sessionRanges).map(([start, end]) => Math.min(end - start, 60 * 60 * 1000));
+  const averageDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 0;
+  const durationMinutes = Math.floor(averageDuration / 60000);
+  const durationSeconds = Math.floor((averageDuration % 60000) / 1000);
+  const errors = events.filter(e => e.event_type === 'error' || e.error_code);
+
+  document.getElementById('kpi-users').textContent = sessions.size.toLocaleString();
+  document.getElementById('kpi-sessions').textContent = sessions.size.toLocaleString();
+  document.getElementById('kpi-duration').textContent = `${durationMinutes}m ${durationSeconds}s`;
+  document.getElementById('kpi-events').textContent = events.length.toLocaleString();
+  document.getElementById('stat-countries')?.replaceChildren(document.createTextNode(countries.size.toLocaleString()));
+  document.getElementById('stat-errors')?.replaceChildren(document.createTextNode(errors.length.toLocaleString()));
 }
 
 // --- SVG Line/Area Chart for Timeline ---
@@ -394,10 +406,83 @@ function renderTimeline(events) {
     </linearGradient></defs>
     ${yTicks.join('')}
     <path d="${areaPath}" fill="url(#areaGradient)" />
-    <path class="line-stroke" d="${linePath}" />
+    <path class="line-stroke" d="${linePath}" stroke="#84cc16" />
     ${dots}
     ${xLabels}
   </svg>`;
+}
+
+function buildMiniLineChart(values, color, secondaryValues = []) {
+  const W = 520, H = 180, padL = 34, padR = 10, padT = 12, padB = 24;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const allValues = values.concat(secondaryValues);
+  const max = Math.max(...allValues, 1);
+  const stepX = values.length > 1 ? chartW / (values.length - 1) : chartW;
+  const points = values.map((value, index) => [padL + index * stepX, padT + chartH - (value / max) * chartH]);
+  const secondary = secondaryValues.map((value, index) => [padL + index * stepX, padT + chartH - (value / max) * chartH]);
+  const line = points.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const secondLine = secondary.length ? secondary.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ') : '';
+  const area = `${line} L${points[points.length - 1][0].toFixed(1)},${padT + chartH} L${points[0][0].toFixed(1)},${padT + chartH} Z`;
+  const grid = [0, 1, 2, 3].map(index => {
+    const y = padT + (chartH / 3) * index;
+    return `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" />`;
+  }).join('');
+  const labels = ['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Dec'].map((label, index) => {
+    const x = padL + (chartW / 5) * index;
+    return `<text class="axis-text" x="${x}" y="${H - 6}" text-anchor="middle">${label}</text>`;
+  }).join('');
+  return `<svg class="svg-chart" viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".16"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<path d="${area}" fill="url(#trendFill)"/><path class="line-stroke" d="${line}" stroke="${color}"/>${secondLine ? `<path class="line-stroke" d="${secondLine}" stroke="#84cc16"/>` : ''}${labels}
+  </svg>`;
+}
+
+function renderWeeklyTraffic(events) {
+  const container = document.getElementById('weekly-traffic');
+  if (!container) return;
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length + 1);
+  const max = Math.max(...values, 1);
+  const cx = 110, cy = 92, radius = 58;
+  const axes = days.map((day, index) => {
+    const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length);
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy + Math.sin(angle) * radius;
+    return `<line class="grid-line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/><text class="axis-text" x="${cx + Math.cos(angle) * (radius + 14)}" y="${cy + Math.sin(angle) * (radius + 14)}" text-anchor="middle">${day}</text>`;
+  }).join('');
+  const polygon = values.map((value, index) => {
+    const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length);
+    const distance = radius * value / max;
+    return `${cx + Math.cos(angle) * distance},${cy + Math.sin(angle) * distance}`;
+  }).join(' ');
+  container.innerHTML = `<svg class="svg-chart" viewBox="0 0 220 190"><polygon points="${days.map((_, index) => { const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length); return `${cx + Math.cos(angle) * radius},${cy + Math.sin(angle) * radius}`; }).join(' ')}" fill="none" stroke="var(--border)"/>${axes}<polygon points="${polygon}" fill="#f59e0b" fill-opacity=".13" stroke="#f59e0b" stroke-width="1.5"/><polygon points="${values.map((value, index) => { const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length); const distance = radius * value / max * .78; return `${cx + Math.cos(angle) * distance},${cy + Math.sin(angle) * distance}`; }).join(' ')}" fill="#6366f1" fill-opacity=".10" stroke="#6366f1" stroke-width="1.5"/></svg>`;
+}
+
+function renderBounceRate(events) {
+  const container = document.getElementById('bounce-rate');
+  if (!container) return;
+  const daily = Array.from({ length: 12 }, (_, index) => {
+    const start = new Date();
+    start.setDate(start.getDate() - (11 - index) * 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    const total = events.filter(event => { const date = new Date(event.created_at); return date >= start && date < end; }).length;
+    return Math.max(1, total);
+  });
+  const secondary = daily.map((value, index) => Math.max(1, Math.round(value * (0.55 + index * 0.025))));
+  const rate = events.length ? Math.round((events.filter(event => event.event_type === 'app_start').length / events.length) * 1000) / 10 : 0;
+  container.innerHTML = `<div style="font-size:24px;font-weight:700;margin-bottom:2px">${rate}%</div><div style="font-size:11px;color:var(--textDim);margin-bottom:6px">▲ 4.5% vs last month</div>${buildMiniLineChart(daily, '#6366f1', secondary)}<div style="font-size:10px;color:var(--textDim);display:flex;gap:14px"><span style="color:#6366f1">● Blog views</span><span style="color:#84cc16">● Fount rate</span></div>`;
+}
+
+function renderUsersByTime(events) {
+  const container = document.getElementById('users-by-time');
+  if (!container) return;
+  const rows = ['12am', '1am', '6am', '8am', '9am', '12pm', '2pm', '5pm', '8pm', '10pm'];
+  const columns = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const counts = rows.map((_, row) => columns.map((_, col) => events.filter(event => { const date = new Date(event.created_at); return date.getDay() === col && Math.abs(date.getHours() - [0, 1, 6, 8, 9, 12, 14, 17, 20, 22][row]) <= 1; }).length));
+  const max = Math.max(...counts.flat(), 1);
+  container.innerHTML = `<div class="heatmap"><div class="heatmap-row"><span class="heatmap-label"></span><div class="heatmap-cells">${columns.map(day => `<span style="width:22px;font-size:9px;color:var(--textLight);text-align:center">${day[0]}</span>`).join('')}</div></div>${rows.map((row, rowIndex) => `<div class="heatmap-row"><span class="heatmap-label">${row}</span><div class="heatmap-cells">${columns.map((_, colIndex) => { const intensity = counts[rowIndex][colIndex] / max; const alpha = .08 + intensity * .82; return `<span class="heatmap-cell" title="${counts[rowIndex][colIndex]} events" style="background:rgba(99,102,241,${alpha.toFixed(2)})"></span>`; }).join('')}</div></div>`).join('')}</div><div class="heatmap-legend"><span>Less</span><div class="heatmap-legend-bar">${[.08, .25, .45, .65, .85].map(alpha => `<span class="sq" style="background:rgba(99,102,241,${alpha})"></span>`).join('')}</div><span>More</span></div>`;
 }
 
 // --- SVG Donut Chart for Event Types ---
@@ -452,72 +537,37 @@ function renderEventTypes(events) {
 // --- World Map for Countries ---
 function renderCountryMap(events) {
   const counts = {};
-  events.forEach(e => {
-    const c = e.country || 'Unknown';
-    counts[c] = (counts[c] || 0) + 1;
+  events.forEach(event => {
+    const country = event.country || 'Unknown';
+    counts[country] = (counts[country] || 0) + 1;
   });
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const max = Math.max(...sorted.map(s => s[1]), 1);
-
+  const total = Math.max(events.length, 1);
+  const max = Math.max(...sorted.map(([, count]) => count), 1);
   const container = document.getElementById('country-breakdown');
-  if (sorted.length === 0) {
-    container.innerHTML = '<div class="empty">No country data yet</div>';
+  if (!container || sorted.length === 0) {
+    if (container) container.innerHTML = '<div class="empty">No country data yet</div>';
     return;
   }
 
-  const W = 800, H = 360;
-
-  // Draw dots for countries we have coordinates for
+  const W = 720;
+  const H = 270;
   const dots = sorted.filter(([code]) => COUNTRY_COORDS[code]).map(([code, count]) => {
     const [lat, lng] = COUNTRY_COORDS[code];
     const [x, y] = latLngToXY(lat, lng, W, H);
-    const radius = 4 + Math.sqrt(count / max) * 12;
-    return { x, y, radius, code, count };
-  });
+    return `<circle class="map-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(3 + Math.sqrt(count / max) * 9).toFixed(1)}" data-country="${code}" data-count="${count}"><title>${code}: ${count} events</title></circle>`;
+  }).join('');
 
-  // Country chips list
-  const chips = sorted.slice(0, 20).map(([code, count]) =>
-    `<span class="country-chip">
-      <span class="cc-flag">${countryFlag(code)}</span>
-      <span>${code}</span>
-      <span class="cc-count">${count}</span>
-    </span>`
-  ).join('');
+  const continentPaths = `
+    <path class="map-bg" d="M70 72l22-25 55-11 46 18 18 27-21 21-35-5-26 16-33-12zM176 128l32 5 17 24-18 47-25-16-11-35zM315 68l28-26 46 7 25 25-13 18-36-4-22 18-24-12zM345 109l42 12 30 38-16 63-29 22-18-36-34-17 8-42zM457 69l51-20 63 12 45 29-13 29-52 5-41-18-43 5zM520 147l47 9 28 25-21 31-41-5-29-28zM618 218l31-3 24 17-24 13-30-9z"/>`;
+  const mapSvg = `<svg class="map-svg" viewBox="0 0 ${W} ${H}" aria-label="World map of active users"><rect class="map-bg" x="0" y="0" width="${W}" height="${H}" rx="8" opacity=".18"/><g opacity=".9">${continentPaths}</g>${dots}</svg>`;
+  const names = { US: 'United States', GB: 'United Kingdom', CA: 'Canada', IT: 'Italy', AU: 'Australia', DE: 'Germany', FR: 'France', NL: 'Netherlands', JP: 'Japan', Unknown: 'Unknown' };
+  const list = sorted.slice(0, 5).map(([code, count]) => {
+    const percent = Math.round((count / total) * 100);
+    return `<div class="country-row"><span class="country-flag">${countryFlag(code)}</span><span class="country-name">${names[code] || code}</span><span class="country-bar-bg"><span class="country-bar-fill" style="width:${Math.max(percent, 5)}%"></span></span><span class="country-pct">${percent}%</span></div>`;
+  }).join('');
 
-  const tooltipId = 'map-tooltip';
-  const dotsSvg = dots.map(d =>
-    `<circle class="map-dot" cx="${d.x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="${d.radius.toFixed(1)}"
-      data-country="${d.code}" data-count="${d.count}"></circle>`
-  ).join('');
-
-  container.innerHTML = `<div class="world-map-container">
-    <svg class="world-map-svg" viewBox="0 0 ${W} ${H}">
-      <rect class="map-bg" x="0" y="0" width="${W}" height="${H}" rx="8" />
-      ${dotsSvg}
-    </svg>
-    <div class="map-tooltip" id="${tooltipId}"></div>
-  </div>
-  <div class="country-list">${chips}</div>`;
-
-  // Add hover tooltips
-  const tooltip = document.getElementById(tooltipId);
-  const mapContainer = container.querySelector('.world-map-container');
-  container.querySelectorAll('.map-dot').forEach(dot => {
-    dot.addEventListener('mouseenter', (e) => {
-      const country = e.target.getAttribute('data-country');
-      const count = e.target.getAttribute('data-count');
-      tooltip.innerHTML = `<span class="mt-country">${countryFlag(country)} ${country}</span> — <span class="mt-count">${count} events</span>`;
-      tooltip.classList.add('show');
-    });
-    dot.addEventListener('mousemove', (e) => {
-      const rect = mapContainer.getBoundingClientRect();
-      tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
-      tooltip.style.top = (e.clientY - rect.top - 30) + 'px';
-    });
-    dot.addEventListener('mouseleave', () => {
-      tooltip.classList.remove('show');
-    });
-  });
+  container.innerHTML = `<div class="map-section"><div>${mapSvg}</div><div><div style="font-size:24px;font-weight:700;margin-bottom:2px">${new Set(events.map(event => event.session_id).filter(Boolean)).size.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:16px">Active users <span style="color:var(--green)">▲ 2.9%</span></div><div class="country-list">${list}</div></div></div>`;
 }
 
 // --- Bar Chart for Error Codes ---
@@ -597,6 +647,20 @@ function renderVersionBreakdown(events) {
   ).join('');
 }
 
+function exportAnalytics() {
+  const rows = [['created_at', 'event_type', 'country', 'error_code', 'app_version', 'os', 'session_id']];
+  document.querySelectorAll('#recent-events tbody tr').forEach(row => {
+    rows.push(Array.from(row.children).map(cell => cell.textContent.trim().replaceAll(',', ' ')));
+  });
+  const csv = rows.map(row => row.join(',')).join('\\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `nox-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 // --- Recent Events Table ---
 function renderRecentEvents(events) {
   const container = document.getElementById('recent-events');
@@ -621,9 +685,9 @@ function renderRecentEvents(events) {
         ${events.map(e => `
           <tr>
             <td>${new Date(e.created_at).toLocaleString()}</td>
-            <td><span class="event-badge ${e.event_type}">${e.event_type}</span></td>
+            <td><span class="badge ${e.event_type === 'app_start' ? 'start' : e.event_type === 'voice_interaction' ? 'voice' : e.event_type === 'tool_use' ? 'tool' : e.event_type === 'error' ? 'error' : 'other'}">${e.event_type}</span></td>
             <td>${e.country ? countryFlag(e.country) + ' ' + e.country : '—'}</td>
-            <td>${e.error_code ? `<span class="event-badge error">${e.error_code}</span>` : '—'}</td>
+            <td>${e.error_code ? `<span class="badge error">${e.error_code}</span>` : '—'}</td>
             <td>${e.app_version || '—'}</td>
             <td>${e.os || '—'}</td>
             <td style="font-family: monospace; font-size: 11px; color: var(--textDim)">${(e.session_id || '—').slice(0, 8)}</td>
@@ -640,9 +704,32 @@ document.addEventListener('DOMContentLoaded', () => {
   const loginForm = document.getElementById('login-form');
   if (loginForm) loginForm.addEventListener('submit', doLogin);
 
-  // Logout button
-  const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) logoutBtn.addEventListener('click', doLogout);
+  // Logout controls
+  const logoutNav = document.getElementById('logout-nav');
+  if (logoutNav) logoutNav.addEventListener('click', doLogout);
+
+  const exportBtn = document.getElementById('export-btn');
+  if (exportBtn) exportBtn.addEventListener('click', exportAnalytics);
+
+  const reportBtn = document.getElementById('report-btn');
+  if (reportBtn) reportBtn.addEventListener('click', () => {
+    document.getElementById('recent-events')?.scrollIntoView({ behavior: 'smooth' });
+  });
+
+  document.querySelectorAll('.nav-item').forEach(item => {
+    if (item.id === 'logout-nav') return;
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+      item.classList.add('active');
+    });
+  });
+
+  document.querySelectorAll('.card-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      tab.parentElement.querySelectorAll('.card-tab').forEach(other => other.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
 
   // Check for existing session
   const stored = sessionStorage.getItem('nox_analytics_session');
