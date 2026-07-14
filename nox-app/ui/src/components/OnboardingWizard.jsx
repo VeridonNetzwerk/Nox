@@ -680,7 +680,7 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
                   <span className="nox-label">{s.gpu || "GPU"}</span>
                   <span className={`text-xs font-mono ${gpuInfo.cuda_available ? "text-nox-phosphor" : "text-nox-amber"}`}>
                     {gpuInfo.cuda_available
-                      ? `✓ CUDA — ${gpuInfo.gpu_name || "GPU"}`
+                      ? `✓ ${gpuInfo.gpu_name || "GPU"}`
                       : gpuInfo.nvidia_driver_present
                       ? "⚠ CPU-Fallback"
                       : "CPU-Modus"}
