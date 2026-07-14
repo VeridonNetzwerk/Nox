@@ -251,6 +251,14 @@ class VoiceManager:
         self._tts_pool.shutdown(wait=False, cancel_futures=True)
         self._set_state(STATE_IDLE)
 
+    def stop_speaking(self) -> None:
+        """Cancel any ongoing TTS playback immediately (for abort)."""
+        self.tts.stop()
+        # Reset sentence counter so wake word resumes correctly
+        with self._state_lock:
+            self._active_sentences = 0
+        self._set_state(STATE_IDLE)
+
     def pause_wake_word(self) -> None:
         """Pause wake word detection (e.g. during TTS playback)."""
         self.wake_word.pause()

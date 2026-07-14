@@ -208,6 +208,14 @@ async def on_voice_state_change(state: str) -> None:
 
 async def on_voice_wake() -> None:
     """Handle wake word detection – notify UI to show window."""
+    # Ignore wake word during onboarding
+    if not config.get("onboarding_completed", False):
+        logger.info("Wake word ignored – onboarding not completed")
+        return
+    # Abort any ongoing response
+    orchestrator.abort()
+    if voice_manager:
+        voice_manager.stop_speaking()
     await manager.broadcast({"type": "voice_event", "state": "wake_detected"})
 
 

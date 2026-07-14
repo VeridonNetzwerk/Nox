@@ -111,6 +111,9 @@ class Orchestrator:
         # Cache for Ollama tools schema
         self._tools_cache: Optional[list[dict[str, Any]]] = None
 
+        # Abort flag — set by abort() to cancel the current process_message
+        self._aborted = False
+
     @property
     def conversation_id(self) -> str:
         return self._conversation_id
@@ -144,6 +147,11 @@ class Orchestrator:
 
     def set_broadcast(self, broadcast: Callable) -> None:
         self._broadcast = broadcast
+
+    def abort(self) -> None:
+        """Abort the current process_message if one is running."""
+        self._aborted = True
+        logger.info("Orchestrator: abort requested")
 
     async def process_message(
         self,
@@ -198,6 +206,9 @@ class Orchestrator:
         # Use send callback if provided (targets specific client), else broadcast
         _send = send or self._broadcast
 
+        # Reset abort flag for this run
+        self._aborted = False
+
         # 5. Stream response
         sentence_buffer = SentenceBuffer()
         full_response = ""
@@ -207,6 +218,9 @@ class Orchestrator:
 
         try:
             async for item in self._stream_ollama(messages, use_tools=use_native_tools):
+                if self._aborted:
+                    logger.info("Orchestrator: aborted during streaming")
+                    break
                 # Native tool call sentinel
                 if isinstance(item, dict) and "tool_calls" in item and not tool_executed:
                     for tc in item["tool_calls"]:
@@ -229,6 +243,8 @@ class Orchestrator:
                             full_response = ""
                             sentence_buffer = SentenceBuffer()
                             async for token2 in self._stream_ollama(messages, use_tools=False):
+                                if self._aborted:
+                                    break
                                 full_response += token2
                                 await _send({"type": "token", "content": token2})
                                 if voice_input:
@@ -239,6 +255,9 @@ class Orchestrator:
 
                 token = item
                 full_response += token
+
+                if self._aborted:
+                    break
 
                 # Check for tool calls in fallback mode (text-based)
                 tool_match = self.tool_handler.parse_fallback(full_response)
@@ -281,6 +300,8 @@ class Orchestrator:
                         full_response = ""
                         sentence_buffer = SentenceBuffer()
                         async for token2 in self._stream_ollama(messages):
+                            if self._aborted:
+                                break
                             full_response += token2
                             await _send({"type": "token", "content": token2})
                             if voice_input:
@@ -319,9 +340,13 @@ class Orchestrator:
                     self.conversation_store.summarize_old_turns(self._conversation_id)
                 )
 
-            # 8. Send done
-            await _send({"type": "done", "content": clean_response})
-            logger.info("Response complete: len=%d", len(clean_response))
+            # 8. Send done (or aborted)
+            if self._aborted:
+                await _send({"type": "aborted"})
+                logger.info("Response aborted")
+            else:
+                await _send({"type": "done", "content": clean_response})
+                logger.info("Response complete: len=%d", len(clean_response))
 
         except httpx.ConnectError:
             logger.error("Ollama not reachable")

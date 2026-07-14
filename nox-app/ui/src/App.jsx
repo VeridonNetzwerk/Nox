@@ -277,6 +277,18 @@ function App() {
           setIsStreaming(false);
           setActiveTool(null);
           window.nox?.setThinkingState?.(false);
+        } else if (data.type === "aborted") {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              return prev.slice(0, -1);
+            }
+            return prev;
+          });
+          setIsStreaming(false);
+          setActiveTool(null);
+          setMusicResult(null);
+          window.nox?.setThinkingState?.(false);
         } else if (data.type === "error") {
           setMessages((prev) => [
             ...prev,
