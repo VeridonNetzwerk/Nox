@@ -102,6 +102,7 @@ class VoiceManager:
             stt_engine=stt_engine,
             threshold=config.get("wake_word_threshold", 0.5),
             input_device=input_device,
+            language=config.get("stt_language", "de"),
         )
 
         # Decide which listener to use: prefer openWakeWord if available,
