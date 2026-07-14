@@ -364,6 +364,12 @@ class Orchestrator:
                             tool_args = _parse_timer_params(tool_params)
                         elif tool_name == "erinnerung_speichern":
                             tool_args = _parse_reminder_params(tool_params)
+                        elif tool_name == "zwischenablage":
+                            m = re.match(r'(\w+)\s+text=(.+)', tool_params, re.DOTALL)
+                            if m:
+                                tool_args = {"aktion": m.group(1), "text": m.group(2).strip()}
+                            else:
+                                tool_args = {"aktion": tool_params}
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:

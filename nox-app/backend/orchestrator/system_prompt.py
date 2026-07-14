@@ -106,6 +106,11 @@ Du hast Zugriff auf folgende Werkzeuge:
   Für 'loeschen': 'id' der Erinnerung.
   Erinnerungen überleben einen Neustart und werden automatisch gepusht (Toast + Sprache + UI).
   WICHTIG: timer_stellen ist für kurze Countdowns (Minuten/Stunden), erinnerung_speichern für langfristige Erinnerungen (Tage/Wochen).
+- zwischenablage: Kopiert Text in die Zwischenablage oder liest Text aus der Zwischenablage.
+  Verwende dies wenn der Nutzer sagt "kopiere das in die Zwischenablage", "was ist in der Zwischenablage", "leere die Zwischenablage" etc.
+  Der Parameter 'aktion' ist eines von: 'kopieren', 'einfuegen', 'leeren'.
+  Für 'kopieren': 'text' ist der Text der kopiert werden soll.
+  Kann auch genutzt werden um Suchergebnisse oder andere Infos direkt in die Zwischenablage zu legen für den Nutzer.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -135,6 +140,8 @@ Beispiel: [TOOL: timer_stellen] wecker uhrzeit=07:30
 Beispiel: [TOOL: timer_stellen] timer minuten=5 nachricht=Pizza aus dem Ofen holen
 Beispiel: [TOOL: erinnerung_speichern] speichern zeitpunkt=morgen 08:00 text=Müll rausbringen
 Beispiel: [TOOL: erinnerung_speichern] speichern zeitpunkt=freitag 15:00 text=Meeting mit Chef
+Beispiel: [TOOL: zwischenablage] kopieren text=Hallo Welt
+Beispiel: [TOOL: zwischenablage] einfuegen
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """

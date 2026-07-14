@@ -466,6 +466,31 @@ class ToolHandler:
             handler=self._tool_reminder,
         ))
 
+        # zwischenablage
+        self.register(Tool(
+            name="zwischenablage",
+            description="Kopiert Text in die Zwischenablage oder liest Text aus der Zwischenablage. "
+                        "Verwende dies wenn der Nutzer sagt 'kopiere das in die Zwischenablage', 'was ist in der Zwischenablage', 'füge ein' etc. "
+                        "Kann auch genutzt werden um Suchergebnisse oder andere Informationen direkt in die Zwischenablage zu legen. "
+                        "Der Parameter 'aktion' bestimmt was passieren soll: 'kopieren' (Text in Zwischenablage), 'einfuegen' (Text aus Zwischenablage lesen), 'leeren' (Zwischenablage leeren). "
+                        "Für 'kopieren': 'text' ist der Text der kopiert werden soll.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "Zwischenablage-Aktion: 'kopieren' (Text in Zwischenablage kopieren), 'einfuegen' (Text aus Zwischenablage lesen), 'leeren' (Zwischenablage leeren)",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Der Text der in die Zwischenablage kopiert werden soll (für Aktion 'kopieren')",
+                    },
+                },
+                "required": ["aktion"],
+            },
+            handler=self._tool_clipboard,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -2146,3 +2171,162 @@ class ToolHandler:
             requests.post("http://127.0.0.1:8420/api/tts/speak", json={"text": f"Erinnerung: {message}"}, timeout=5)
         except Exception as exc:
             logger.warning("Reminder TTS trigger failed: %s", exc)
+
+    def _tool_clipboard(self, args: dict[str, Any]) -> str:
+        """Copy text to clipboard, read from clipboard, or clear it."""
+        aktion = args.get("aktion", "").strip().lower()
+        if not aktion:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: kopieren, einfuegen, leeren."
+
+        if aktion == "kopieren":
+            text = args.get("text", "")
+            if not text:
+                return "Kein Text angegeben zum Kopieren."
+            if self._clipboard_copy(text):
+                preview = text[:80] + ("..." if len(text) > 80 else "")
+                return f"In Zwischenablage kopiert: {preview}"
+            return "Konnte Text nicht in Zwischenablage kopieren."
+
+        elif aktion == "einfuegen":
+            text = self._clipboard_paste()
+            if text is None:
+                return "Konnte Zwischenablage nicht lesen."
+            if not text:
+                return "Zwischenablage ist leer."
+            preview = text[:200] + ("..." if len(text) > 200 else "")
+            return f"Zwischenablage enthält:\n{preview}"
+
+        elif aktion == "leeren":
+            if self._clipboard_copy(""):
+                return "Zwischenablage geleert."
+            return "Konnte Zwischenablage nicht leeren."
+
+        else:
+            return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: kopieren, einfuegen, leeren."
+
+    def _clipboard_copy(self, text: str) -> bool:
+        """Copy text to system clipboard. Tries pyperclip, then ctypes fallback."""
+        # Try pyperclip first
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+            return True
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.warning("pyperclip copy failed: %s", exc)
+
+        # Fallback: Windows ctypes with user32
+        try:
+            import ctypes
+            import ctypes.wintypes as wintypes
+
+            CF_UNICODETEXT = 13
+            GMEM_MOVEABLE = 0x0002
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            # Open clipboard
+            if not user32.OpenClipboard(0):
+                return False
+            try:
+                user32.EmptyClipboard()
+
+                if not text:
+                    # Empty clipboard — just cleared
+                    return True
+
+                # Encode as UTF-16LE (Windows Unicode)
+                data = text.encode("utf-16-le") + b"\x00\x00"
+
+                # Allocate global memory
+                h_global = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+                if not h_global:
+                    return False
+
+                # Lock and copy
+                ptr = kernel32.GlobalLock(h_global)
+                if not ptr:
+                    kernel32.GlobalFree(h_global)
+                    return False
+
+                ctypes.memmove(ptr, data, len(data))
+                kernel32.GlobalUnlock(h_global)
+
+                # Set clipboard data
+                user32.SetClipboardData(CF_UNICODETEXT, h_global)
+                return True
+            finally:
+                user32.CloseClipboard()
+        except Exception as exc:
+            logger.error("Clipboard copy ctypes fallback failed: %s", exc)
+            return False
+
+    def _clipboard_paste(self) -> Optional[str]:
+        """Read text from system clipboard. Tries pyperclip, then ctypes fallback."""
+        # Try pyperclip first
+        try:
+            import pyperclip
+            return pyperclip.paste()
+        except ImportError:
+            pass
+        except Exception as exc:
+            logger.warning("pyperclip paste failed: %s", exc)
+
+        # Fallback: Windows ctypes with user32
+        try:
+            import ctypes
+            import ctypes.wintypes as wintypes
+
+            CF_UNICODETEXT = 13
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            if not user32.OpenClipboard(0):
+                return None
+            try:
+                # Check if clipboard has Unicode text
+                fmt = user32.EnumClipboardFormats(0)
+                has_unicode = False
+                while fmt:
+                    if fmt == CF_UNICODETEXT:
+                        has_unicode = True
+                        break
+                    fmt = user32.EnumClipboardFormats(fmt)
+
+                if not has_unicode:
+                    # Try CF_TEXT (ANSI)
+                    h_data = user32.GetClipboardData(1)  # CF_TEXT
+                    if not h_data:
+                        return ""
+                    ptr = kernel32.GlobalLock(h_data)
+                    if not ptr:
+                        return ""
+                    try:
+                        raw = ctypes.string_at(ptr)
+                        return raw.decode("utf-8", errors="replace")
+                    finally:
+                        kernel32.GlobalUnlock(h_data)
+
+                # Get Unicode text
+                h_data = user32.GetClipboardData(CF_UNICODETEXT)
+                if not h_data:
+                    return ""
+
+                ptr = kernel32.GlobalLock(h_data)
+                if not ptr:
+                    return ""
+
+                try:
+                    # Read UTF-16LE string until null terminator
+                    raw = ctypes.wstring_at(ptr)
+                    return raw
+                finally:
+                    kernel32.GlobalUnlock(h_data)
+            finally:
+                user32.CloseClipboard()
+        except Exception as exc:
+            logger.error("Clipboard paste ctypes fallback failed: %s", exc)
+            return None

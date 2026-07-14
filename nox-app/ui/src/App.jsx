@@ -589,6 +589,7 @@ function App() {
     fenster_fokus: "Nox wechselt das Fenster…",
     timer_stellen: "Nox stellt einen Timer…",
     erinnerung_speichern: "Nox speichert eine Erinnerung…",
+    zwischenablage: "Nox nutzt die Zwischenablage…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };
