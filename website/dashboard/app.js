@@ -473,7 +473,7 @@ function renderTimeline(events, days = 30) {
   });
   if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
-  const W = 800, H = 165, padL = 38, padR = 10, padT = 10, padB = 25;
+  const W = 800, H = 165, padL = 38, padR = 18, padT = 10, padB = 25;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const maxCount = Math.max(...buckets.map(b => b.count), 1);
   const stepX = chartW / (days - 1);
@@ -508,7 +508,7 @@ function renderTimeline(events, days = 30) {
   }
 
   // X-axis labels (adaptive)
-  const labelStep = Math.max(1, Math.round(days / 7));
+  const labelStep = Math.max(1, Math.round(days / 5));
   const xLabels = pts.filter((_, i) => i % labelStep === 0 || i === pts.length - 1).map(p =>
     `<text x="${p.x.toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="11" font-family="Inter,sans-serif">${p.label}</text>`
   ).join('');
@@ -544,7 +544,7 @@ function renderWeeklyTraffic(events) {
   const maxVal = Math.max(...values, 1);
   if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
-  const W = 360, H = 120, padL = 32, padR = 8, padT = 10, padB = 22;
+  const W = 360, H = 120, padL = 32, padR = 14, padT = 10, padB = 22;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const stepX = chartW / (days.length - 1);
 
@@ -648,7 +648,8 @@ function renderEventTypes(events) {
   const cx = 60, cy = 60, R = 46, r = 28;
   let angle = -Math.PI / 2;
   const slices = sorted.map(([type, count], i) => {
-    const pct = count / total;
+    const rawPct = count / total;
+    const pct = Math.max(rawPct, 0.05); // ensure min 5% visible slice
     const endAngle = angle + pct * Math.PI * 2;
     const x1 = cx + R * Math.cos(angle), y1 = cy + R * Math.sin(angle);
     const x2 = cx + R * Math.cos(endAngle), y2 = cy + R * Math.sin(endAngle);
@@ -658,10 +659,10 @@ function renderEventTypes(events) {
     const path = `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${R} ${R} 0 ${largeArc} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L ${x3.toFixed(1)} ${y3.toFixed(1)} A ${r} ${r} 0 ${largeArc} 0 ${x4.toFixed(1)} ${y4.toFixed(1)} Z`;
     const color = CHART_COLORS[i % CHART_COLORS.length];
     angle = endAngle;
-    return { path, color, type, count, pct };
+    return { path, color, type, count, pct: rawPct };
   });
 
-  const svg = `<svg width="120" height="120" viewBox="0 0 120 120" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--chart-stroke)" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--legend-value)" font-size="14" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+10}" text-anchor="middle" fill="var(--axis-text)" font-size="9" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
+  const svg = `<svg width="120" height="120" viewBox="0 0 120 120" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--chart-stroke)" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-3}" text-anchor="middle" fill="var(--legend-value)" font-size="17" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:9px;height:9px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:var(--legend-text)">${s.type}</span><span style="margin-left:auto;font-weight:600;color:var(--legend-value)">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
   container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
@@ -703,7 +704,7 @@ function renderErrorBreakdown(events) {
     return { path, color, code, count, pct };
   });
 
-  const svg = `<svg width="120" height="120" viewBox="0 0 120 120" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--chart-stroke)" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.code}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--legend-value)" font-size="14" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+10}" text-anchor="middle" fill="var(--axis-text)" font-size="9" font-family="Inter,sans-serif" letter-spacing="1">ERRORS</text></svg>`;
+  const svg = `<svg width="120" height="120" viewBox="0 0 120 120" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--chart-stroke)" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.code}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-3}" text-anchor="middle" fill="var(--legend-value)" font-size="17" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif" letter-spacing="1">ERRORS</text></svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:9px;height:9px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:var(--legend-text);font-family:monospace;font-size:12px">${s.code}</span><span style="margin-left:auto;font-weight:600;color:var(--legend-value)">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
   container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
