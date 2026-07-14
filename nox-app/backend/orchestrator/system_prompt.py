@@ -73,6 +73,12 @@ Du hast Zugriff auf folgende Werkzeuge:
   Verwende dies wenn der Nutzer sagt "fahr den PC runter", "starte neu", "sperre den PC", "Ruhezustand", "Standby" etc.
   Der Parameter 'aktion' ist eines von: 'sperren', 'herunterfahren', 'neustart', 'ruhezustand'.
   WICHTIG: Bei herunterfahren und neustart wird der PC SOFORT ausgeschaltet/neu gestartet — keine Verzögerung!
+- lautstaerke: Steuert die System-Lautstärke.
+  Verwende dies wenn der Nutzer sagt "mach lauter", "leiser", "stumm", "lautstärke auf 50" etc.
+  Der Parameter 'aktion' ist eines von: 'lauter', 'leiser', 'mute', 'unmute', 'setzen', 'restore'.
+  Für 'setzen' muss zusätzlich 'wert' (0-100) angegeben werden.
+  Erkennt automatisch VoiceMeeter wenn es läuft und steuert es darüber, sonst Windows-Lautstärke.
+  Vor jeder Änderung wird die aktuelle Lautstärke gespeichert und kann mit 'restore' wiederhergestellt werden.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -90,6 +96,8 @@ Beispiel: [TOOL: app_oeffnen] chrome
 Beispiel: [TOOL: app_oeffnen] spotify
 Beispiel: [TOOL: system_steuerung] sperren
 Beispiel: [TOOL: system_steuerung] herunterfahren
+Beispiel: [TOOL: lautstaerke] lauter
+Beispiel: [TOOL: lautstaerke] setzen wert=50
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """

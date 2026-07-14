@@ -300,6 +300,31 @@ class ToolHandler:
             handler=self._tool_system_control,
         ))
 
+        # lautstaerke
+        self.register(Tool(
+            name="lautstaerke",
+            description="Steuert die System-Lautstärke: lauter, leiser, stumm (mute), stumm aus (unmute), oder auf einen bestimmten Wert setzen. "
+                        "Verwende dies wenn der Nutzer sagt 'mach lauter', 'leiser', 'stumm', 'lautstärke auf 50' etc. "
+                        "Der Parameter 'aktion' bestimmt was passieren soll: 'lauter', 'leiser', 'mute', 'unmute', 'setzen', 'restore'. "
+                        "Der optionale Parameter 'wert' ist die Lautstärke in Prozent (0-100) für die Aktion 'setzen'. "
+                        "Erkennt automatisch VoiceMeeter wenn es läuft und steuert es darüber, sonst Windows-Lautstärke.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "Lautstärke-Aktion: 'lauter', 'leiser', 'mute', 'unmute', 'setzen', 'restore' (vorherige Lautstärke wiederherstellen)",
+                    },
+                    "wert": {
+                        "type": "number",
+                        "description": "Lautstärke in Prozent (0-100), nur für Aktion 'setzen'",
+                    },
+                },
+                "required": ["aktion"],
+            },
+            handler=self._tool_volume_control,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -831,3 +856,275 @@ class ToolHandler:
 
         else:
             return f"Unbekannte Aktion '{aktion_raw}'. Verfügbare Aktionen: sperren, herunterfahren, neustart, ruhezustand."
+
+    # Volume control state — remembers previous volume for restore
+    _saved_volume: Optional[float] = None
+    _saved_mute: Optional[bool] = None
+    _vmr_dll = None
+    _vmr_logged_in = False
+
+    # VoiceMeeter process names to check
+    _VOICEMEETER_PROCESSES = {
+        "voicemeeter8.exe",
+        "voicemeeter8x64.exe",
+        "voicemeeter7.exe",
+        "voicemeeter7x64.exe",
+        "voicemeeter6.exe",
+        "voicemeeter6x64.exe",
+        "voicemeeter5.exe",
+        "voicemeeter5x64.exe",
+        "voicemeeter.exe",
+        "voicemeeterx64.exe",
+    }
+
+    # VoiceMeeter Remote DLL paths
+    _VOICEMEETER_DLL_PATHS = [
+        r"C:\Program Files (x86)\VB\Voicemeeter\VoicemeeterRemote64.dll",
+        r"C:\Program Files\VB\Voicemeeter\VoicemeeterRemote64.dll",
+        r"C:\Program Files (x86)\VB\Voicemeeter\VoicemeeterRemote.dll",
+        r"C:\Program Files\VB\Voicemeeter\VoicemeeterRemote.dll",
+    ]
+
+    def _is_voicemeeter_running(self) -> bool:
+        """Check if VoiceMeeter is actually running (not just installed)."""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.lower().splitlines():
+                for proc in self._VOICEMEETER_PROCESSES:
+                    if proc in line:
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _get_voicemeeter_dll(self):
+        """Load VoiceMeeter Remote DLL and login. Returns DLL handle or None."""
+        if self._vmr_dll is not None and self._vmr_logged_in:
+            return self._vmr_dll
+        import ctypes
+        import os
+        for path in self._VOICEMEETER_DLL_PATHS:
+            if os.path.isfile(path):
+                try:
+                    dll = ctypes.CDLL(path)
+                    # Login to VoiceMeeter
+                    result = dll.VBVMR_Login()
+                    if result == 0:
+                        self._vmr_dll = dll
+                        self._vmr_logged_in = True
+                        logger.info("VoiceMeeter Remote API connected")
+                        return dll
+                    else:
+                        logger.warning("VoiceMeeter VBVMR_Login failed: %d", result)
+                except Exception as exc:
+                    logger.warning("Failed to load VoiceMeeter DLL %s: %s", path, exc)
+        return None
+
+    def _vmr_get_param(self, dll, param_name: str) -> Optional[float]:
+        """Get a float parameter from VoiceMeeter."""
+        import ctypes
+        try:
+            value = ctypes.c_float(0.0)
+            result = dll.VBVMR_GetParameterFloat(
+                ctypes.c_wchar_p(param_name),
+                ctypes.byref(value)
+            )
+            if result == 0:
+                return value.value
+        except Exception as exc:
+            logger.warning("VMR get param '%s' failed: %s", param_name, exc)
+        return None
+
+    def _vmr_set_param(self, dll, param_name: str, value: float) -> bool:
+        """Set a float parameter in VoiceMeeter."""
+        import ctypes
+        try:
+            result = dll.VBVMR_SetParameterFloat(
+                ctypes.c_wchar_p(param_name),
+                ctypes.c_float(value)
+            )
+            return result == 0
+        except Exception as exc:
+            logger.warning("VMR set param '%s' failed: %s", param_name, exc)
+            return False
+
+    def _vmr_get_mute(self, dll, param_name: str) -> Optional[bool]:
+        """Get mute state from VoiceMeeter (1=muted, 0=unmuted)."""
+        val = self._vmr_get_param(dll, param_name)
+        if val is not None:
+            return val > 0.5
+        return None
+
+    def _vmr_set_mute(self, dll, param_name: str, muted: bool) -> bool:
+        """Set mute state in VoiceMeeter."""
+        return self._vmr_set_param(dll, param_name, 1.0 if muted else 0.0)
+
+    def _get_windows_volume(self) -> tuple[Optional[float], Optional[bool]]:
+        """Get Windows master volume (0.0-1.0) and mute state via pycaw."""
+        try:
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            from ctypes import cast, POINTER
+            from comtypes import CLSCTX_ALL
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(
+                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
+            )
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            level = volume.GetMasterVolumeLevelScalar()
+            muted = bool(volume.GetMute())
+            return level, muted
+        except ImportError:
+            logger.warning("pycaw not installed — Windows volume control unavailable")
+            return None, None
+        except Exception as exc:
+            logger.warning("Failed to get Windows volume: %s", exc)
+            return None, None
+
+    def _set_windows_volume(self, level: float) -> bool:
+        """Set Windows master volume (0.0-1.0) via pycaw."""
+        try:
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            from ctypes import cast, POINTER
+            from comtypes import CLSCTX_ALL
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(
+                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
+            )
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume.SetMasterVolumeLevelScalar(max(0.0, min(1.0, level)), None)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to set Windows volume: %s", exc)
+            return False
+
+    def _set_windows_mute(self, muted: bool) -> bool:
+        """Set Windows master mute via pycaw."""
+        try:
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            from ctypes import cast, POINTER
+            from comtypes import CLSCTX_ALL
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(
+                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
+            )
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume.SetMute(1 if muted else 0, None)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to set Windows mute: %s", exc)
+            return False
+
+    def _tool_volume_control(self, args: dict[str, Any]) -> str:
+        """Control system volume — VoiceMeeter if running, else Windows via pycaw."""
+        aktion = args.get("aktion", "").strip().lower()
+        wert = args.get("wert")
+
+        if not aktion:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
+
+        # Check if VoiceMeeter is running
+        vm_running = self._is_voicemeeter_running()
+        vmr_dll = None
+        if vm_running:
+            vmr_dll = self._get_voicemeeter_dll()
+            if vmr_dll is None:
+                logger.info("VoiceMeeter is running but Remote DLL not found — falling back to Windows volume")
+
+        using_vmr = vmr_dll is not None
+        # VoiceMeeter master output is Bus[0] — gain in dB (-60 to +12)
+        VMR_BUS_GAIN = "Bus[0].Gain"
+        VMR_BUS_MUTE = "Bus[0].Mute"
+
+        # --- Read current state ---
+        if using_vmr:
+            current_gain = self._vmr_get_param(vmr_dll, VMR_BUS_GAIN)
+            current_mute = self._vmr_get_mute(vmr_dll, VMR_BUS_MUTE)
+            if current_gain is None:
+                using_vmr = False
+                vmr_dll = None
+            else:
+                # Convert dB to percentage: -60dB = 0%, 0dB = 100%, +12dB = 120%
+                # We map -60..+12 to 0..100 for user-facing percentage
+                current_pct = max(0, min(100, int((current_gain + 60) / 72 * 100)))
+        else:
+            current_level, current_mute = self._get_windows_volume()
+            if current_level is None:
+                return "Lautstärke-Steuerung nicht verfügbar. Weder VoiceMeeter Remote API noch pycaw sind funktional."
+            current_pct = int(current_level * 100)
+
+        # --- Handle actions ---
+        if aktion == "restore":
+            if self._saved_volume is None:
+                return "Keine gespeicherte Lautstärke zum Wiederherstellen."
+            if using_vmr:
+                # Convert percentage back to dB
+                target_db = (self._saved_volume / 100) * 72 - 60
+                self._vmr_set_param(vmr_dll, VMR_BUS_GAIN, target_db)
+                if self._saved_mute is not None:
+                    self._vmr_set_mute(vmr_dll, VMR_BUS_MUTE, self._saved_mute)
+            else:
+                self._set_windows_volume(self._saved_volume / 100)
+                if self._saved_mute is not None:
+                    self._set_windows_mute(self._saved_mute)
+            restored_pct = self._saved_volume
+            self._saved_volume = None
+            self._saved_mute = None
+            return f"Lautstärke wiederhergestellt auf {restored_pct}%."
+
+        # Save current state before changing (for restore)
+        self._saved_volume = current_pct
+        self._saved_mute = current_mute
+
+        if aktion == "mute":
+            if using_vmr:
+                self._vmr_set_mute(vmr_dll, VMR_BUS_MUTE, True)
+            else:
+                self._set_windows_mute(True)
+            return f"Stumm geschaltet. (Vorher: {current_pct}%)"
+
+        elif aktion == "unmute":
+            if using_vmr:
+                self._vmr_set_mute(vmr_dll, VMR_BUS_MUTE, False)
+            else:
+                self._set_windows_mute(False)
+            return f"Stumm aus. (Aktuell: {current_pct}%)"
+
+        elif aktion == "lauter":
+            new_pct = min(100, current_pct + 10)
+            if using_vmr:
+                target_db = (new_pct / 100) * 72 - 60
+                self._vmr_set_param(vmr_dll, VMR_BUS_GAIN, target_db)
+            else:
+                self._set_windows_volume(new_pct / 100)
+            return f"Lautstärke auf {new_pct}% erhöht. (Vorher: {current_pct}%)"
+
+        elif aktion == "leiser":
+            new_pct = max(0, current_pct - 10)
+            if using_vmr:
+                target_db = (new_pct / 100) * 72 - 60
+                self._vmr_set_param(vmr_dll, VMR_BUS_GAIN, target_db)
+            else:
+                self._set_windows_volume(new_pct / 100)
+            return f"Lautstärke auf {new_pct}% verringert. (Vorher: {current_pct}%)"
+
+        elif aktion == "setzen":
+            if wert is None:
+                return "Für 'setzen' muss ein Wert (0-100) angegeben werden."
+            try:
+                target_pct = int(float(wert))
+            except (ValueError, TypeError):
+                return f"Ungültiger Wert '{wert}'. Bitte eine Zahl 0-100 angeben."
+            target_pct = max(0, min(100, target_pct))
+            if using_vmr:
+                target_db = (target_pct / 100) * 72 - 60
+                self._vmr_set_param(vmr_dll, VMR_BUS_GAIN, target_db)
+            else:
+                self._set_windows_volume(target_pct / 100)
+            return f"Lautstärke auf {target_pct}% gesetzt. (Vorher: {current_pct}%)"
+
+        else:
+            return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."

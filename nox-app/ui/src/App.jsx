@@ -579,6 +579,7 @@ function App() {
     einstellung_aendern: "Nox ändert eine Einstellung…",
     app_oeffnen: "Nox öffnet eine App…",
     system_steuerung: "Nox steuert das System…",
+    lautstaerke: "Nox passt die Lautstärke an…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };

@@ -281,6 +281,12 @@ class Orchestrator:
                             tool_args = {"name": tool_params}
                         elif tool_name == "system_steuerung":
                             tool_args = {"aktion": tool_params}
+                        elif tool_name == "lautstaerke":
+                            m = re.match(r'(\w+)\s+wert=(\d+)', tool_params)
+                            if m:
+                                tool_args = {"aktion": m.group(1), "wert": int(m.group(2))}
+                            else:
+                                tool_args = {"aktion": tool_params}
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:
