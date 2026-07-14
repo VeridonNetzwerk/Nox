@@ -111,6 +111,10 @@ Du hast Zugriff auf folgende Werkzeuge:
   Der Parameter 'aktion' ist eines von: 'kopieren', 'einfuegen', 'leeren'.
   Für 'kopieren': 'text' ist der Text der kopiert werden soll.
   Kann auch genutzt werden um Suchergebnisse oder andere Infos direkt in die Zwischenablage zu legen für den Nutzer.
+- wetter_abfragen: Fragt das aktuelle Wetter oder eine Wettervorhersage ab (Open-Meteo API, kostenlos, kein Token).
+  Verwende dies wenn der Nutzer sagt "wie ist das Wetter", "wird es regnen", "Temperatur in Berlin" etc.
+  Der Parameter 'ort' ist der Ort (z.B. 'Berlin', 'München', 'New York').
+  Optional 'tage' (1-7, Standard 1) für Vorhersage.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -142,6 +146,8 @@ Beispiel: [TOOL: erinnerung_speichern] speichern zeitpunkt=morgen 08:00 text=Mü
 Beispiel: [TOOL: erinnerung_speichern] speichern zeitpunkt=freitag 15:00 text=Meeting mit Chef
 Beispiel: [TOOL: zwischenablage] kopieren text=Hallo Welt
 Beispiel: [TOOL: zwischenablage] einfuegen
+Beispiel: [TOOL: wetter_abfragen] Berlin
+Beispiel: [TOOL: wetter_abfragen] München tage=3
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """

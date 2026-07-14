@@ -491,6 +491,31 @@ class ToolHandler:
             handler=self._tool_clipboard,
         ))
 
+        # wetter_abfragen
+        self.register(Tool(
+            name="wetter_abfragen",
+            description="Fragt das aktuelle Wetter oder eine Wettervorhersage ab. "
+                        "Verwende dies wenn der Nutzer sagt 'wie ist das Wetter', 'wird es regnen', 'Temperatur in Berlin' etc. "
+                        "Nutzt die Open-Meteo API (kostenlos, kein Token nötig). "
+                        "Der Parameter 'ort' ist der Ort (z.B. 'Berlin', 'München', 'New York'). "
+                        "Der optionale Parameter 'tage' gibt die Vorhersagetage an (1-7, Standard 1 für aktuell).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "ort": {
+                        "type": "string",
+                        "description": "Ort für die Wetterabfrage (z.B. 'Berlin', 'München', 'Paris', 'Tokyo')",
+                    },
+                    "tage": {
+                        "type": "number",
+                        "description": "Vorhersagetage (1-7, Standard 1 = nur aktuelles Wetter)",
+                    },
+                },
+                "required": ["ort"],
+            },
+            handler=self._tool_weather,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -2330,3 +2355,142 @@ class ToolHandler:
         except Exception as exc:
             logger.error("Clipboard paste ctypes fallback failed: %s", exc)
             return None
+
+    # Weather code → description mapping (Open-Meteo WMO codes)
+    _WMO_CODES = {
+        0: "Klarer Himmel",
+        1: "Überwiegend klar",
+        2: "Teilweise bewölkt",
+        3: "Bedeckt",
+        45: "Nebel",
+        48: "Reifnebel",
+        51: "Leichter Nieselregen",
+        53: "Mäßiger Nieselregen",
+        55: "Dichter Nieselregen",
+        56: "Leichter gefrierender Nieselregen",
+        57: "Dichter gefrierender Nieselregen",
+        61: "Leichter Regen",
+        63: "Mäßiger Regen",
+        65: "Starker Regen",
+        66: "Leichter gefrierender Regen",
+        67: "Starker gefrierender Regen",
+        71: "Leichter Schneefall",
+        73: "Mäßiger Schneefall",
+        75: "Starker Schneefall",
+        77: "Schneegriesel",
+        80: "Leichte Regenschauer",
+        81: "Mäßige Regenschauer",
+        82: "Heftige Regenschauer",
+        85: "Leichte Schneeschauer",
+        86: "Starke Schneeschauer",
+        95: "Gewitter",
+        96: "Gewitter mit leichtem Hagel",
+        99: "Gewitter mit starkem Hagel",
+    }
+
+    def _tool_weather(self, args: dict[str, Any]) -> str:
+        """Fetch weather via Open-Meteo API (free, no API key needed)."""
+        import requests
+        import urllib.parse
+
+        ort = args.get("ort", "").strip()
+        if not ort:
+            return "Kein Ort angegeben."
+
+        tage = args.get("tage", 1)
+        try:
+            tage = int(tage)
+        except (ValueError, TypeError):
+            tage = 1
+        tage = max(1, min(7, tage))
+
+        try:
+            # Step 1: Geocode the location via Open-Meteo Geocoding API
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(ort)}&count=1&language=de&format=json"
+            geo_resp = requests.get(geo_url, timeout=10)
+            geo_resp.raise_for_status()
+            geo_data = geo_resp.json()
+
+            results = geo_data.get("results", [])
+            if not results:
+                return f"Ort '{ort}' nicht gefunden."
+
+            loc = results[0]
+            lat = loc["latitude"]
+            lon = loc["longitude"]
+            name = loc.get("name", ort)
+            country = loc.get("country", "")
+            admin1 = loc.get("admin1", "")
+            location_str = f"{name}" + (f", {admin1}" if admin1 else "") + (f", {country}" if country else "")
+
+            # Step 2: Fetch weather from Open-Meteo Forecast API
+            params = (
+                f"latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
+                f"weather_code,wind_speed_10m,wind_direction_10m,precipitation,pressure_msl"
+                f"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,"
+                f"wind_speed_10m_max,sunrise,sunset"
+                f"&timezone=auto"
+                f"&forecast_days={tage}"
+            )
+            weather_url = f"https://api.open-meteo.com/v1/forecast?{params}"
+            weather_resp = requests.get(weather_url, timeout=10)
+            weather_resp.raise_for_status()
+            w = weather_resp.json()
+
+            lines = [f"Wetter für {location_str}:"]
+
+            # Current weather
+            current = w.get("current", {})
+            if current:
+                temp = current.get("temperature_2m", "?")
+                feels = current.get("apparent_temperature", "?")
+                humidity = current.get("relative_humidity_2m", "?")
+                wcode = current.get("weather_code", 0)
+                wind = current.get("wind_speed_10m", "?")
+                wind_dir = current.get("wind_direction_10m", "?")
+                precip = current.get("precipitation", 0)
+                pressure = current.get("pressure_msl", "?")
+                desc = self._WMO_CODES.get(wcode, f"Code {wcode}")
+
+                lines.append("\nAktuell (" + desc + "):")
+                lines.append(f"  Temperatur: {temp}°C (gefühlt {feels}°C)")
+                lines.append(f"  Luftfeuchte: {humidity}%")
+                lines.append(f"  Wind: {wind} km/h aus {wind_dir}°")
+                lines.append(f"  Niederschlag: {precip} mm")
+                lines.append(f"  Luftdruck: {pressure} hPa")
+
+            # Daily forecast (if tage > 1 or just today)
+            daily = w.get("daily", {})
+            if daily and tage > 1:
+                lines.append("\nVorhersage (" + str(tage) + " Tage):")
+                dates = daily.get("time", [])
+                t_max = daily.get("temperature_2m_max", [])
+                t_min = daily.get("temperature_2m_min", [])
+                d_codes = daily.get("weather_code", [])
+                d_precip = daily.get("precipitation_sum", [])
+                d_wind = daily.get("wind_speed_10m_max", [])
+                sunrises = daily.get("sunrise", [])
+                sunsets = daily.get("sunset", [])
+
+                for i in range(min(len(dates), tage)):
+                    d = dates[i][:10] if i < len(dates) else "?"
+                    tx = t_max[i] if i < len(t_max) else "?"
+                    tn = t_min[i] if i < len(t_min) else "?"
+                    dc = d_codes[i] if i < len(d_codes) else 0
+                    dp = d_precip[i] if i < len(d_precip) else 0
+                    dw = d_wind[i] if i < len(d_wind) else "?"
+                    dd = self._WMO_CODES.get(dc, f"Code {dc}")
+                    sr = sunrises[i][11:] if i < len(sunrises) and len(sunrises[i]) > 11 else "?"
+                    ss = sunsets[i][11:] if i < len(sunsets) and len(sunsets[i]) > 11 else "?"
+                    lines.append(f"  {d}: {dd}, {tn}°C bis {tx}°C, Niederschlag {dp} mm, Wind {dw} km/h, Sonne {sr}-{ss}")
+
+            return "\n".join(lines)
+
+        except requests.exceptions.Timeout:
+            return "Wetterabfrage hat das Zeitlimit überschritten."
+        except requests.exceptions.ConnectionError:
+            return "Keine Internetverbindung für Wetterabfrage verfügbar."
+        except Exception as exc:
+            logger.error("wetter_abfragen error: %s", exc, exc_info=True)
+            return f"Wetterabfrage fehlgeschlagen: {exc}"

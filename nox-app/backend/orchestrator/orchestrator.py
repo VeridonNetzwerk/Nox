@@ -370,6 +370,12 @@ class Orchestrator:
                                 tool_args = {"aktion": m.group(1), "text": m.group(2).strip()}
                             else:
                                 tool_args = {"aktion": tool_params}
+                        elif tool_name == "wetter_abfragen":
+                            m = re.match(r'(.+?)\s+tage=(\d+)', tool_params)
+                            if m:
+                                tool_args = {"ort": m.group(1).strip(), "tage": int(m.group(2))}
+                            else:
+                                tool_args = {"ort": tool_params}
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:
