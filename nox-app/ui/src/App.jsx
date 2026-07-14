@@ -86,6 +86,7 @@ function App() {
   const [thinkingOpacity, setThinkingOpacity] = useState(1);
   const [uiScale, setUiScale] = useState(1.0);
   const [musicResult, setMusicResult] = useState(null);
+  const [speakProgress, setSpeakProgress] = useState(0); // words highlighted during speaking
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
@@ -598,6 +599,34 @@ function App() {
     };
   }, [micState, isStreaming]);
 
+  // Read-along effect: progressively highlight words as Nox speaks
+  useEffect(() => {
+    if (micState !== "speaking") {
+      setSpeakProgress(0);
+      return;
+    }
+    const text = lastAssistant?.content || "";
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      setSpeakProgress(0);
+      return;
+    }
+    // Estimate ~3.5 words per second for German TTS
+    const msPerWord = 1000 / 3.5;
+    setSpeakProgress(0);
+    let i = 0;
+    const interval = setInterval(() => {
+      i += 1;
+      if (i >= words.length) {
+        setSpeakProgress(words.length);
+        clearInterval(interval);
+      } else {
+        setSpeakProgress(i);
+      }
+    }, msPerWord);
+    return () => clearInterval(interval);
+  }, [micState, lastAssistant?.content]);
+
   // Status text shown in the speech bubble
   const bubbleText = (() => {
     if (micState === "listening") return null; // No bubble while just listening — logo only
@@ -776,6 +805,8 @@ function App() {
                     >
                       {bubbleText}
                     </span>
+                  ) : micState === "speaking" && bubbleText ? (
+                    <ReadAlongText text={bubbleText} progress={speakProgress} />
                   ) : (
                     <span>{bubbleText}</span>
                   )}
@@ -843,3 +874,28 @@ function App() {
 }
 
 export default App;
+
+function ReadAlongText({ text, progress }) {
+  const words = text.split(/(\s+)/);
+  let wordIndex = 0;
+  return (
+    <span>
+      {words.map((part, i) => {
+        if (/^\s+$/.test(part)) {
+          return part;
+        }
+        const idx = wordIndex++;
+        const isRead = idx < progress;
+        return (
+          <span
+            key={i}
+            className="transition-colors duration-300"
+            style={{ color: isRead ? "var(--nox-text)" : "var(--nox-text-dim)" }}
+          >
+            {part}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
