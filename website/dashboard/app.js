@@ -434,8 +434,8 @@ function renderStats(events) {
     return `${dm}m ${ds}s`;
   }
 
-  const currSessions = new Set(events.map(e => e.session_id).filter(Boolean));
-  const prevSessions = new Set(prevEvents.map(e => e.session_id).filter(Boolean));
+  const currSessions = new Set(events.map(e => e.install_id || e.session_id).filter(Boolean));
+  const prevSessions = new Set(prevEvents.map(e => e.install_id || e.session_id).filter(Boolean));
   setChange('kpi-users-change', calcChange(currSessions.size, prevSessions.size));
   document.getElementById('kpi-users').textContent = currSessions.size.toLocaleString();
 
@@ -791,7 +791,7 @@ async function renderCountryMap(events) {
     return `<div class="country-row"><span class="country-flag">${countryFlag(code)}</span><span class="country-name">${countryName(code)}</span><span class="country-bar-bg"><span class="country-bar-fill" style="width:${Math.max(percent, 4)}%"></span></span><span class="country-pct">${percent}%</span></div>`;
   }).join('');
 
-  const totalSessions = new Set(events.map(e => e.session_id).filter(Boolean)).size;
+  const totalSessions = new Set(events.map(e => e.install_id || e.session_id).filter(Boolean)).size;
   const totalCountries = sorted.length;
   const infoHtml = `<div><div style="font-size:22px;font-weight:700;margin-bottom:2px">${totalSessions.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:2px">Active users from ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'}</div><div class="country-list" style="margin-top:14px">${list}</div></div>`;
 

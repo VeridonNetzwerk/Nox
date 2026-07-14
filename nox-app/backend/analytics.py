@@ -9,10 +9,12 @@ Only metadata: event type, app version, OS, locale (-> country), session ID, err
 """
 
 import logging
+import os
 import platform
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -21,6 +23,32 @@ logger = logging.getLogger("nox.analytics")
 
 _APP_VERSION = "0.5.0"
 _SESSION_ID = str(uuid.uuid4())
+
+
+def _get_install_id() -> str:
+    """Load or create a persistent installation ID.
+
+    This ID is generated once and stored in %APPDATA%/Nox/data/install_id.txt.
+    It survives restarts so the same machine is always counted as the same user.
+    """
+    data_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "data"
+    id_file = data_dir / "install_id.txt"
+    try:
+        if id_file.exists():
+            existing = id_file.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+        data_dir.mkdir(parents=True, exist_ok=True)
+        new_id = str(uuid.uuid4())
+        id_file.write_text(new_id, encoding="utf-8")
+        logger.info("Generated new install_id: %s", new_id)
+        return new_id
+    except Exception as exc:
+        logger.warning("Failed to persist install_id: %s", exc)
+        return str(uuid.uuid4())
+
+
+_INSTALL_ID = _get_install_id()
 
 # Hardcoded analytics defaults — shipped with every build so all users
 # automatically send anonymous analytics without configuring anything.
@@ -100,6 +128,7 @@ def _enqueue(
         "os": platform.system() + " " + platform.release(),
         "locale": config.get("system_language", ""),
         "session_id": _SESSION_ID,
+        "install_id": _INSTALL_ID,
         "error_code": error_code,
         "metadata": metadata or {},
     }
