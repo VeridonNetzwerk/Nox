@@ -656,19 +656,19 @@ function App() {
         <div className="relative h-full w-full">
           {/* Update banner */}
           {updateInfo && !updateDismissed && !updateProgress && (
-            <div className="absolute top-3 right-3 left-3 glass-card rounded-xl px-3 py-2.5 border border-blue-500/30 animate-bubble-in">
+            <div className="absolute top-3 right-3 left-3 nox-console-card px-3 py-2.5 border-l-2 border-l-nox-accent animate-bubble-in">
               <div className="flex items-start gap-2">
-                <svg className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-nox-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6.364 1.636l-.707.707M20 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-blue-400">
+                  <div className="nox-label text-nox-accent">
                     Update verfügbar — v{updateInfo.latestVersion}
                   </div>
-                  <div className="text-[10px] text-nox-textDim mt-0.5">
+                  <div className="text-[10px] text-nox-text-dim mt-0.5">
                     Aktuell: v{updateInfo.currentVersion}
                   </div>
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center gap-2 mt-2">
                     <button
                       onClick={async () => {
                         const result = await window.nox?.downloadAndInstallUpdate?.();
@@ -676,19 +676,19 @@ function App() {
                           addToast({ type: "error", title: "Update", message: result.error, duration: 5000 });
                         }
                       }}
-                      className="px-2 py-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-[10px] font-medium transition-colors"
+                      className="nox-btn-primary px-3 py-1 text-[10px]"
                     >
-                      Herunterladen & Installieren
+                      Herunterladen
                     </button>
                     <button
                       onClick={() => window.nox?.openReleasePage?.()}
-                      className="px-2 py-1 rounded bg-nox-surface hover:bg-nox-border text-nox-textDim text-[10px] transition-colors"
+                      className="nox-btn-secondary px-3 py-1 text-[10px]"
                     >
                       Details
                     </button>
                     <button
                       onClick={() => setUpdateDismissed(true)}
-                      className="px-2 py-1 rounded text-nox-textDim hover:text-nox-text text-[10px] transition-colors ml-auto"
+                      className="nox-btn-secondary px-3 py-1 text-[10px] ml-auto border-none hover:text-nox-text"
                     >
                       Später
                     </button>
@@ -699,17 +699,17 @@ function App() {
           )}
           {/* Update download progress */}
           {updateProgress && (
-            <div className="absolute top-3 right-3 left-3 glass-card rounded-xl px-3 py-2.5 border border-blue-500/30">
-              <div className="text-xs font-medium text-blue-400 mb-1.5">
+            <div className="absolute top-3 right-3 left-3 nox-console-card px-3 py-2.5 border-l-2 border-l-nox-accent">
+              <div className="nox-label text-nox-accent mb-1.5">
                 Update wird heruntergeladen… {updateProgress.percent}%
               </div>
-              <div className="w-full h-1.5 bg-nox-surface rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-nox-surface rounded-sm overflow-hidden">
                 <div
-                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  className="h-full bg-nox-accent rounded-sm transition-all duration-300"
                   style={{ width: `${updateProgress.percent}%` }}
                 />
               </div>
-              <div className="text-[10px] text-nox-textDim mt-1">
+              <div className="text-[10px] text-nox-text-dim mt-1">
                 {(updateProgress.received / 1048576).toFixed(1)} / {(updateProgress.total / 1048576).toFixed(1)} MB
               </div>
             </div>
@@ -718,18 +718,18 @@ function App() {
           {!isActive && (ollamaDown || wakeModelMissing) && (
             <div className="absolute bottom-20 right-3 left-3 space-y-1.5">
               {ollamaDown && (
-                <div className="glass-card text-red-400 px-3 py-2 text-xs flex items-center justify-between gap-2">
+                <div className="nox-console-card text-nox-red px-3 py-2 text-xs flex items-center justify-between gap-2 border-l-2 border-l-nox-red">
                   <span>{t.errors.ollamaDown}</span>
                   <button
                     onClick={checkOllamaStatus}
-                    className="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors whitespace-nowrap"
+                    className="nox-btn-secondary px-2 py-0.5 text-[10px] border-nox-red/30 text-nox-red hover:bg-nox-red/10 hover:border-nox-red/50"
                   >
                     {t.errors.checkOllama}
                   </button>
                 </div>
               )}
               {wakeModelMissing && (
-                <div className="glass-card text-yellow-400 px-3 py-2 text-xs">
+                <div className="nox-console-card text-nox-amber px-3 py-2 text-xs border-l-2 border-l-nox-amber">
                   {t.errors.wakeModelMissing}
                 </div>
               )}
@@ -739,11 +739,11 @@ function App() {
           {/* Speech bubble — appears above the logo */}
           {showBubble && (
             <div className="absolute bottom-16 right-3 left-3 flex justify-end animate-bubble-in">
-              <div className="glass-card rounded-2xl rounded-br-md px-4 py-3 max-w-[90%]">
+              <div className="nox-console-card px-4 py-3 max-w-[90%] border-l-2 border-l-nox-accent">
                 {/* Nox header */}
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <img src={noxIcon} alt="Nox" className="w-4 h-4 rounded-full" />
-                  <span className="text-xs font-medium text-nox-textDim">Nox</span>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="nox-status-dot" />
+                  <span className="nox-label">Nox</span>
                   {micState === "processing" && (
                     <div className="flex items-center gap-0.5 ml-auto">
                       <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
@@ -783,10 +783,10 @@ function App() {
                 </div>
                 {/* Replay button when response is done */}
                 {micState === "idle" && lastAssistant?.content && !lastAssistant?.streaming && (
-                  <div className="mt-2">
+                  <div className="mt-3">
                     <button
                       onClick={() => speakText(lastAssistant.content, addToast)}
-                      className="inline-flex items-center gap-1 text-xs text-nox-textDim hover:text-nox-accent transition-colors"
+                      className="nox-btn-secondary px-3 py-1.5 inline-flex items-center gap-1.5"
                       title="Vorlesen"
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

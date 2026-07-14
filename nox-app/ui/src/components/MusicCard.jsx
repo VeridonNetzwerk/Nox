@@ -56,17 +56,16 @@ export default function MusicCard({ data, onOpen, onSetPlatform, locale }) {
     return (
       <button
         onClick={() => handleClick(pKey)}
-        className={`flex-1 min-w-[70px] px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
+        className={`flex-1 min-w-[70px] px-2 py-1.5 text-[10px] font-medium transition-all flex items-center justify-center gap-1 ${
           isOpened
-            ? "bg-white/10 text-white ring-1 ring-white/30"
-            : "bg-nox-surface hover:bg-nox-border text-nox-text"
+            ? "nox-btn-primary"
+            : "nox-btn-secondary"
         }`}
-        style={isOpened ? { borderColor: meta.color } : {}}
       >
-        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta.color }} />
-        {meta.label}
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: isOpened ? "#06070d" : meta.color }} />
+        <span style={{ color: isOpened ? "#06070d" : undefined }}>{meta.label}</span>
         {isOpened && (
-          <svg className="w-3 h-3 text-nox-textLight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: "#06070d" }}>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
           </svg>
         )}
@@ -75,7 +74,7 @@ export default function MusicCard({ data, onOpen, onSetPlatform, locale }) {
   };
 
   return (
-    <div className="w-full rounded-xl overflow-hidden border border-nox-border bg-nox-surface/80 backdrop-blur-md shadow-lg">
+    <div className="w-full nox-console-card overflow-hidden border-l-2 border-l-nox-accent">
       <div className="flex items-stretch gap-0">
         {cover_url ? (
           <img
