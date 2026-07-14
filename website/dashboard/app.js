@@ -613,7 +613,15 @@ async function renderCountryMap(events) {
     svg.setAttribute('aria-label', 'World map of active users');
 
     svg.querySelectorAll('path').forEach(path => {
-      const code = (path.id || '').toUpperCase();
+      let code = (path.id || '').toUpperCase();
+      if (!code) {
+        let parent = path.parentElement;
+        while (parent && parent !== svg) {
+          if (parent.id && parent.id.length === 2) { code = parent.id.toUpperCase(); break; }
+          parent = parent.parentElement;
+        }
+      }
+      if (!code) return;
       const count = counts[code] || 0;
       path.setAttribute('stroke', '#ffffff');
       path.setAttribute('stroke-width', '0.4');
