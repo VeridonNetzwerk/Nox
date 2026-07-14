@@ -299,6 +299,10 @@ function App() {
           setActiveTool(null);
           window.nox?.setThinkingState?.(false);
           addToast({ type: "error", title: "Nox", message: data.content, reportable: true });
+        } else if (data.type === "close_window") {
+          window.nox?.hideWindow?.();
+        } else if (data.type === "quit_app") {
+          window.nox?.closeApp?.();
         }
       };
     };

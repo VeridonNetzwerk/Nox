@@ -242,6 +242,26 @@ class ToolHandler:
             handler=self._tool_recognize_music,
         ))
 
+        # fenster_schliessen
+        self.register(Tool(
+            name="fenster_schliessen",
+            description="Versteckt das Nox-Fenster (es läuft im Hintergrund weiter). "
+                        "Verwende dies wenn der Nutzer sagt 'schliess dich', 'mach das Fenster zu', 'versteck dich' etc. "
+                        "Nox bleibt aktiv und kann mit Hey Nox oder Hotkey wieder geöffnet werden.",
+            parameters={"type": "object", "properties": {}},
+            handler=self._tool_close_window,
+        ))
+
+        # nox_beenden
+        self.register(Tool(
+            name="nox_beenden",
+            description="Beendet Nox komplett – der gesamte Prozess wird geschlossen. "
+                        "Verwende dies NUR wenn der Nutzer ausdrücklich sagt 'beenden', 'quit', 'schalt dich ab' etc. "
+                        "Nach dem Beenden ist Nox nicht mehr verfügbar bis er manuell neu gestartet wird.",
+            parameters={"type": "object", "properties": {}},
+            handler=self._tool_quit_app,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -516,3 +536,31 @@ class ToolHandler:
             webbrowser.open(url)
         except Exception as exc:
             logger.warning("Failed to open URL %s: %s", url, exc)
+
+    def _tool_close_window(self, args: dict[str, Any]) -> str:
+        """Hide the Nox window (app stays running in background)."""
+        if self._broadcast:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._broadcast({"type": "close_window"}), loop
+                    )
+            except Exception:
+                pass
+        return "Fenster geschlossen. Du kannst mich mit Hey Nox oder dem Hotkey wieder aufrufen."
+
+    def _tool_quit_app(self, args: dict[str, Any]) -> str:
+        """Quit the Nox application completely."""
+        if self._broadcast:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._broadcast({"type": "quit_app"}), loop
+                    )
+            except Exception:
+                pass
+        return "Nox wird beendet. Bis zum nächsten Mal."

@@ -277,7 +277,7 @@ class Orchestrator:
                                 tool_args = {"key": "", "value": ""}
                         elif tool_name == "einstellungen_lesen":
                             tool_args = {}
-                        elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit"):
+                        elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:
                             tool_args = {"query": tool_params, "text": tool_params}
