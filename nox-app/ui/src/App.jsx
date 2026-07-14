@@ -567,16 +567,18 @@ function App() {
   ];
 
   const TOOL_MESSAGES = {
-    musik_erkennen: "Nox hört Musik…",
+    musik_erkennen: "Nox hört zu…",
     bildschirm_lesen: "Nox liest den Bildschirm…",
-    screenshot_historie: "Nox durchsucht die Bildschirm-Historie…",
-    dateien_suchen: "Nox durchsucht Dateien…",
+    screenshot_historie: "Nox durchwühlt die Bildschirm-Historie…",
+    dateien_suchen: "Nox sucht nach Dateien…",
     datei_lesen: "Nox liest eine Datei…",
     kontext_suche: "Nox durchsucht den Kontext…",
     notiz_speichern: "Nox speichert eine Notiz…",
     aktuelle_uhrzeit: "Nox schaut auf die Uhr…",
     einstellungen_lesen: "Nox liest Einstellungen…",
     einstellung_aendern: "Nox ändert eine Einstellung…",
+    fenster_schliessen: "Nox macht das Fenster zu…",
+    nox_beenden: "Nox verabschiedet sich…",
   };
 
   // Rotate thinking messages every 4 seconds with a smooth fade transition
@@ -634,10 +636,11 @@ function App() {
   // Status text shown in the speech bubble
   const bubbleText = (() => {
     if (micState === "listening") return null; // No bubble while just listening — logo only
+    // Tool messages take priority — show regardless of streaming/processing state
+    if (activeTool && TOOL_MESSAGES[activeTool]) {
+      return TOOL_MESSAGES[activeTool];
+    }
     if (micState === "processing" || (isStreaming && !lastAssistant)) {
-      if (activeTool && TOOL_MESSAGES[activeTool]) {
-        return TOOL_MESSAGES[activeTool];
-      }
       return THINKING_MESSAGES[thinkingIndex];
     }
     if (micState === "speaking") return lastAssistant?.content || t.app.speaking || "Ich antworte…";
@@ -789,13 +792,13 @@ function App() {
                 <div className="flex items-center gap-2 mb-2">
                   <span className="nox-status-dot" />
                   <span className="nox-label">Nox</span>
-                  {micState === "processing" && (
+                  {micState === "processing" || activeTool ? (
                     <div className="flex items-center gap-0.5 ml-auto">
                       <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
                       <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
                       <span className="thinking-dot w-1 h-1 rounded-full bg-nox-textDim" />
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 {/* Bubble content */}
                 <div
@@ -807,6 +810,10 @@ function App() {
                       className="transition-opacity duration-300 ease-in-out"
                       style={{ opacity: thinkingOpacity }}
                     >
+                      {bubbleText}
+                    </span>
+                  ) : activeTool && bubbleText ? (
+                    <span className="transition-opacity duration-300 ease-in-out" style={{ opacity: thinkingOpacity }}>
                       {bubbleText}
                     </span>
                   ) : micState === "speaking" && bubbleText ? (
