@@ -601,7 +601,7 @@ function renderWeeklyTraffic2(events) {
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="var(--legend-text)" font-size="11" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="12" font-family="Inter,sans-serif">${day}</text>`;
   }).join('');
 
-  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
+  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
   container.querySelectorAll('.chart-bar[data-label]').forEach(el => {
     attachTooltip(el, el.dataset.label, el.dataset.detail);
   });
