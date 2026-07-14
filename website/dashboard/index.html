@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta http-equiv="Referrer-Policy" content="no-referrer" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co https://www.gstatic.com https://www.google.com; img-src 'self' data: https://www.gstatic.com https://www.google.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' https://www.gstatic.com https://www.google.com; frame-src https://www.google.com;" />
   <title>Nox Analytics</title>
   <style>
     :root {
@@ -570,6 +570,7 @@
   </main>
 </div>
 
+<script src="https://www.gstatic.com/charts/loader.js"></script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

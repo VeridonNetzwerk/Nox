@@ -1,5 +1,5 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-// Nox Analytics Dashboard — SVG-based charts, no external dependencies
+// Nox Analytics Dashboard — powered by Google Charts
 
 // --- Auth ---
 let accessToken = null;
@@ -249,6 +249,23 @@ async function supabaseSelect(table, select = '*', limit = 1000, orderBy = null)
 
 let allEvents = [];
 let timelineDays = 30;
+let googleChartsPromise = null;
+
+function ensureGoogleCharts() {
+  if (!googleChartsPromise) {
+    googleChartsPromise = new Promise((resolve, reject) => {
+      if (typeof google === 'undefined' || !google.charts) {
+        reject(new Error('Google Charts not loaded'));
+        return;
+      }
+      google.charts.load('current', {
+        packages: ['corechart', 'geochart'],
+        callback: () => resolve(),
+      });
+    });
+  }
+  return googleChartsPromise;
+}
 
 function filteredEvents() {
   const period = document.getElementById('period-select')?.value || 'Year to Date';
@@ -261,13 +278,30 @@ function filteredEvents() {
   return allEvents.filter(e => new Date(e.created_at) >= cutoff);
 }
 
-function renderAll() {
+const chartInstances = {};
+function getChart(containerId, factory) {
+  if (chartInstances[containerId]) return chartInstances[containerId];
+  const el = document.getElementById(containerId);
+  if (!el) return null;
+  chartInstances[containerId] = factory(el);
+  return chartInstances[containerId];
+}
+
+async function renderAll() {
+  try {
+    await ensureGoogleCharts();
+  } catch (e) {
+    document.querySelectorAll('.loading').forEach(el => {
+      el.innerHTML = `<span style="color: var(--red)">Chart library failed: ${e.message}</span>`;
+    });
+    return;
+  }
   const events = filteredEvents();
   renderStats(events);
   renderTimeline(events, timelineDays);
   renderWeeklyTraffic(events);
   renderCountryMap(events);
-  renderBounceRate(events);
+  renderEventTypes(events);
   renderUsersByTime(events);
   renderRecentEvents(events.slice(0, 50));
 }
@@ -275,7 +309,7 @@ function renderAll() {
 async function loadAnalytics() {
   try {
     allEvents = await supabaseSelect('nox_events', '*', 5000, 'created_at.desc');
-    renderAll();
+    await renderAll();
   } catch (e) {
     document.querySelectorAll('.loading').forEach(el => {
       el.innerHTML = `<span style="color: var(--red)">Error: ${e.message}</span>`;
@@ -301,10 +335,31 @@ function countryFlag(code) {
 }
 
 function renderStats(events) {
-  const now = Date.now();
-  const halfPeriod = 15 * 24 * 60 * 60 * 1000;
-  const recent = events.filter(e => new Date(e.created_at).getTime() > now - halfPeriod);
-  const previous = events.filter(e => { const t = new Date(e.created_at).getTime(); return t <= now - halfPeriod && t > now - 2 * halfPeriod; });
+  const period = document.getElementById('period-select')?.value || 'Year to Date';
+  const now = new Date();
+  let currStart, prevEnd, prevStart;
+  if (period === 'Today') {
+    currStart = new Date(now); currStart.setHours(0, 0, 0, 0);
+    prevEnd = new Date(currStart);
+    prevStart = new Date(currStart.getTime() - 24 * 60 * 60 * 1000);
+  } else if (period === 'Last 7 days') {
+    currStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    prevEnd = new Date(currStart);
+    prevStart = new Date(currStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else if (period === 'Last 30 days') {
+    currStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    prevEnd = new Date(currStart);
+    prevStart = new Date(currStart.getTime() - 30 * 24 * 60 * 60 * 1000);
+  } else {
+    currStart = new Date(now.getFullYear(), 0, 1);
+    prevEnd = new Date(currStart);
+    prevStart = new Date(now.getFullYear() - 1, 0, 1);
+  }
+
+  const prevEvents = allEvents.filter(e => {
+    const t = new Date(e.created_at);
+    return t >= prevStart && t < prevEnd;
+  });
 
   function calcChange(curr, prev) {
     if (prev === 0) return curr > 0 ? 100 : 0;
@@ -319,37 +374,53 @@ function renderStats(events) {
     el.className = 'kpi-change ' + (change >= 0 ? 'up' : 'down');
   }
 
-  const recentSessions = new Set(recent.map(e => e.session_id).filter(Boolean));
-  const prevSessions = new Set(previous.map(e => e.session_id).filter(Boolean));
-  setChange('kpi-users-change', calcChange(recentSessions.size, prevSessions.size));
-  document.getElementById('kpi-users').textContent = recentSessions.size.toLocaleString();
+  function calcSessionRanges(evts) {
+    const ranges = {};
+    evts.forEach(event => {
+      if (!event.session_id || !event.created_at) return;
+      const time = new Date(event.created_at).getTime();
+      if (!ranges[event.session_id]) ranges[event.session_id] = [time, time];
+      ranges[event.session_id][0] = Math.min(ranges[event.session_id][0], time);
+      ranges[event.session_id][1] = Math.max(ranges[event.session_id][1], time);
+    });
+    return Object.values(ranges).map(([start, end]) => Math.min(end - start, 60 * 60 * 1000));
+  }
 
-  setChange('kpi-events-change', calcChange(recent.length, previous.length));
+  function avgDuration(evts) {
+    const durs = calcSessionRanges(evts);
+    return durs.length ? durs.reduce((s, v) => s + v, 0) / durs.length : 0;
+  }
+
+  function fmtDuration(ms) {
+    if (!ms) return '—';
+    const dm = Math.floor(ms / 60000);
+    const ds = Math.floor((ms % 60000) / 1000);
+    return `${dm}m ${ds}s`;
+  }
+
+  const currSessions = new Set(events.map(e => e.session_id).filter(Boolean));
+  const prevSessions = new Set(prevEvents.map(e => e.session_id).filter(Boolean));
+  setChange('kpi-users-change', calcChange(currSessions.size, prevSessions.size));
+  document.getElementById('kpi-users').textContent = currSessions.size.toLocaleString();
+
+  setChange('kpi-events-change', calcChange(events.length, prevEvents.length));
   document.getElementById('kpi-events').textContent = events.length.toLocaleString();
 
-  const sessionRanges = {};
-  events.forEach(event => {
-    if (!event.session_id || !event.created_at) return;
-    const time = new Date(event.created_at).getTime();
-    if (!sessionRanges[event.session_id]) sessionRanges[event.session_id] = [time, time];
-    sessionRanges[event.session_id][0] = Math.min(sessionRanges[event.session_id][0], time);
-    sessionRanges[event.session_id][1] = Math.max(sessionRanges[event.session_id][1], time);
-  });
-  const durations = Object.values(sessionRanges).map(([start, end]) => Math.min(end - start, 60 * 60 * 1000));
-  const avgDuration = durations.length ? durations.reduce((s, v) => s + v, 0) / durations.length : 0;
-  const dm = Math.floor(avgDuration / 60000);
-  const ds = Math.floor((avgDuration % 60000) / 1000);
-  document.getElementById('kpi-duration').textContent = durations.length ? `${dm}m ${ds}s` : '—';
-  setChange('kpi-duration-change', 0);
+  const currAvg = avgDuration(events);
+  const prevAvg = avgDuration(prevEvents);
+  document.getElementById('kpi-duration').textContent = fmtDuration(currAvg);
+  setChange('kpi-duration-change', calcChange(currAvg, prevAvg));
 
-  const recentErrors = recent.filter(e => e.event_type === 'error' || e.error_code).length;
-  const prevErrors = previous.filter(e => e.event_type === 'error' || e.error_code).length;
-  setChange('kpi-errors-change', calcChange(recentErrors, prevErrors));
-  document.getElementById('kpi-errors').textContent = (events.filter(e => e.event_type === 'error' || e.error_code).length).toLocaleString();
+  const currErrors = events.filter(e => e.event_type === 'error' || e.error_code).length;
+  const prevErrors = prevEvents.filter(e => e.event_type === 'error' || e.error_code).length;
+  setChange('kpi-errors-change', calcChange(currErrors, prevErrors));
+  document.getElementById('kpi-errors').textContent = currErrors.toLocaleString();
 }
 
-// --- SVG Line/Area Chart for Timeline ---
+// --- Google Charts: Timeline (AreaChart) ---
 function renderTimeline(events, days = 30) {
+  const container = document.getElementById('timeline');
+  if (!container) return;
   const now = new Date();
   const buckets = [];
   for (let i = days - 1; i >= 0; i--) {
@@ -358,116 +429,77 @@ function renderTimeline(events, days = 30) {
     d.setHours(0, 0, 0, 0);
     buckets.push({ date: d, count: 0, label: d.toLocaleDateString('en', { month: 'short', day: 'numeric' }) });
   }
-
   events.forEach(e => {
     const d = new Date(e.created_at);
     d.setHours(0, 0, 0, 0);
     const bucket = buckets.find(b => b.date.getTime() === d.getTime());
     if (bucket) bucket.count++;
   });
-
-  const container = document.getElementById('timeline');
-  if (events.length === 0) {
-    container.innerHTML = '<div class="empty">No events yet</div>';
-    return;
-  }
-
-  const W = 800, H = 200, padL = 40, padR = 20, padT = 20, padB = 30;
-  const chartW = W - padL - padR, chartH = H - padT - padB;
-  const maxCount = Math.max(...buckets.map(b => b.count), 1);
-  const stepX = chartW / (days - 1);
-
-  // Build path data
-  const points = buckets.map((b, i) => {
-    const x = padL + i * stepX;
-    const y = padT + chartH - (b.count / maxCount) * chartH;
-    return [x, y, b];
+  if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
+  const data = google.visualization.arrayToDataTable([
+    ['Date', 'Events'],
+    ...buckets.map(b => [b.label, b.count])
+  ]);
+  const chart = getChart('timeline', el => new google.visualization.AreaChart(el));
+  if (!chart) return;
+  chart.draw(data, {
+    width: '100%', height: 220, legend: { position: 'none' },
+    colors: ['#6366f1'], areaOpacity: 0.25,
+    hAxis: { textStyle: { color: '#6b7280', fontSize: 10 }, showTextEvery: Math.ceil(days / 6), slantedText: false },
+    vAxis: { textStyle: { color: '#6b7280', fontSize: 10 }, gridlines: { color: '#e5e7eb', count: 4 }, baselineColor: '#e5e7eb', format: '0' },
+    chartArea: { left: 40, top: 10, width: '92%', height: '75%' },
+    backgroundColor: 'transparent', pointSize: 4, lineWidth: 2,
+    tooltip: { trigger: 'focus' }, animation: { startup: true, duration: 400 }
   });
-
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-  const areaPath = linePath + ` L ${points[points.length-1][0].toFixed(1)} ${padT + chartH} L ${points[0][0].toFixed(1)} ${padT + chartH} Z`;
-
-  // Y-axis labels (4 ticks)
-  const yTicks = [];
-  for (let i = 0; i <= 4; i++) {
-    const val = Math.round(maxCount * i / 4);
-    const y = padT + chartH - (i / 4) * chartH;
-    yTicks.push(`<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" /><text class="axis-text" x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end">${val}</text>`);
-  }
-
-  // X-axis labels (adaptive spacing)
-  const labelStep = Math.max(1, Math.round(days / 6));
-  const xLabels = points.filter((p, i) => i % labelStep === 0).map(p =>
-    `<text class="axis-text" x="${p[0].toFixed(1)}" y="${H - 8}" text-anchor="middle">${p[2].label}</text>`
-  ).join('');
-
-  // Data points with hover
-  const dots = points.map(p => {
-    const cx = p[0].toFixed(1), cy = p[1].toFixed(1);
-    return `<circle class="data-point" cx="${cx}" cy="${cy}" r="3"><title>${p[2].label}: ${p[2].count} events</title></circle>`;
-  }).join('');
-
-  container.innerHTML = `<svg class="svg-chart" viewBox="0 0 ${W} ${H}">
-    <defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
-    </linearGradient></defs>
-    ${yTicks.join('')}
-    <path d="${areaPath}" fill="url(#areaGradient)" />
-    <path class="line-stroke" d="${linePath}" stroke="#84cc16" />
-    ${dots}
-    ${xLabels}
-  </svg>`;
 }
 
+// --- Google Charts: Weekly Traffic (ColumnChart) ---
 function renderWeeklyTraffic(events) {
   const container = document.getElementById('weekly-traffic');
   if (!container) return;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
-  const max = Math.max(...values, 1);
-  const cx = 110, cy = 92, radius = 58;
-  const axes = days.map((day, index) => {
-    const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length);
-    const x = cx + Math.cos(angle) * radius;
-    const y = cy + Math.sin(angle) * radius;
-    return `<line class="grid-line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/><text class="axis-text" x="${cx + Math.cos(angle) * (radius + 14)}" y="${cy + Math.sin(angle) * (radius + 14) + 4}" text-anchor="middle">${day}</text>`;
-  }).join('');
-  const polygon = values.map((value, index) => {
-    const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length);
-    const distance = radius * Math.max(value, 1) / max;
-    return `${cx + Math.cos(angle) * distance},${cy + Math.sin(angle) * distance}`;
-  }).join(' ');
-  const maxDay = days[values.indexOf(max)];
-  container.innerHTML = `<svg class="svg-chart" viewBox="0 0 220 190"><polygon points="${days.map((_, index) => { const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length); return `${cx + Math.cos(angle) * radius},${cy + Math.sin(angle) * radius}`; }).join(' ')}" fill="none" stroke="var(--border)"/>${axes}<polygon points="${polygon}" fill="#6366f1" fill-opacity=".15" stroke="#6366f1" stroke-width="2"/></svg><div style="font-size:11px;color:var(--textDim);text-align:center;margin-top:4px">Peak: ${maxDay} (${max} events)</div>`;
+  const maxVal = Math.max(...values, 0);
+  const data = google.visualization.arrayToDataTable([
+    ['Day', 'Events', { role: 'style' }, { role: 'annotation' }],
+    ...days.map((day, i) => [day, values[i], values[i] === maxVal && maxVal > 0 ? '#4f46e5' : '#6366f1', values[i] > 0 ? String(values[i]) : ''])
+  ]);
+  const chart = getChart('weekly-traffic', el => new google.visualization.ColumnChart(el));
+  if (!chart) return;
+  chart.draw(data, {
+    width: '100%', height: 200, legend: { position: 'none' },
+    colors: ['#6366f1'],
+    hAxis: { textStyle: { color: '#6b7280', fontSize: 11 } },
+    vAxis: { textStyle: { color: '#6b7280', fontSize: 10 }, gridlines: { color: '#e5e7eb' }, baselineColor: '#e5e7eb', format: '0' },
+    chartArea: { left: 35, top: 15, width: '90%', height: '70%' },
+    backgroundColor: 'transparent', bar: { groupWidth: '55%' },
+    annotations: { alwaysOutside: true, textStyle: { fontSize: 10, color: '#6b7280', bold: true } },
+    animation: { startup: true, duration: 400 }
+  });
 }
 
-function renderBounceRate(events) {
-  const container = document.getElementById('bounce-rate');
+// --- Google Charts: Event Types (PieChart / Donut) ---
+function renderEventTypes(events) {
+  const container = document.getElementById('event-types');
   if (!container) return;
   const typeCounts = {};
   events.forEach(e => { typeCounts[e.event_type] = (typeCounts[e.event_type] || 0) + 1; });
   const sorted = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
-  const total = sorted.reduce((s, [, c]) => s + c, 0);
   if (sorted.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
-  const R = 60, r = 36, cx = 80, cy = 80;
-  let angle = -Math.PI / 2;
-  const slices = sorted.map(([type, count], i) => {
-    const pct = count / total;
-    const endAngle = angle + pct * Math.PI * 2;
-    const x1 = cx + R * Math.cos(angle), y1 = cy + R * Math.sin(angle);
-    const x2 = cx + R * Math.cos(endAngle), y2 = cy + R * Math.sin(endAngle);
-    const x3 = cx + r * Math.cos(endAngle), y3 = cy + r * Math.sin(endAngle);
-    const x4 = cx + r * Math.cos(angle), y4 = cy + r * Math.sin(angle);
-    const largeArc = pct > 0.5 ? 1 : 0;
-    const path = `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${R} ${R} 0 ${largeArc} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L ${x3.toFixed(1)} ${y3.toFixed(1)} A ${r} ${r} 0 ${largeArc} 0 ${x4.toFixed(1)} ${y4.toFixed(1)} Z`;
-    const color = CHART_COLORS[i % CHART_COLORS.length];
-    angle = endAngle;
-    return { path, color, type, count, pct };
+  const data = google.visualization.arrayToDataTable([
+    ['Type', 'Count'],
+    ...sorted
+  ]);
+  const chart = getChart('event-types', el => new google.visualization.PieChart(el));
+  if (!chart) return;
+  chart.draw(data, {
+    width: '100%', height: 220, pieHole: 0.5,
+    legend: { position: 'right', textStyle: { color: '#6b7280', fontSize: 11 } },
+    colors: CHART_COLORS,
+    chartArea: { left: 10, top: 10, width: '100%', height: '85%' },
+    backgroundColor: 'transparent', pieSliceText: 'percentage',
+    tooltip: { text: 'both' }, animation: { startup: true, duration: 400 }
   });
-  const svg = `<svg width="160" height="160" viewBox="0 0 160 160">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2"><title>${s.type}: ${s.count} (${(s.pct*100).toFixed(1)}%)</title></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--text)" font-size="20" font-weight="700">${total.toLocaleString()}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" fill="var(--textDim)" font-size="9" text-transform="uppercase">Events</text></svg>`;
-  const legend = `<div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px">${slices.map(s => `<div style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="width:8px;height:8px;border-radius:2px;background:${s.color};flex-shrink:0"></span><span style="color:var(--textDim)">${s.type}</span><span style="margin-left:auto;font-weight:600;color:var(--text)">${s.count}</span></div>`).join('')}</div>`;
-  container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
 }
 
 function renderUsersByTime(events) {
@@ -496,43 +528,20 @@ function renderUsersByTime(events) {
   container.innerHTML = `<svg viewBox="0 0 ${totalW} ${totalH}" style="width:100%;height:auto;display:block">${dayHeaders}${rows}</svg><div class="heatmap-legend"><span>Less</span><div class="heatmap-legend-bar">${[0.12,0.3,0.5,0.7,0.9].map(a => `<span class="sq" style="background:rgba(99,102,241,${a})"></span>`).join('')}</div><span>More</span></div>`;
 }
 
-// --- World Map for Countries (real SVG choropleth) ---
-let worldMapSvgCache = null;
-
-async function loadWorldMapSvg() {
-  if (worldMapSvgCache) return worldMapSvgCache;
-  const resp = await fetch('world-map.svg');
-  if (!resp.ok) throw new Error('map_load_failed');
-  const text = await resp.text();
-  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-  const svg = doc.querySelector('svg');
-  if (!svg) throw new Error('map_parse_failed');
-  worldMapSvgCache = svg;
-  return svg;
-}
-
-// Choropleth color scale: light gray (no data) -> indigo (max)
-function choroplethColor(intensity) {
-  // interpolate between #e8eaf1 and #4f46e5
-  const from = [232, 234, 241];
-  const to = [79, 70, 229];
-  const t = Math.pow(intensity, 0.55); // ease so small counts remain visible
-  const rgb = from.map((f, i) => Math.round(f + (to[i] - f) * t));
-  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-}
-
-async function renderCountryMap(events) {
+// --- Google Charts: World Map (GeoChart) ---
+function renderCountryMap(events) {
   const container = document.getElementById('country-breakdown');
   if (!container) return;
 
   const counts = {};
   events.forEach(event => {
-    const country = event.country || 'Unknown';
-    counts[country] = (counts[country] || 0) + 1;
+    const country = event.country;
+    if (country && country !== 'Unknown' && country.length === 2) {
+      counts[country] = (counts[country] || 0) + 1;
+    }
   });
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const total = Math.max(events.length, 1);
-  const max = Math.max(...sorted.filter(([code]) => code !== 'Unknown').map(([, count]) => count), 1);
 
   if (sorted.length === 0) {
     container.innerHTML = '<div class="empty">No country data yet</div>';
@@ -545,43 +554,30 @@ async function renderCountryMap(events) {
   }).join('');
 
   const totalSessions = new Set(events.map(e => e.session_id).filter(Boolean)).size;
-  const totalCountries = sorted.filter(([code]) => code !== 'Unknown').length;
+  const totalCountries = sorted.length;
 
-  const mapWrap = document.createElement('div');
-  const infoHtml = `<div><div style="font-size:22px;font-weight:700;margin-bottom:2px">${totalSessions.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:2px">Active users from ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'}</div><div class="country-list" style="margin-top:14px">${list}</div></div>`;
+  container.innerHTML = `<div class="map-section"><div><div id="geochart-inner" style="width:100%;height:320px"></div></div><div><div style="font-size:22px;font-weight:700;margin-bottom:2px">${totalSessions.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:2px">Active users from ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'}</div><div class="country-list" style="margin-top:14px">${list}</div></div></div>`;
 
-  try {
-    const svgTemplate = await loadWorldMapSvg();
-    const svg = svgTemplate.cloneNode(true);
-    svg.removeAttribute('width');
-    svg.removeAttribute('height');
-    svg.classList.add('map-svg');
-    svg.setAttribute('aria-label', 'World map of active users');
+  const geoEl = document.getElementById('geochart-inner');
+  if (!geoEl) return;
 
-    svg.querySelectorAll('path').forEach(path => {
-      const code = (path.id || '').toUpperCase();
-      const count = counts[code] || 0;
-      path.setAttribute('stroke', '#ffffff');
-      path.setAttribute('stroke-width', '0.4');
-      if (count > 0) {
-        path.setAttribute('fill', choroplethColor(count / max));
-        path.style.cursor = 'pointer';
-        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-        title.textContent = `${countryFlag(code)} ${countryName(code)}: ${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`;
-        path.appendChild(title);
-      } else {
-        path.setAttribute('fill', '#e8eaf1');
-      }
-    });
+  const data = google.visualization.arrayToDataTable([
+    ['Country', 'Events'],
+    ...sorted.map(([code, count]) => [code, count])
+  ]);
 
-    const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#e8eaf1,#4f46e5)"></div><span>${max.toLocaleString()} events</span></div>`;
-    mapWrap.innerHTML = `<div class="map-section"><div><div class="map-holder"></div>${legendHtml}</div>${infoHtml}</div>`;
-    mapWrap.querySelector('.map-holder').appendChild(svg);
-  } catch {
-    mapWrap.innerHTML = `<div class="map-section"><div class="empty">Map unavailable</div>${infoHtml}</div>`;
-  }
-
-  container.replaceChildren(...mapWrap.childNodes);
+  const chart = new google.visualization.GeoChart(geoEl);
+  chart.draw(data, {
+    width: '100%',
+    height: 320,
+    colorAxis: { colors: ['#e0e7ff', '#4f46e5'] },
+    backgroundColor: 'transparent',
+    datalessRegionColor: '#f3f4f6',
+    defaultColor: '#e5e7eb',
+    legend: { textStyle: { color: '#6b7280', fontSize: 10 }, numberFormat: '0' },
+    tooltip: { trigger: 'focus' },
+    magnifyingGlass: { enable: true, zoomFactor: 5 }
+  });
 }
 
 function exportAnalytics() {
@@ -665,6 +661,14 @@ document.addEventListener('DOMContentLoaded', () => {
       timelineDays = tab.dataset.days ? parseInt(tab.dataset.days, 10) : 30;
       if (allEvents.length) renderTimeline(filteredEvents(), timelineDays);
     });
+  });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (allEvents.length) renderAll();
+    }, 250);
   });
 
   // Check for existing session
