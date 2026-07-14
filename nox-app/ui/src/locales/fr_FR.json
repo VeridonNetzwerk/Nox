@@ -174,5 +174,10 @@
     "settings": "Paramètres",
     "quit": "Quitter",
     "tooltip": "Nox – Assistant IA local"
+  },
+  "music": {
+    "unknownTitle": "Titre inconnu",
+    "unknownArtist": "Artiste inconnu",
+    "albumLabel": "Album"
   }
 }
