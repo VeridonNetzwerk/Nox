@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -382,6 +383,9 @@ class VoiceManager:
             else:
                 self.tts.speak_text(text)
         finally:
+            # Brief pause before re-enabling wake word to avoid the microphone
+            # picking up the tail of TTS output and immediately triggering again.
+            time.sleep(0.8)
             self.wake_word.resume()
             self._set_state(STATE_IDLE)
 
@@ -405,6 +409,8 @@ class VoiceManager:
                 self._active_sentences -= 1
                 is_last = self._active_sentences <= 0
             if is_last:
+                # Brief pause before re-enabling wake word to avoid audio feedback loops.
+                time.sleep(0.8)
                 self.wake_word.resume()
                 if self._state == STATE_SPEAKING:
                     self._set_state(STATE_IDLE)

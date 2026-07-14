@@ -45,14 +45,12 @@ class STTWakeWordListener:
         "hey nots", "hey nach", "hey nox.", "hey nox,",
         "a nox", "ae nox", "eh nox", "e nox",
         "hi nox", "hallo nox", "hey nox!",
-        "hey no", "hey nok", "hey nax", "hey mix",
-        "hey knox", "hey nox's", "hey knows",
+        "hey knox", "hey nox's",
     ]
-    # Standalone trigger words — if any of these appear in transcription, trigger
-    # (false triggers are acceptable per user preference)
+    # Standalone trigger words — only clear Nox variants, NOT common words like
+    # "no", "knows", "nach" etc. to avoid false positives.
     TRIGGER_WORDS = [
-        "nox", "nocks", "knocks", "noks", "nots", "nach", "nok", "nax",
-        "no", "nokx", "nox's", "knows", "knax",
+        "nox", "nocks", "knocks", "noks", "nokx", "nox's", "knox",
     ]
     # Greeting words that can precede the trigger word
     GREETING_WORDS = [
@@ -158,33 +156,24 @@ class STTWakeWordListener:
         if has_greeting and has_trigger:
             return True
 
-        # Standalone trigger word: if "nox" (or variant) appears as a word,
-        # trigger even without greeting (false triggers OK)
-        if has_trigger:
-            # Only trigger on standalone "nox" if the transcription is short
-            # (likely a wake word attempt, not a regular sentence mentioning nox)
-            if len(words) <= 3:
-                logger.debug("Wake word standalone trigger: '%s'", text_lower)
-                return True
-
         # Fuzzy match: check if the full text is close to a wake phrase
         import difflib
         for phrase in self.WAKE_PHRASES:
             ratio = difflib.SequenceMatcher(None, phrase, text_lower).ratio()
-            if ratio > 0.55:
+            if ratio > 0.65:
                 logger.debug("Wake word fuzzy match: '%s' vs '%s' ratio=%.2f", text_lower, phrase, ratio)
                 return True
 
         # Partial fuzzy: check if any trigger word is close to any word in text
         for w in words:
             w_clean = w.strip(".,!?")
-            if len(w_clean) < 2:
+            if len(w_clean) < 3:
                 continue
             for trigger in self.TRIGGER_WORDS:
-                if len(trigger) < 2:
+                if len(trigger) < 3:
                     continue
                 ratio = difflib.SequenceMatcher(None, trigger, w_clean).ratio()
-                if ratio > 0.7:
+                if ratio > 0.8:
                     logger.debug("Wake word partial match: '%s' ~ '%s' ratio=%.2f", w_clean, trigger, ratio)
                     return True
 
