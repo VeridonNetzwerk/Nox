@@ -1,6 +1,35 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 // Nox Analytics Dashboard — pure SVG charts, no external dependencies
 
+// --- Theme ---
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('nox-theme', theme);
+  const label = document.getElementById('theme-label');
+  const icon = document.getElementById('theme-icon');
+  if (label) label.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+  if (icon) {
+    if (theme === 'dark') {
+      icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+    } else {
+      icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+    }
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+  if (allEvents.length) renderAll();
+}
+
+function getCssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// Apply saved theme immediately
+applyTheme(localStorage.getItem('nox-theme') || 'light');
+
 // --- Auth ---
 let accessToken = null;
 let user = null;
@@ -307,7 +336,7 @@ let chartTooltip = null;
 function getChartTooltip() {
   if (!chartTooltip) {
     chartTooltip = document.createElement('div');
-    chartTooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;background:#1f2937;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-family:Inter,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity .12s;white-space:nowrap;line-height:1.5';
+    chartTooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;background:var(--tooltip-bg);color:var(--tooltip-text);padding:8px 12px;border-radius:8px;font-size:12px;font-family:Inter,sans-serif;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity .12s;white-space:nowrap;line-height:1.5;border:1px solid var(--border)';
     document.body.appendChild(chartTooltip);
   }
   return chartTooltip;
@@ -315,7 +344,7 @@ function getChartTooltip() {
 function attachTooltip(el, label, detail) {
   el.addEventListener('mouseenter', () => {
     const t = getChartTooltip();
-    t.innerHTML = `<div style="font-weight:600;font-size:13px">${label}</div>${detail ? `<div style="color:#9ca3af;font-size:11px">${detail}</div>` : ''}`;
+    t.innerHTML = `<div style="font-weight:600;font-size:13px">${label}</div>${detail ? `<div style="color:var(--tooltip-dim);font-size:11px">${detail}</div>` : ''}`;
     t.style.opacity = '1';
   });
   el.addEventListener('mousemove', (e) => {
@@ -476,29 +505,29 @@ function renderTimeline(events, days = 30) {
   for (let i = 0; i <= 4; i++) {
     const val = Math.round(maxCount * i / 4);
     const y = padT + chartH - (i / 4) * chartH;
-    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="10" font-family="Inter,sans-serif">${val}</text>`);
+    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--grid-line)" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif">${val}</text>`);
   }
 
   // X-axis labels (adaptive)
   const labelStep = Math.max(1, Math.round(days / 7));
   const xLabels = pts.filter((_, i) => i % labelStep === 0 || i === pts.length - 1).map(p =>
-    `<text x="${p.x.toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="10" font-family="Inter,sans-serif">${p.label}</text>`
+    `<text x="${p.x.toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif">${p.label}</text>`
   ).join('');
 
   // Hover dots
   const dots = pts.map(p => {
     const isZero = p.count === 0;
-    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="#6366f1" stroke="#fff" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} events"></circle>`;
+    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="var(--accent)" stroke="var(--chart-stroke)" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} events"></circle>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">
     <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.3"/>
-      <stop offset="100%" stop-color="#6366f1" stop-opacity="0.02"/>
+      <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/>
     </linearGradient></defs>
     ${yTicks.join('')}
     <path d="${areaPath}" fill="url(#areaGrad)"/>
-    <path d="${linePath}" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     ${dots}
     ${xLabels}
   </svg>`;
@@ -524,7 +553,7 @@ function renderWeeklyTraffic(events) {
   for (let i = 0; i <= 4; i++) {
     const val = Math.round(maxVal * i / 4);
     const y = padT + chartH - (i / 4) * chartH;
-    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="9" font-family="Inter,sans-serif">${val}</text>`);
+    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--grid-line)" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis-text)" font-size="9" font-family="Inter,sans-serif">${val}</text>`);
   }
 
   const bars = days.map((day, i) => {
@@ -533,8 +562,8 @@ function renderWeeklyTraffic(events) {
     const x = padL + i * stepX + gap / 2;
     const y = padT + chartH - h;
     const isMax = val === Math.max(...values) && val > 0;
-    const color = isMax ? '#4f46e5' : '#6366f1';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="10" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="11" font-family="Inter,sans-serif">${day}</text>`;
+    const color = isMax ? 'var(--accent2)' : 'var(--accent)';
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" fill="var(--legend-text)" font-size="10" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="11" font-family="Inter,sans-serif">${day}</text>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
@@ -559,7 +588,7 @@ function renderWeeklyTraffic2(events) {
   for (let i = 0; i <= 4; i++) {
     const val = Math.round(maxVal * i / 4);
     const y = padT + chartH - (i / 4) * chartH;
-    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#9ca3af" font-size="10" font-family="Inter,sans-serif">${val}</text>`);
+    yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--grid-line)" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis-text)" font-size="10" font-family="Inter,sans-serif">${val}</text>`);
   }
 
   const bars = days.map((day, i) => {
@@ -568,8 +597,8 @@ function renderWeeklyTraffic2(events) {
     const x = padL + i * stepX + gap / 2;
     const y = padT + chartH - h;
     const isMax = val === Math.max(...values) && val > 0;
-    const color = isMax ? '#4f46e5' : '#6366f1';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="11" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#9ca3af" font-size="12" font-family="Inter,sans-serif">${day}</text>`;
+    const color = isMax ? 'var(--accent2)' : 'var(--accent)';
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="var(--legend-text)" font-size="11" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="12" font-family="Inter,sans-serif">${day}</text>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
@@ -604,8 +633,8 @@ function renderEventTypes(events) {
     return { path, color, type, count, pct };
   });
 
-  const svg = `<svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="20" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
-  const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:#6b7280">${s.type}</span><span style="margin-left:auto;font-weight:600;color:#111827">${s.count}</span></div>`).join('')}</div>`;
+  const svg = `<svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--chart-stroke)" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.type}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--legend-value)" font-size="20" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="var(--axis-text)" font-size="8" font-family="Inter,sans-serif" letter-spacing="1">EVENTS</text></svg>`;
+  const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:var(--legend-text)">${s.type}</span><span style="margin-left:auto;font-weight:600;color:var(--legend-value)">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
   container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
     attachTooltip(el, el.dataset.label, el.dataset.detail);
@@ -646,8 +675,8 @@ function renderErrorBreakdown(events) {
     return { path, color, code, count, pct };
   });
 
-  const svg = `<svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.code}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="#111827" font-size="20" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="#9ca3af" font-size="8" font-family="Inter,sans-serif" letter-spacing="1">ERRORS</text></svg>`;
-  const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:#6b7280;font-family:monospace;font-size:11px">${s.code}</span><span style="margin-left:auto;font-weight:600;color:#111827">${s.count}</span></div>`).join('')}</div>`;
+  const svg = `<svg width="150" height="150" viewBox="0 0 150 150" style="flex-shrink:0">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--chart-stroke)" stroke-width="2" class="chart-slice" style="transition:opacity .15s" data-label="${s.code}" data-detail="${s.count} (${(s.pct*100).toFixed(1)}%)"></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--legend-value)" font-size="20" font-weight="700" font-family="Inter,sans-serif">${total.toLocaleString()}</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="var(--axis-text)" font-size="8" font-family="Inter,sans-serif" letter-spacing="1">ERRORS</text></svg>`;
+  const legend = `<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:100px">${slices.map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex-shrink:0"></span><span style="color:var(--legend-text);font-family:monospace;font-size:11px">${s.code}</span><span style="margin-left:auto;font-weight:600;color:var(--legend-value)">${s.count}</span></div>`).join('')}</div>`;
   container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
   container.querySelectorAll('.chart-slice[data-label]').forEach(el => {
     attachTooltip(el, el.dataset.label, el.dataset.detail);
@@ -699,8 +728,10 @@ async function loadWorldMapSvg() {
 }
 
 function choroplethColor(intensity) {
-  const from = [224, 231, 255];
-  const to = [79, 70, 229];
+  const fromStr = getCssVar('--gradient-start') || '#e0e7ff';
+  const toStr = getCssVar('--accent2') || '#4f46e5';
+  const from = fromStr.match(/\w\w/g)?.map(h => parseInt(h, 16)) || [224, 231, 255];
+  const to = toStr.match(/\w\w/g)?.map(h => parseInt(h, 16)) || [79, 70, 229];
   const t = Math.pow(intensity, 0.55);
   const rgb = from.map((f, i) => Math.round(f + (to[i] - f) * t));
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
@@ -761,13 +792,13 @@ async function renderCountryMap(events) {
 
     Object.entries(pathsByCode).forEach(([code, paths]) => {
       const count = counts[code] || 0;
-      const fill = count > 0 ? choroplethColor(count / max) : '#e8eaf1';
+      const fill = count > 0 ? choroplethColor(count / max) : 'var(--map-empty)';
       const label = `${countryFlag(code)} ${countryName(code)}`;
       const detail = count > 0
         ? `${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`
         : 'no events';
       paths.forEach(p => {
-        p.setAttribute('stroke', '#ffffff');
+        p.setAttribute('stroke', 'var(--chart-stroke)');
         p.setAttribute('stroke-width', '0.4');
         p.setAttribute('fill', fill);
         p.style.cursor = count > 0 ? 'pointer' : 'help';
@@ -777,7 +808,7 @@ async function renderCountryMap(events) {
       });
     });
 
-    const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#e0e7ff,#4f46e5)"></div><span>${max.toLocaleString()} events</span></div>`;
+    const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--gradient-start),var(--accent))"></div><span>${max.toLocaleString()} events</span></div>`;
     container.innerHTML = `<div class="map-section"><div><div class="map-holder" style="position:relative"></div>${legendHtml}</div>${infoHtml}</div>`;
     const holder = container.querySelector('.map-holder');
     holder.appendChild(svg);
@@ -788,7 +819,7 @@ async function renderCountryMap(events) {
       paths.forEach(p => {
         p.addEventListener('mouseenter', (e) => {
           const t = getChartTooltip();
-          t.innerHTML = `<div style="font-weight:600;font-size:13px">${firstPath.dataset.label}</div><div style="color:#9ca3af;font-size:11px">${firstPath.dataset.detail}</div>`;
+          t.innerHTML = `<div style="font-weight:600;font-size:13px">${firstPath.dataset.label}</div><div style="color:var(--tooltip-dim);font-size:11px">${firstPath.dataset.detail}</div>`;
           t.style.opacity = '1';
           paths.forEach(pp => pp.style.filter = 'brightness(0.8)');
         });
@@ -873,6 +904,10 @@ document.addEventListener('DOMContentLoaded', () => {
       switchView(item.dataset.view);
     });
   });
+
+  // Theme toggle
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
 
   // Logout controls
   const logoutNav = document.getElementById('logout-nav');
