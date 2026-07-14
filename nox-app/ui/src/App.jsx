@@ -303,6 +303,10 @@ function App() {
           window.nox?.hideWindow?.();
         } else if (data.type === "quit_app") {
           window.nox?.closeApp?.();
+        } else if (data.type === "timer_alert") {
+          const msg = data.message || "Timer abgelaufen!";
+          addToast({ type: "info", title: "Nox Timer", message: msg });
+          window.nox?.showWindow?.();
         }
       };
     };
@@ -583,6 +587,7 @@ function App() {
     search_web: "Nox durchsucht das Web…",
     website_oeffnen: "Nox öffnet eine Website…",
     fenster_fokus: "Nox wechselt das Fenster…",
+    timer_stellen: "Nox stellt einen Timer…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };

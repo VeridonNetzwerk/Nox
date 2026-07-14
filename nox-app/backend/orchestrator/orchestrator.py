@@ -56,6 +56,33 @@ class SentenceBuffer:
         return remaining if remaining else ""
 
 
+def _parse_timer_params(params: str) -> dict[str, Any]:
+    """Parse timer_stellen fallback params: 'timer minuten=10 nachricht=Pizza' etc."""
+    parts = params.split()
+    if not parts:
+        return {"aktion": ""}
+    result: dict[str, Any] = {"aktion": parts[0]}
+    for part in parts[1:]:
+        if "=" in part:
+            key, value = part.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            if key in ("minuten", "sekunden"):
+                try:
+                    result[key] = float(value)
+                except ValueError:
+                    pass
+            elif key == "uhrzeit":
+                result[key] = value
+            elif key == "nachricht":
+                result[key] = value
+    # If no nachricht was found, collect remaining non-key=value parts as nachricht
+    msg_parts = [p for p in parts[1:] if "=" not in p]
+    if msg_parts and "nachricht" not in result:
+        result["nachricht"] = " ".join(msg_parts)
+    return result
+
+
 class Orchestrator:
     """Central orchestrator for processing chat messages."""
 
@@ -297,6 +324,8 @@ class Orchestrator:
                                 tool_args = {"aktion": parts[0], "name": parts[1]}
                             else:
                                 tool_args = {"aktion": parts[0] if parts else "", "name": ""}
+                        elif tool_name == "timer_stellen":
+                            tool_args = _parse_timer_params(tool_params)
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:

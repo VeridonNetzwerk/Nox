@@ -393,6 +393,44 @@ class ToolHandler:
             handler=self._tool_window_focus,
         ))
 
+        # timer_stellen
+        self.register(Tool(
+            name="timer_stellen",
+            description="Stellt einen Timer, Wecker oder eine Erinnerung. "
+                        "Verwende dies wenn der Nutzer sagt 'erinnere mich in 10 Minuten', 'wecke mich um 7 Uhr', 'Timer auf 5 Minuten', 'in 30 Minuten erinnern' etc. "
+                        "Der Parameter 'aktion' bestimmt was passieren soll: 'timer' (Countdown), 'wecker' (zu einer bestimmten Uhrzeit), 'liste' (aktive Timer anzeigen), 'abbrechen' (Timer abbrechen). "
+                        "Für 'timer': der Parameter 'minuten' (und optional 'sekunden') gibt die Dauer an. "
+                        "Für 'wecker': der Parameter 'uhrzeit' gibt die Zielzeit im Format HH:MM an. "
+                        "Der optionale Parameter 'nachricht' ist der Erinnerungstext.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "Timer-Aktion: 'timer' (Countdown starten), 'wecker' (Wecker zu bestimmter Uhrzeit), 'liste' (aktive Timer auflisten), 'abbrechen' (Timer abbrechen)",
+                    },
+                    "minuten": {
+                        "type": "number",
+                        "description": "Dauer in Minuten (für Aktion 'timer')",
+                    },
+                    "sekunden": {
+                        "type": "number",
+                        "description": "Zusätzliche Sekunden (für Aktion 'timer')",
+                    },
+                    "uhrzeit": {
+                        "type": "string",
+                        "description": "Zieluhrzeit im Format HH:MM (für Aktion 'wecker'), z.B. '07:00', '14:30'",
+                    },
+                    "nachricht": {
+                        "type": "string",
+                        "description": "Erinnerungstext der gesprochen und angezeigt wird wenn der Timer abläuft",
+                    },
+                },
+                "required": ["aktion"],
+            },
+            handler=self._tool_timer,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -1543,3 +1581,204 @@ class ToolHandler:
         except Exception as exc:
             logger.error("fenster_fokus win32 fallback '%s' failed for '%s': %s", aktion, title, exc)
             return f"Konnte Aktion '{aktion}' nicht ausführen auf '{title}': {exc}"
+
+    # Active timers: {timer_id: {thread, fire_time, message, cancelled}}
+    _active_timers: dict[int, dict[str, Any]] = {}
+    _timer_counter = 0
+
+    def _tool_timer(self, args: dict[str, Any]) -> str:
+        """Set a countdown timer, alarm, list active timers, or cancel one."""
+        import threading
+        import time
+        import datetime
+
+        aktion = args.get("aktion", "").strip().lower()
+        if not aktion:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: timer, wecker, liste, abbrechen."
+
+        if aktion == "liste":
+            if not self._active_timers:
+                return "Keine aktiven Timer."
+            lines = []
+            now = datetime.datetime.now()
+            for tid, info in self._active_timers.items():
+                remaining = info["fire_time"] - now
+                secs = max(0, int(remaining.total_seconds()))
+                mins, s = divmod(secs, 60)
+                hours, mins = divmod(mins, 60)
+                status = "ABGEBROCHEN" if info.get("cancelled") else f"{hours:02d}:{mins:02d}:{s:02d}"
+                msg = info.get("message", "")
+                lines.append(f"Timer #{tid}: {status} — {msg}" if msg else f"Timer #{tid}: {status}")
+            return "Aktive Timer:\n" + "\n".join(lines)
+
+        if aktion == "abbrechen":
+            if not self._active_timers:
+                return "Keine aktiven Timer zum Abbrechen."
+            count = 0
+            for tid, info in self._active_timers.items():
+                info["cancelled"] = True
+                count += 1
+            self._active_timers.clear()
+            return f"{count} Timer abgebrochen."
+
+        if aktion == "timer":
+            minuten = args.get("minuten", 0)
+            sekunden = args.get("sekunden", 0)
+            try:
+                minuten = float(minuten)
+            except (ValueError, TypeError):
+                minuten = 0
+            try:
+                sekunden = float(sekunden)
+            except (ValueError, TypeError):
+                sekunden = 0
+
+            total_secs = int(minuten * 60 + sekunden)
+            if total_secs <= 0:
+                return "Bitte eine gültige Dauer angeben (z.B. minuten=10)."
+
+            nachricht = args.get("nachricht", "").strip()
+            if not nachricht:
+                nachricht = f"Timer abgelaufen — {int(minuten)} Minuten sind vorbei."
+
+            fire_time = datetime.datetime.now() + datetime.timedelta(seconds=total_secs)
+            self._timer_counter += 1
+            timer_id = self._timer_counter
+
+            self._active_timers[timer_id] = {
+                "fire_time": fire_time,
+                "message": nachricht,
+                "cancelled": False,
+            }
+
+            # Start background thread
+            def _timer_thread():
+                remaining = total_secs
+                while remaining > 0:
+                    time.sleep(1)
+                    info = self._active_timers.get(timer_id)
+                    if not info or info.get("cancelled"):
+                        return
+                    remaining -= 1
+                info = self._active_timers.get(timer_id)
+                if info and not info.get("cancelled"):
+                    self._fire_timer_alert(timer_id, nachricht)
+
+            t = threading.Thread(target=_timer_thread, daemon=True)
+            self._active_timers[timer_id]["thread"] = t
+            t.start()
+
+            # Human-readable duration
+            mins, secs = divmod(total_secs, 60)
+            hours, mins = divmod(mins, 60)
+            if hours > 0:
+                duration = f"{hours}h {mins}m"
+            elif mins > 0:
+                duration = f"{mins}m {secs}s" if secs > 0 else f"{mins}m"
+            else:
+                duration = f"{secs}s"
+
+            fire_str = fire_time.strftime("%H:%M")
+            return f"Timer gestellt: {duration} (um {fire_str} Uhr). Nachricht: {nachricht}"
+
+        if aktion == "wecker":
+            uhrzeit = args.get("uhrzeit", "").strip()
+            if not uhrzeit:
+                return "Für 'wecker' muss eine Uhrzeit im Format HH:MM angegeben werden (z.B. '07:00')."
+
+            # Parse HH:MM
+            try:
+                parts = uhrzeit.split(":")
+                if len(parts) != 2:
+                    return f"Ungültiges Uhrzeit-Format '{uhrzeit}'. Bitte HH:MM verwenden (z.B. '07:30')."
+                hour, minute = int(parts[0]), int(parts[1])
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    return f"Ungültige Uhrzeit '{uhrzeit}'. Stunde 0-23, Minute 0-59."
+            except ValueError:
+                return f"Ungültige Uhrzeit '{uhrzeit}'. Bitte HH:MM verwenden (z.B. '07:30')."
+
+            nachricht = args.get("nachricht", "").strip()
+            if not nachricht:
+                nachricht = f"Wecker! Es ist {hour:02d}:{minute:02d} Uhr."
+
+            now = datetime.datetime.now()
+            fire_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            # If time is in the past, schedule for tomorrow
+            if fire_time <= now:
+                fire_time += datetime.timedelta(days=1)
+
+            total_secs = int((fire_time - now).total_seconds())
+            self._timer_counter += 1
+            timer_id = self._timer_counter
+
+            self._active_timers[timer_id] = {
+                "fire_time": fire_time,
+                "message": nachricht,
+                "cancelled": False,
+            }
+
+            def _alarm_thread():
+                remaining = total_secs
+                while remaining > 0:
+                    time.sleep(1)
+                    info = self._active_timers.get(timer_id)
+                    if not info or info.get("cancelled"):
+                        return
+                    remaining -= 1
+                info = self._active_timers.get(timer_id)
+                if info and not info.get("cancelled"):
+                    self._fire_timer_alert(timer_id, nachricht)
+
+            t = threading.Thread(target=_alarm_thread, daemon=True)
+            self._active_timers[timer_id]["thread"] = t
+            t.start()
+
+            day_str = "heute" if fire_time.date() == now.date() else "morgen"
+            return f"Wecker gestellt für {day_str} {hour:02d}:{minute:02d} Uhr. Nachricht: {nachricht}"
+
+        return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: timer, wecker, liste, abbrechen."
+
+    def _fire_timer_alert(self, timer_id: int, message: str) -> None:
+        """Fire timer alert: Windows toast notification + broadcast to UI + TTS."""
+        import datetime
+
+        # Remove from active timers
+        self._active_timers.pop(timer_id, None)
+
+        logger.info("Timer #%d fired: %s", timer_id, message)
+
+        # 1. Windows toast notification via PowerShell
+        try:
+            import subprocess
+            ps_script = (
+                f"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;"
+                f"$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+                f"$textNodes = $template.GetElementsByTagName('text');"
+                f"$textNodes.Item(0).AppendChild($template.CreateTextNode('Nox Timer')) | Out-Null;"
+                f"$textNodes.Item(1).AppendChild($template.CreateTextNode('{message.replace(chr(39), chr(96))}')) | Out-Null;"
+                f"$toast = [Windows.UI.Notifications.ToastNotification]::new($template);"
+                f"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Nox').Show($toast);"
+            )
+            subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_script], shell=True)
+        except Exception as exc:
+            logger.warning("Toast notification failed: %s", exc)
+
+        # 2. Broadcast timer_alert event to UI
+        if self._broadcast:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        self._broadcast({"type": "timer_alert", "message": message, "timer_id": timer_id}),
+                        loop
+                    )
+            except Exception:
+                pass
+
+        # 3. Trigger TTS via API call
+        try:
+            import requests
+            requests.post("http://127.0.0.1:8420/api/tts/speak", json={"text": message}, timeout=5)
+        except Exception as exc:
+            logger.warning("Timer TTS trigger failed: %s", exc)

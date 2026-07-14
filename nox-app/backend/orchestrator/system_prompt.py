@@ -92,6 +92,13 @@ Du hast Zugriff auf folgende Werkzeuge:
   Verwende dies wenn der Nutzer sagt "wechsel zu Chrome", "minimiere Spotify", "maximiere Firefox", "bringe Word nach vorne", "schliesse das Fenster" etc.
   Der Parameter 'aktion' ist eines von: 'fokus', 'minimieren', 'maximieren', 'wiederherstellen', 'schliessen'.
   Der Parameter 'name' ist der Fenster- oder App-Name (z.B. 'Chrome', 'Spotify', 'Firefox', 'Notepad').
+- timer_stellen: Stellt einen Timer, Wecker oder eine Erinnerung mit Sprachbenachrichtigung.
+  Verwende dies wenn der Nutzer sagt "erinnere mich in 10 Minuten", "wecke mich um 7 Uhr", "Timer auf 5 Minuten", "in 30 Minuten erinnern" etc.
+  Der Parameter 'aktion' ist eines von: 'timer' (Countdown), 'wecker' (zu bestimmter Uhrzeit), 'liste' (aktive Timer), 'abbrechen' (Timer abbrechen).
+  Für 'timer': 'minuten' (und optional 'sekunden') gibt die Dauer an.
+  Für 'wecker': 'uhrzeit' im Format HH:MM (z.B. '07:30').
+  Optional 'nachricht' für den Erinnerungstext.
+  Bei Ablauf: Windows Toast-Notification + Nox spricht die Nachricht + UI zeigt Alert an.
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -116,6 +123,9 @@ Beispiel: [TOOL: website_oeffnen] youtube.com
 Beispiel: [TOOL: website_oeffnen] suche nach Python Tutorial
 Beispiel: [TOOL: fenster_fokus] fokus Chrome
 Beispiel: [TOOL: fenster_fokus] minimieren Spotify
+Beispiel: [TOOL: timer_stellen] timer minuten=10
+Beispiel: [TOOL: timer_stellen] wecker uhrzeit=07:30
+Beispiel: [TOOL: timer_stellen] timer minuten=5 nachricht=Pizza aus dem Ofen holen
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """
