@@ -31,8 +31,9 @@ class STTWakeWordListener:
 
     SAMPLE_RATE = 16000
     CHUNK_SIZE = 1600  # 100ms chunks
-    # Energy threshold for voice activity — low to catch quiet speech
-    ENERGY_THRESHOLD = 0.005
+    # Energy threshold for voice activity — raised to reduce false triggers
+    # from PC audio (music, video, TTS output) bleeding into the microphone
+    ENERGY_THRESHOLD = 0.015
     # Max seconds to record for one wake-word check
     MAX_PHRASE_DURATION = 2.5
     # Silence threshold to stop recording (seconds of silence after speech)

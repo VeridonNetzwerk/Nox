@@ -185,6 +185,11 @@ class VoiceManager:
         from concurrent.futures import ThreadPoolExecutor
         self._tts_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts-sentence")
 
+        # Echo suppression: track recent TTS output and suppress window
+        self._recent_tts_text: list[str] = []
+        self._last_tts_time: float = 0.0
+        self._tts_suppress_window = 2.5  # seconds after TTS to suppress wake word
+
     @property
     def state(self) -> str:
         return self._state
@@ -269,6 +274,12 @@ class VoiceManager:
 
     def _on_wake_detected(self) -> None:
         """Called by the wake word listener thread or manual voice_trigger."""
+        # Echo suppression: if TTS finished very recently, this is likely audio feedback
+        time_since_tts = time.time() - self._last_tts_time
+        if time_since_tts < self._tts_suppress_window:
+            logger.info("Wake word ignored – within TTS suppress window (%.1fs ago)", time_since_tts)
+            return
+
         logger.info("Wake word detected – starting recording")
 
         # Notify UI
@@ -347,6 +358,13 @@ class VoiceManager:
                 self.wake_word.resume()
                 return
 
+            # Echo suppression: reject transcript if it matches recent TTS output
+            if self._is_tts_echo(transcript):
+                logger.info("Transcript rejected – matches recent TTS output: '%s'", transcript[:80])
+                self._set_state(STATE_IDLE)
+                self.wake_word.resume()
+                return
+
             # Commit: only now do we transition to thinking and send to orchestrator
             self._set_state(STATE_THINKING)
             if self._on_transcript:
@@ -370,6 +388,36 @@ class VoiceManager:
             if asyncio.iscoroutine(result):
                 await result
 
+    def _track_tts_output(self, text: str) -> None:
+        """Track TTS output for echo suppression."""
+        self._last_tts_time = time.time()
+        # Keep last 5 sentences, capped at 200 chars each
+        self._recent_tts_text = (self._recent_tts_text + [text[:200]])[-5:]
+
+    def _is_tts_echo(self, transcript: str) -> bool:
+        """Check if a transcript matches recent TTS output (audio feedback)."""
+        if not self._recent_tts_text:
+            return False
+        import difflib
+        transcript_lower = transcript.lower().strip()
+        for tts_text in self._recent_tts_text:
+            tts_lower = tts_text.lower().strip()
+            # Exact substring match
+            if tts_lower in transcript_lower or transcript_lower in tts_lower:
+                return True
+            # Fuzzy match: if transcript is very similar to TTS output
+            ratio = difflib.SequenceMatcher(None, transcript_lower, tts_lower).ratio()
+            if ratio > 0.6:
+                return True
+            # Word overlap: if most words in transcript appear in TTS output
+            tts_words = set(tts_lower.split())
+            transcript_words = set(transcript_lower.split())
+            if tts_words and transcript_words:
+                overlap = len(tts_words & transcript_words) / max(len(transcript_words), 1)
+                if overlap > 0.7 and len(transcript_words) >= 3:
+                    return True
+        return False
+
     def speak_response(self, text: str) -> None:
         """Speak a complete response text (non-blocking, runs in pool)."""
         self._tts_pool.submit(self._speak, text)
@@ -382,6 +430,7 @@ class VoiceManager:
         """Internal: speak full text (blocking thread)."""
         self._set_state(STATE_SPEAKING)
         self.wake_word.pause()
+        self._track_tts_output(text)
         try:
             engine, voice_id = self._get_voice_for_text(text)
             if engine == "edge" and voice_id:
@@ -393,7 +442,7 @@ class VoiceManager:
         finally:
             # Brief pause before re-enabling wake word to avoid the microphone
             # picking up the tail of TTS output and immediately triggering again.
-            time.sleep(0.8)
+            time.sleep(1.5)
             self.wake_word.resume()
             self._set_state(STATE_IDLE)
 
@@ -404,6 +453,7 @@ class VoiceManager:
         if self._state != STATE_SPEAKING:
             self._set_state(STATE_SPEAKING)
         self.wake_word.pause()
+        self._track_tts_output(sentence)
         try:
             engine, voice_id = self._get_voice_for_text(sentence)
             if engine == "edge" and voice_id:
@@ -418,7 +468,7 @@ class VoiceManager:
                 is_last = self._active_sentences <= 0
             if is_last:
                 # Brief pause before re-enabling wake word to avoid audio feedback loops.
-                time.sleep(0.8)
+                time.sleep(1.5)
                 self.wake_word.resume()
                 if self._state == STATE_SPEAKING:
                     self._set_state(STATE_IDLE)
