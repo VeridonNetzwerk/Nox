@@ -269,7 +269,6 @@ function renderAll() {
   renderCountryMap(events);
   renderEventTypes(events);
   renderErrorBreakdown(events);
-  renderUsersByTime(events);
   renderRecentEvents(events.slice(0, 50));
 }
 
