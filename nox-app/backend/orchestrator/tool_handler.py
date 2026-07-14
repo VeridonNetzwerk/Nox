@@ -545,6 +545,40 @@ class ToolHandler:
             handler=self._tool_translate,
         ))
 
+        # einheit_rechnen
+        self.register(Tool(
+            name="einheit_rechnen",
+            description="Rechnet Werte zwischen verschiedenen Einheiten oder Währungen um. "
+                        "Verwende dies wenn der Nutzer sagt 'wie viel sind 5 km in Meilen', 'konvertiere 100 Euro in Dollar', '2 Liter in Gallonen' etc. "
+                        "Der Parameter 'aktion' bestimmt den Typ: 'einheit' (Länge, Gewicht, Temperatur, Volumen, Geschwindigkeit, Fläche, Daten) oder 'waehrung' (Währungsumrechnung). "
+                        "Der Parameter 'wert' ist der umzurechnende Wert (Zahl). "
+                        "Der Parameter 'von' ist die Quell-Einheit/Währung (z.B. 'km', 'kg', 'celsius', 'EUR', 'USD'). "
+                        "Der Parameter 'nach' ist die Ziel-Einheit/Währung (z.B. 'meilen', 'pfund', 'fahrenheit', 'USD', 'JPY').",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "Typ: 'einheit' (physikalische Einheiten) oder 'waehrung' (Währungen)",
+                    },
+                    "wert": {
+                        "type": "number",
+                        "description": "Der umzurechnende Wert (z.B. 100, 5.5)",
+                    },
+                    "von": {
+                        "type": "string",
+                        "description": "Quell-Einheit oder Währung (z.B. 'km', 'kg', 'celsius', 'EUR', 'USD', 'liter')",
+                    },
+                    "nach": {
+                        "type": "string",
+                        "description": "Ziel-Einheit oder Währung (z.B. 'meilen', 'pfund', 'fahrenheit', 'USD', 'JPY', 'gallonen')",
+                    },
+                },
+                "required": ["aktion", "wert", "von", "nach"],
+            },
+            handler=self._tool_convert,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -2679,3 +2713,279 @@ class ToolHandler:
         except Exception as exc:
             logger.error("uebersetzen error: %s", exc, exc_info=True)
             return f"Übersetzung fehlgeschlagen: {exc}"
+
+    # Unit conversion tables — each category maps aliases to a base unit
+    # Values are: (alias, factor_to_base) where base is the first entry
+    # For temperature, special handling is needed (offset + scale)
+    _UNIT_ALIASES = {
+        "length": {
+            "base": "m",
+            "units": {
+                "mm": 0.001, "millimeter": 0.001, "millimet": 0.001,
+                "cm": 0.01, "centimeter": 0.01, "zentimeter": 0.01,
+                "dm": 0.1, "decimeter": 0.1, "dezimeter": 0.1,
+                "m": 1.0, "meter": 1.0,
+                "km": 1000.0, "kilometer": 1000.0,
+                "in": 0.0254, "inch": 0.0254, "zoll": 0.0254,
+                "ft": 0.3048, "feet": 0.3048, "foot": 0.3048, "fuß": 0.3048, "fuss": 0.3048,
+                "yd": 0.9144, "yard": 0.9144,
+                "mi": 1609.344, "mile": 1609.344, "meile": 1609.344, "meilen": 1609.344,
+                "nmi": 1852.0, "nautical mile": 1852.0, "seemeile": 1852.0,
+            },
+        },
+        "weight": {
+            "base": "g",
+            "units": {
+                "mg": 0.001, "milligram": 0.001, "milligramm": 0.001,
+                "g": 1.0, "gram": 1.0, "gramm": 1.0,
+                "kg": 1000.0, "kilogram": 1000.0, "kilogramm": 1000.0, "kilo": 1000.0,
+                "t": 1000000.0, "ton": 1000000.0, "tonne": 1000000.0, "tonnen": 1000000.0,
+                "oz": 28.3495, "ounce": 28.3495, "unze": 28.3495,
+                "lb": 453.592, "lbs": 453.592, "pound": 453.592, "pfund": 453.592,
+                "st": 6350.29, "stone": 6350.29,
+            },
+        },
+        "volume": {
+            "base": "l",
+            "units": {
+                "ml": 0.001, "milliliter": 0.001, "milliliter": 0.001,
+                "cl": 0.01, "centiliter": 0.01, "zentiliter": 0.01,
+                "dl": 0.1, "deciliter": 0.1, "deziliter": 0.1,
+                "l": 1.0, "liter": 1.0,
+                "m3": 1000.0, "cbm": 1000.0, "kubikmeter": 1000.0,
+                "gal": 3.78541, "gallon": 3.78541, "gallonen": 3.78541,
+                "gal_uk": 4.54609, "gallon_uk": 4.54609,
+                "qt": 0.946353, "quart": 0.946353,
+                "pt": 0.473176, "pint": 0.473176,
+                "fl oz": 0.0295735, "floz": 0.0295735, "fluid ounce": 0.0295735,
+                "cup": 0.236588, "cups": 0.236588, "tasse": 0.236588,
+                "tbsp": 0.0147868, "tablespoon": 0.0147868, "esslöffel": 0.0147868,
+                "tsp": 0.00492892, "teaspoon": 0.00492892, "teelöffel": 0.00492892,
+            },
+        },
+        "speed": {
+            "base": "m/s",
+            "units": {
+                "m/s": 1.0, "mps": 1.0,
+                "km/h": 0.277778, "kmh": 0.277778, "kilometers per hour": 0.277778,
+                "mph": 0.44704, "miles per hour": 0.44704,
+                "knot": 0.514444, "knots": 0.514444, "knoten": 0.514444,
+                "ft/s": 0.3048, "fps": 0.3048,
+            },
+        },
+        "area": {
+            "base": "m2",
+            "units": {
+                "mm2": 0.000001, "quadratmillimeter": 0.000001,
+                "cm2": 0.0001, "quadratzentimeter": 0.0001,
+                "m2": 1.0, "quadratmeter": 1.0,
+                "km2": 1000000.0, "quadratkilometer": 1000000.0,
+                "ha": 10000.0, "hektar": 10000.0,
+                "acre": 4046.86, "acre": 4046.86,
+                "ft2": 0.092903, "sqft": 0.092903, "square feet": 0.092903,
+                "in2": 0.00064516, "square inch": 0.00064516,
+            },
+        },
+        "data": {
+            "base": "byte",
+            "units": {
+                "b": 1.0, "byte": 1.0, "bytes": 1.0,
+                "kb": 1024.0, "kilobyte": 1024.0, "kilobytes": 1024.0,
+                "mb": 1048576.0, "megabyte": 1048576.0, "megabytes": 1048576.0,
+                "gb": 1073741824.0, "gigabyte": 1073741824.0, "gigabytes": 1073741824.0,
+                "tb": 1099511627776.0, "terabyte": 1099511627776.0, "terabytes": 1099511627776.0,
+                "pb": 1125899906842624.0, "petabyte": 1125899906842624.0,
+                "kbit": 128.0, "kilobit": 128.0,
+                "mbit": 131072.0, "megabit": 131072.0,
+                "gbit": 134217728.0, "gigabit": 134217728.0,
+            },
+        },
+    }
+
+    # Temperature aliases — handled separately due to offset
+    _TEMP_ALIASES = {
+        "c": "celsius", "celsius": "celsius", "°c": "celsius",
+        "f": "fahrenheit", "fahrenheit": "fahrenheit", "°f": "fahrenheit",
+        "k": "kelvin", "kelvin": "kelvin",
+    }
+
+    def _convert_temperature(self, value: float, from_unit: str, to_unit: str) -> float:
+        """Convert temperature between Celsius, Fahrenheit, and Kelvin."""
+        from_u = self._TEMP_ALIASES.get(from_unit.lower().strip(), from_unit.lower().strip())
+        to_u = self._TEMP_ALIASES.get(to_unit.lower().strip(), to_unit.lower().strip())
+
+        # Convert to Celsius first
+        if from_u == "celsius":
+            celsius = value
+        elif from_u == "fahrenheit":
+            celsius = (value - 32) * 5.0 / 9.0
+        elif from_u == "kelvin":
+            celsius = value - 273.15
+        else:
+            raise ValueError(f"Unbekannte Temperatureinheit: {from_unit}")
+
+        # Convert from Celsius to target
+        if to_u == "celsius":
+            return celsius
+        elif to_u == "fahrenheit":
+            return celsius * 9.0 / 5.0 + 32
+        elif to_u == "kelvin":
+            return celsius + 273.15
+        else:
+            raise ValueError(f"Unbekannte Temperatureinheit: {to_unit}")
+
+    def _find_unit_category(self, unit: str) -> Optional[str]:
+        """Find which category a unit belongs to."""
+        unit_lower = unit.lower().strip()
+        for category, data in self._UNIT_ALIASES.items():
+            if unit_lower in data["units"]:
+                return category
+        # Check temperature
+        if unit_lower in self._TEMP_ALIASES:
+            return "temperature"
+        return None
+
+    def _tool_convert(self, args: dict[str, Any]) -> str:
+        """Convert between units or currencies."""
+        import requests
+
+        aktion = args.get("aktion", "").strip().lower()
+        if not aktion:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: einheit, waehrung."
+
+        try:
+            wert = float(args.get("wert", 0))
+        except (ValueError, TypeError):
+            return f"Ungültiger Wert: {args.get('wert', '')}"
+
+        von = args.get("von", "").strip()
+        nach = args.get("nach", "").strip()
+        if not von or not nach:
+            return "Quell- und Ziel-Einheit/Währung müssen angegeben werden."
+
+        if aktion == "waehrung":
+            return self._convert_currency(wert, von, nach)
+
+        elif aktion == "einheit":
+            return self._convert_unit(wert, von, nach)
+
+        else:
+            return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: einheit, waehrung."
+
+    def _convert_unit(self, wert: float, von: str, nach: str) -> str:
+        """Convert between physical units."""
+        von_lower = von.lower().strip()
+        nach_lower = nach.lower().strip()
+
+        # Check temperature first (special case)
+        von_temp = self._TEMP_ALIASES.get(von_lower)
+        nach_temp = self._TEMP_ALIASES.get(nach_lower)
+        if von_temp or nach_temp:
+            if not von_temp:
+                return f"Unbekannte Temperatureinheit: {von}"
+            if not nach_temp:
+                return f"Unbekannte Temperatureinheit: {nach}"
+            try:
+                result = self._convert_temperature(wert, von, nach)
+                return f"{wert} {von} = {result:.2f} {nach}"
+            except ValueError as exc:
+                return str(exc)
+
+        # Find categories for both units
+        von_cat = self._find_unit_category(von)
+        nach_cat = self._find_unit_category(nach)
+
+        if not von_cat:
+            return f"Unbekannte Einheit: {von}"
+        if not nach_cat:
+            return f"Unbekannte Einheit: {nach}"
+        if von_cat != nach_cat:
+            return f"Einheiten '{von}' ({von_cat}) und '{nach}' ({nach_cat}) sind nicht kompatibel."
+
+        # Convert: value * factor_from / factor_to
+        cat_data = self._UNIT_ALIASES[von_cat]
+        factor_from = cat_data["units"].get(von_lower)
+        factor_to = cat_data["units"].get(nach_lower)
+
+        if factor_from is None:
+            return f"Einheit '{von}' nicht in Kategorie '{von_cat}' gefunden."
+        if factor_to is None:
+            return f"Einheit '{nach}' nicht in Kategorie '{von_cat}' gefunden."
+
+        # Convert to base then to target
+        base_value = wert * factor_from
+        result = base_value / factor_to
+
+        # Format result nicely
+        if abs(result) >= 1000000 or (abs(result) < 0.001 and result != 0):
+            result_str = f"{result:.6g}"
+        elif abs(result) >= 100:
+            result_str = f"{result:.2f}"
+        else:
+            result_str = f"{result:.4f}"
+
+        return f"{wert} {von} = {result_str} {nach}"
+
+    def _convert_currency(self, wert: float, von: str, nach: str) -> str:
+        """Convert between currencies using Frankfurter API (free, no key, ECB rates)."""
+        import requests
+
+        von_upper = von.upper().strip()
+        nach_upper = nach.upper().strip()
+
+        # Common currency name → code mapping
+        currency_names = {
+            "euro": "EUR", "eur": "EUR", "€": "EUR",
+            "dollar": "USD", "usd": "USD", "$": "USD", "us dollar": "USD",
+            "pound": "GBP", "gbp": "GBP", "£": "GBP", "british pound": "GBP",
+            "yen": "JPY", "jpy": "JPY", "¥": "JPY", "japanese yen": "JPY",
+            "yuan": "CNY", "cny": "CNY", "renminbi": "CNY", "rmb": "CNY",
+            "franc": "CHF", "chf": "CHF", "swiss franc": "CHF",
+            "krone": "DKK", "dkk": "DKK", "danish krone": "DKK",
+            "sek": "SEK", "swedish krona": "SEK",
+            "nok": "NOK", "norwegian krone": "NOK",
+            "cad": "CAD", "canadian dollar": "CAD",
+            "aud": "AUD", "australian dollar": "AUD",
+            "inr": "INR", "rupee": "INR", "indian rupee": "INR",
+            "rub": "RUB", "ruble": "RUB", "russian ruble": "RUB",
+            "brl": "BRL", "real": "BRL", "brazilian real": "BRL",
+            "mxn": "MXN", "peso": "MXN", "mexican peso": "MXN",
+            "try": "TRY", "turkish lira": "TRY", "lira": "TRY",
+            "pln": "PLN", "zloty": "PLN", "polish zloty": "PLN",
+            "czk": "CZK", "czech koruna": "CZK",
+            "huf": "HUF", "forint": "HUF",
+            "sgd": "SGD", "singapore dollar": "SGD",
+            "hkd": "HKD", "hong kong dollar": "HKD",
+            "nzd": "NZD", "new zealand dollar": "NZD",
+            "zar": "ZAR", "rand": "ZAR",
+            "krw": "KRW", "won": "KRW", "korean won": "KRW",
+            "thb": "THB", "baht": "THB",
+        }
+
+        von_code = currency_names.get(von.lower(), von_upper)
+        nach_code = currency_names.get(nach.lower(), nach_upper)
+
+        if len(von_code) != 3 or len(nach_code) != 3:
+            return f"Ungültige Währung: {von} oder {nach}. Bitte ISO-Code verwenden (z.B. EUR, USD, JPY)."
+
+        try:
+            # Frankfurter API — free, no key, ECB exchange rates
+            api_url = f"https://api.frankfurter.app/latest?amount={wert}&from={von_code}&to={nach_code}"
+            resp = requests.get(api_url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+
+            result = data.get("rates", {}).get(nach_code)
+            if result is None:
+                return f"Konnte Währung '{nach_code}' nicht abrufen. Verfügbare Währungen: EUR, USD, GBP, JPY, CHF, CAD, AUD, und mehr."
+
+            date = data.get("date", "")
+            return f"{wert} {von_code} = {result:.2f} {nach_code} (Kurs vom {date})"
+
+        except requests.exceptions.Timeout:
+            return "Währungsumrechnung hat das Zeitlimit überschritten."
+        except requests.exceptions.ConnectionError:
+            return "Keine Internetverbindung für Währungsumrechnung verfügbar."
+        except Exception as exc:
+            logger.error("einheit_rechnen waehrung error: %s", exc, exc_info=True)
+            return f"Währungsumrechnung fehlgeschlagen: {exc}"

@@ -144,6 +144,41 @@ def _parse_translate_params(params: str) -> dict[str, Any]:
     return result
 
 
+def _parse_kv_params(params: str, keys: list[str]) -> dict[str, Any]:
+    """Parse generic key=value params from a fallback tool string.
+    The first token without '=' is assigned to keys[0] if keys[0] not found as a key.
+    """
+    result: dict[str, Any] = {}
+    remaining = params.split()
+    i = 0
+    # Check if first token is a bare value (no '=')
+    if remaining and "=" not in remaining[0]:
+        result[keys[0]] = remaining[0]
+        i = 1
+    while i < len(remaining):
+        part = remaining[i]
+        if "=" in part:
+            key, value = part.split("=", 1)
+            key = key.strip().lower()
+            value = value.strip()
+            j = i + 1
+            while j < len(remaining) and "=" not in remaining[j]:
+                value += " " + remaining[j]
+                j += 1
+            if key in keys:
+                if key == "wert":
+                    try:
+                        result[key] = float(value)
+                    except ValueError:
+                        result[key] = value
+                else:
+                    result[key] = value
+            i = j
+        else:
+            i += 1
+    return result
+
+
 class Orchestrator:
     """Central orchestrator for processing chat messages."""
 
@@ -403,6 +438,8 @@ class Orchestrator:
                                 tool_args = {"ort": tool_params}
                         elif tool_name == "uebersetzen":
                             tool_args = _parse_translate_params(tool_params)
+                        elif tool_name == "einheit_rechnen":
+                            tool_args = _parse_kv_params(tool_params, ["aktion", "wert", "von", "nach"])
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:

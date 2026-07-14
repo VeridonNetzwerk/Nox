@@ -121,6 +121,14 @@ Du hast Zugriff auf folgende Werkzeuge:
   Der Parameter 'zielsprache' ist die Zielsprache (ISO-Code wie 'en', 'de', 'fr', 'es' oder ausgeschrieben wie 'Englisch', 'Französisch').
   Optional 'quellsprache' (ISO-Code, wird automatisch erkannt wenn nicht angegeben).
   Nutzt Argos Translate (offline) mit MyMemory API Fallback — kein API-Key nötig.
+- einheit_rechnen: Rechnet Werte zwischen verschiedenen Einheiten oder Währungen um.
+  Verwende dies wenn der Nutzer sagt "wie viel sind 5 km in Meilen", "konvertiere 100 Euro in Dollar", "2 Liter in Gallonen" etc.
+  Der Parameter 'aktion' ist 'einheit' (Länge, Gewicht, Temperatur, Volumen, Geschwindigkeit, Fläche, Daten) oder 'waehrung' (Währungen).
+  Der Parameter 'wert' ist der umzurechnende Wert (Zahl).
+  Der Parameter 'von' ist die Quell-Einheit/Währung (z.B. 'km', 'kg', 'celsius', 'EUR', 'USD').
+  Der Parameter 'nach' ist die Ziel-Einheit/Währung (z.B. 'meilen', 'pfund', 'fahrenheit', 'USD', 'JPY').
+  Unterstützte Einheiten: Länge (mm, cm, m, km, inch, feet, yard, mile, seemeile), Gewicht (mg, g, kg, t, oz, lb, stone), Volumen (ml, cl, dl, l, m3, gallon, quart, pint, cup, esslöffel, teelöffel), Temperatur (celsius, fahrenheit, kelvin), Geschwindigkeit (m/s, km/h, mph, knoten), Fläche (mm², cm², m², km², hektar, acre, sqft), Daten (byte, KB, MB, GB, TB, PB, kbit, mbit, gbit).
+  Unterstützte Währungen: EUR, USD, GBP, JPY, CHF, CAD, AUD, und 20+ weitere (via Frankfurter API, kostenlos).
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -156,6 +164,8 @@ Beispiel: [TOOL: wetter_abfragen] Berlin
 Beispiel: [TOOL: wetter_abfragen] München tage=3
 Beispiel: [TOOL: uebersetzen] text=Hallo wie geht es dir zielsprache=en
 Beispiel: [TOOL: uebersetzen] text=Hello world zielsprache=de quellsprache=en
+Beispiel: [TOOL: einheit_rechnen] einheit wert=5 von=km nach=meilen
+Beispiel: [TOOL: einheit_rechnen] waehrung wert=100 von=EUR nach=USD
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """
