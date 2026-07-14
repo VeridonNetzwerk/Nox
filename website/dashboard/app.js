@@ -535,18 +535,38 @@ function renderTimeline(events, days = 30) {
   });
 }
 
-// --- SVG Column Chart for Weekly Traffic ---
+// --- SVG Area Chart for Weekly Traffic (smooth curves, like Trend) ---
 function renderWeeklyTraffic(events) {
   const container = document.getElementById('weekly-traffic');
   if (!container) return;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const maxVal = Math.max(...values, 1);
+  if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
+
   const W = 360, H = 120, padL = 32, padR = 8, padT = 10, padB = 22;
   const chartW = W - padL - padR, chartH = H - padT - padB;
-  const barW = chartW / days.length * 0.55;
-  const gap = chartW / days.length * 0.45;
-  const stepX = chartW / days.length;
+  const stepX = chartW / (days.length - 1);
+
+  const pts = days.map((day, i) => ({
+    x: padL + i * stepX,
+    y: padT + chartH - (values[i] / maxVal) * chartH,
+    label: day,
+    count: values[i]
+  }));
+
+  function smoothPath(points) {
+    if (points.length < 2) return '';
+    let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i], p1 = points[i + 1];
+      const cpx = (p0.x + p1.x) / 2;
+      d += ` C ${cpx.toFixed(1)} ${p0.y.toFixed(1)}, ${cpx.toFixed(1)} ${p1.y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+    }
+    return d;
+  }
+  const linePath = smoothPath(pts);
+  const areaPath = linePath + ` L ${pts[pts.length-1].x.toFixed(1)} ${(padT + chartH).toFixed(1)} L ${pts[0].x.toFixed(1)} ${(padT + chartH).toFixed(1)} Z`;
 
   const yTicks = [];
   for (let i = 0; i <= 4; i++) {
@@ -555,18 +575,27 @@ function renderWeeklyTraffic(events) {
     yTicks.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--grid-line)" stroke-width="1" stroke-dasharray="${i === 0 ? '0' : '3,3'}"/><text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--axis-text)" font-size="11" font-family="Inter,sans-serif">${val}</text>`);
   }
 
-  const bars = days.map((day, i) => {
-    const val = values[i];
-    const h = (val / maxVal) * chartH;
-    const x = padL + i * stepX + gap / 2;
-    const y = padT + chartH - h;
-    const isMax = val === Math.max(...values) && val > 0;
-    const color = isMax ? 'var(--accent2)' : 'var(--accent)';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}" opacity="0.85" style="transition:opacity .15s" class="chart-bar" data-label="${day}" data-detail="${val} events"></rect>${val > 0 ? `<text x="${(x + barW/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" fill="var(--legend-text)" font-size="11" font-weight="600" font-family="Inter,sans-serif">${val}</text>` : ''}<text x="${(x + barW/2).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="11" font-family="Inter,sans-serif">${day}</text>`;
+  const xLabels = pts.map(p =>
+    `<text x="${p.x.toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--axis-text)" font-size="11" font-family="Inter,sans-serif">${p.label}</text>`
+  ).join('');
+
+  const dots = pts.map(p => {
+    const isZero = p.count === 0;
+    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="var(--accent)" stroke="var(--chart-stroke)" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} events"></circle>`;
   }).join('');
 
-  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">${yTicks.join('')}${bars}</svg>`;
-  container.querySelectorAll('.chart-bar[data-label]').forEach(el => {
+  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">
+    <defs><linearGradient id="areaGradWeekly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/>
+    </linearGradient></defs>
+    ${yTicks.join('')}
+    <path d="${areaPath}" fill="url(#areaGradWeekly)"/>
+    <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dots}
+    ${xLabels}
+  </svg>`;
+  container.querySelectorAll('.chart-dot[data-label]').forEach(el => {
     attachTooltip(el, el.dataset.label, el.dataset.detail);
   });
 }
