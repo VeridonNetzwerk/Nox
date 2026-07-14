@@ -368,6 +368,31 @@ class ToolHandler:
             handler=self._tool_open_website,
         ))
 
+        # fenster_fokus
+        self.register(Tool(
+            name="fenster_fokus",
+            description="Wechselt zu einem Fenster, minimiert oder maximiert es. "
+                        "Verwende dies wenn der Nutzer sagt 'wechsel zu Chrome', 'minimiere Spotify', 'maximiere Firefox', "
+                        "'bringe Word nach vorne', 'mach das Fenster kleiner' etc. "
+                        "Der Parameter 'aktion' bestimmt was passieren soll: 'fokus', 'minimieren', 'maximieren', 'wiederherstellen', 'schliessen'. "
+                        "Der Parameter 'name' ist der Fenstertitel oder App-Name (z.B. 'Chrome', 'Spotify', 'Firefox').",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "aktion": {
+                        "type": "string",
+                        "description": "Fenster-Aktion: 'fokus' (in den Vordergrund bringen), 'minimieren', 'maximieren', 'wiederherstellen' (aus minimiert/maximiert zurück), 'schliessen' (Fenster schliessen)",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Fenstertitel oder App-Name (z.B. 'Chrome', 'Spotify', 'Firefox', 'Notepad')",
+                    },
+                },
+                "required": ["aktion", "name"],
+            },
+            handler=self._tool_window_focus,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -1359,3 +1384,162 @@ class ToolHandler:
             return f"Google-Suche geöffnet für: {param}"
         except Exception as exc:
             return f"Konnte Google-Suche nicht öffnen: {exc}"
+
+    def _tool_window_focus(self, args: dict[str, Any]) -> str:
+        """Switch to, minimize, maximize, restore, or close a window."""
+        aktion = args.get("aktion", "").strip().lower()
+        name = args.get("name", "").strip()
+
+        if not aktion:
+            return "Keine Aktion angegeben. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
+        if not name:
+            return "Kein Fenster-Name angegeben."
+
+        # Try pygetwindow first, fall back to win32gui
+        try:
+            import pygetwindow as gw
+        except ImportError:
+            logger.warning("pygetwindow not installed — trying win32gui fallback")
+            return self._window_fallback_win32(aktion, name)
+
+        name_lower = name.lower()
+
+        # Find matching windows by title (case-insensitive partial match)
+        try:
+            all_windows = gw.getAllWindows()
+        except Exception as exc:
+            logger.error("fenster_fokus getAllWindows failed: %s", exc)
+            return f"Konnte Fensterliste nicht abrufen: {exc}"
+
+        # Filter: must have a non-empty title and match the name
+        matching = [
+            w for w in all_windows
+            if w.title and name_lower in w.title.lower()
+        ]
+
+        if not matching:
+            # Try matching by process name (e.g. 'chrome' matches 'Google Chrome')
+            # Build a broader search with common app name mappings
+            app_name_map = {
+                "chrome": ["chrome", "google chrome"],
+                "firefox": ["firefox"],
+                "edge": ["edge", "microsoft edge"],
+                "spotify": ["spotify"],
+                "discord": ["discord"],
+                "vscode": ["visual studio code", "code"],
+                "code": ["visual studio code", "code"],
+                "notepad": ["notepad", "editor"],
+                "word": ["word", "microsoft word"],
+                "excel": ["excel", "microsoft excel"],
+                "explorer": ["explorer", "file explorer"],
+                "terminal": ["terminal", "command prompt", "powershell"],
+                "cmd": ["command prompt", "cmd"],
+                "powershell": ["powershell"],
+                "steam": ["steam"],
+                "teams": ["teams", "microsoft teams"],
+                "outlook": ["outlook", "microsoft outlook"],
+                "slack": ["slack"],
+                "zoom": ["zoom"],
+                "obs": ["obs", "open broadcaster"],
+            }
+            search_terms = app_name_map.get(name_lower, [name_lower])
+            matching = [
+                w for w in all_windows
+                if w.title and any(term in w.title.lower() for term in search_terms)
+            ]
+
+        if not matching:
+            return f"Kein Fenster gefunden für '{name}'."
+
+        # Use the first matching window (most recently active is usually first)
+        win = matching[0]
+
+        try:
+            if aktion == "fokus":
+                if win.isMinimized:
+                    win.restore()
+                win.activate()
+                win.minimize()  # Workaround for Windows focus steal protection
+                win.restore()
+                return f"Fokus auf '{win.title}' gesetzt."
+
+            elif aktion == "minimieren":
+                win.minimize()
+                return f"'{win.title}' minimiert."
+
+            elif aktion == "maximieren":
+                if win.isMinimized:
+                    win.restore()
+                win.maximize()
+                return f"'{win.title}' maximiert."
+
+            elif aktion == "wiederherstellen":
+                win.restore()
+                return f"'{win.title}' wiederhergestellt."
+
+            elif aktion == "schliessen":
+                win.close()
+                return f"'{win.title}' geschlossen."
+
+            else:
+                return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
+
+        except Exception as exc:
+            logger.error("fenster_fokus action '%s' failed for '%s': %s", aktion, win.title, exc)
+            return f"Konnte Aktion '{aktion}' nicht ausführen auf '{win.title}': {exc}"
+
+    def _window_fallback_win32(self, aktion: str, name: str) -> str:
+        """Fallback window management using win32gui (no pygetwindow needed)."""
+        try:
+            import win32gui
+            import win32con
+        except ImportError:
+            return "Fenster-Steuerung nicht verfügbar. Weder pygetwindow noch win32gui sind installiert."
+
+        name_lower = name.lower()
+        matching_hwnds = []
+
+        def enum_handler(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if title and name_lower in title.lower():
+                    matching_hwnds.append((hwnd, title))
+
+        win32gui.EnumWindows(enum_handler, None)
+
+        if not matching_hwnds:
+            return f"Kein Fenster gefunden für '{name}'."
+
+        hwnd, title = matching_hwnds[0]
+
+        try:
+            if aktion == "fokus":
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(hwnd)
+                return f"Fokus auf '{title}' gesetzt."
+
+            elif aktion == "minimieren":
+                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+                return f"'{title}' minimiert."
+
+            elif aktion == "maximieren":
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+                return f"'{title}' maximiert."
+
+            elif aktion == "wiederherstellen":
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                return f"'{title}' wiederhergestellt."
+
+            elif aktion == "schliessen":
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                return f"'{title}' geschlossen."
+
+            else:
+                return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
+
+        except Exception as exc:
+            logger.error("fenster_fokus win32 fallback '%s' failed for '%s': %s", aktion, title, exc)
+            return f"Konnte Aktion '{aktion}' nicht ausführen auf '{title}': {exc}"

@@ -291,6 +291,12 @@ class Orchestrator:
                             tool_args = {"query": tool_params}
                         elif tool_name == "website_oeffnen":
                             tool_args = {"url_oder_suche": tool_params}
+                        elif tool_name == "fenster_fokus":
+                            parts = tool_params.split(None, 1)
+                            if len(parts) >= 2:
+                                tool_args = {"aktion": parts[0], "name": parts[1]}
+                            else:
+                                tool_args = {"aktion": parts[0] if parts else "", "name": ""}
                         elif tool_name in ("bildschirm_lesen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
                             tool_args = {}
                         else:

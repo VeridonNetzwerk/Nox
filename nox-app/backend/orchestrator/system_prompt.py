@@ -88,6 +88,10 @@ Du hast Zugriff auf folgende Werkzeuge:
   Der Parameter 'url_oder_suche' ist entweder eine URL (z.B. 'youtube.com', 'github.com') oder ein Suchbegriff für Google.
   Bekannte Aliases: google, youtube, github, reddit, wikipedia, spotify, discord, gmail, maps, translate, etc.
   WICHTIG: search_web gibt Informationen zurück (für Nox zum Antworten), website_oeffnen öffnet den Browser (für den Nutzer zum Anschauen).
+- fenster_fokus: Wechselt zu einem Fenster, minimiert, maximiert, stellt es wieder her oder schliesst es.
+  Verwende dies wenn der Nutzer sagt "wechsel zu Chrome", "minimiere Spotify", "maximiere Firefox", "bringe Word nach vorne", "schliesse das Fenster" etc.
+  Der Parameter 'aktion' ist eines von: 'fokus', 'minimieren', 'maximieren', 'wiederherstellen', 'schliessen'.
+  Der Parameter 'name' ist der Fenster- oder App-Name (z.B. 'Chrome', 'Spotify', 'Firefox', 'Notepad').
 
 WICHTIG — UNTERSCHIED SCHLIESSEN VS. BEENDEN:
 - "Schliessen" / "Zu machen" / "Verstecken" → fenster_schliessen (Nox bleibt im Hintergrund laufen)
@@ -110,6 +114,8 @@ Beispiel: [TOOL: lautstaerke] setzen wert=50
 Beispiel: [TOOL: search_web] Was ist die Hauptstadt von Australien
 Beispiel: [TOOL: website_oeffnen] youtube.com
 Beispiel: [TOOL: website_oeffnen] suche nach Python Tutorial
+Beispiel: [TOOL: fenster_fokus] fokus Chrome
+Beispiel: [TOOL: fenster_fokus] minimieren Spotify
 
 Nutze Werkzeuge nur wenn sinnvoll, nicht bei jeder Frage.
 """
