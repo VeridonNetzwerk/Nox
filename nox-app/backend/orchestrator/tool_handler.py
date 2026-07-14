@@ -349,6 +349,25 @@ class ToolHandler:
             handler=self._tool_search_web,
         ))
 
+        # website_oeffnen
+        self.register(Tool(
+            name="website_oeffnen",
+            description="Öffnet eine Website im Standard-Browser oder startet eine Google-Suche im Browser. "
+                        "Verwende dies wenn der Nutzer sagt 'öffne youtube.com', 'geh auf github', 'suche nach Katzenbildern' etc. "
+                        "Der Parameter 'url_oder_suche' ist entweder eine URL (z.B. 'youtube.com') oder ein Suchbegriff für Google.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url_oder_suche": {
+                        "type": "string",
+                        "description": "URL (z.B. 'youtube.com', 'https://github.com') oder Suchbegriff für Google (z.B. 'Katzenbilder', 'Python Tutorial')",
+                    },
+                },
+                "required": ["url_oder_suche"],
+            },
+            handler=self._tool_open_website,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
@@ -1258,3 +1277,85 @@ class ToolHandler:
         except Exception as exc:
             logger.error("search_web error: %s", exc, exc_info=True)
             return f"Web-Suche fehlgeschlagen: {exc}"
+
+    # Known website aliases → full URL
+    _WEBSITE_ALIASES = {
+        "google": "https://www.google.com",
+        "youtube": "https://www.youtube.com",
+        "github": "https://github.com",
+        "gitlab": "https://gitlab.com",
+        "stackoverflow": "https://stackoverflow.com",
+        "reddit": "https://www.reddit.com",
+        "twitter": "https://twitter.com",
+        "x": "https://x.com",
+        "facebook": "https://www.facebook.com",
+        "instagram": "https://www.instagram.com",
+        "linkedin": "https://www.linkedin.com",
+        "wikipedia": "https://www.wikipedia.org",
+        "amazon": "https://www.amazon.com",
+        "netflix": "https://www.netflix.com",
+        "spotify": "https://open.spotify.com",
+        "twitch": "https://www.twitch.tv",
+        "discord": "https://discord.com",
+        "gmail": "https://mail.google.com",
+        "outlook": "https://outlook.live.com",
+        "dropbox": "https://www.dropbox.com",
+        "drive": "https://drive.google.com",
+        "google drive": "https://drive.google.com",
+        "maps": "https://maps.google.com",
+        "google maps": "https://maps.google.com",
+        "translate": "https://translate.google.com",
+        "google translate": "https://translate.google.com",
+        "chatgpt": "https://chat.openai.com",
+        "openai": "https://chat.openai.com",
+        "huggingface": "https://huggingface.co",
+        "pinterest": "https://www.pinterest.com",
+        "ebay": "https://www.ebay.com",
+        "wikipedia de": "https://de.wikipedia.org",
+        "wikipedia en": "https://en.wikipedia.org",
+    }
+
+    def _tool_open_website(self, args: dict[str, Any]) -> str:
+        """Open a website in the default browser or start a Google search."""
+        import webbrowser
+        import urllib.parse
+        import re
+
+        param = args.get("url_oder_suche", "").strip()
+        if not param:
+            return "Keine URL oder Suchbegriff angegeben."
+
+        param_lower = param.lower().strip()
+
+        # Check if it's a URL (has a domain pattern)
+        # Matches: youtube.com, https://github.com, sub.domain.org, etc.
+        url_pattern = re.compile(
+            r'^(https?://)?[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+(/[\w\-./?=&%#]*)?$',
+            re.IGNORECASE
+        )
+
+        # Check website aliases first
+        if param_lower in self._WEBSITE_ALIASES:
+            url = self._WEBSITE_ALIASES[param_lower]
+            try:
+                webbrowser.open(url)
+                return f"Website geöffnet: {url}"
+            except Exception as exc:
+                return f"Konnte Website nicht öffnen: {exc}"
+
+        # If it looks like a URL, open it directly
+        if url_pattern.match(param):
+            url = param if param.startswith(("http://", "https://")) else f"https://{param}"
+            try:
+                webbrowser.open(url)
+                return f"Website geöffnet: {url}"
+            except Exception as exc:
+                return f"Konnte Website nicht öffnen: {exc}"
+
+        # Otherwise treat it as a Google search
+        search_url = f"https://www.google.com/search?q={urllib.parse.quote(param)}"
+        try:
+            webbrowser.open(search_url)
+            return f"Google-Suche geöffnet für: {param}"
+        except Exception as exc:
+            return f"Konnte Google-Suche nicht öffnen: {exc}"

@@ -581,6 +581,7 @@ function App() {
     system_steuerung: "Nox steuert das System…",
     lautstaerke: "Nox passt die Lautstärke an…",
     search_web: "Nox durchsucht das Web…",
+    website_oeffnen: "Nox öffnet eine Website…",
     fenster_schliessen: "Nox macht das Fenster zu…",
     nox_beenden: "Nox verabschiedet sich…",
   };
