@@ -314,7 +314,7 @@ function renderAll() {
   renderCountryMap(events);
   renderEventTypes(events);
   renderErrorBreakdown(events);
-  renderRecentEvents(events.slice(0, 12));
+  renderRecentEvents(events.slice(0, 14));
 }
 
 async function loadAnalytics() {
@@ -474,7 +474,7 @@ function renderTimeline(events, days = 30) {
   });
   if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
-  const W = 800, H = 150, padL = 38, padR = 10, padT = 8, padB = 24;
+  const W = 800, H = 165, padL = 38, padR = 10, padT = 10, padB = 25;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const maxCount = Math.max(...buckets.map(b => b.count), 1);
   const stepX = chartW / (days - 1);
@@ -543,7 +543,7 @@ function renderWeeklyTraffic(events) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const maxVal = Math.max(...values, 1);
-  const W = 360, H = 140, padL = 32, padR = 8, padT = 10, padB = 22;
+  const W = 360, H = 155, padL = 32, padR = 8, padT = 12, padB = 23;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const barW = chartW / days.length * 0.55;
   const gap = chartW / days.length * 0.45;
@@ -578,7 +578,7 @@ function renderWeeklyTraffic2(events) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const maxVal = Math.max(...values, 1);
-  const W = 760, H = 170, padL = 36, padR = 12, padT = 12, padB = 24;
+  const W = 760, H = 185, padL = 36, padR = 12, padT = 14, padB = 25;
   const chartW = W - padL - padR, chartH = H - padT - padB;
   const barW = chartW / days.length * 0.6;
   const gap = chartW / days.length * 0.4;
@@ -861,7 +861,7 @@ function renderRecentEvents(events) {
     return;
   }
   container.innerHTML = `
-    <div style="max-height:calc(100vh - 280px); overflow-y:auto">
+    <div style="max-height:calc(100vh - 300px); overflow-y:auto">
     <table class="events-table">
       <thead>
         <tr>
