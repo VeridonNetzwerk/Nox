@@ -173,6 +173,12 @@
     }
 
     /* Charts */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
     .chart-card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -180,6 +186,7 @@
       padding: 24px;
       margin-bottom: 16px;
     }
+    .chart-card.full { grid-column: 1 / -1; }
     .chart-card h2 {
       font-size: 14px;
       font-weight: 600;
@@ -188,6 +195,72 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
+    .chart-card .chart-sub {
+      font-size: 11px;
+      color: var(--textDim);
+      margin-bottom: 12px;
+    }
+
+    /* SVG charts */
+    .svg-chart { width: 100%; height: auto; display: block; }
+    .svg-chart .grid-line { stroke: var(--border); stroke-width: 0.5; }
+    .svg-chart .axis-text { fill: var(--textDim); font-size: 10px; font-family: 'Inter', sans-serif; }
+    .svg-chart .area-fill { fill: url(#areaGradient); opacity: 0.3; }
+    .svg-chart .line-stroke { stroke: var(--accent); stroke-width: 2; fill: none; }
+    .svg-chart .data-point { fill: var(--accent); }
+    .svg-chart .data-point:hover { fill: var(--accent2); r: 5; }
+    .svg-chart .hover-line { stroke: var(--textDim); stroke-width: 1; stroke-dasharray: 3,3; opacity: 0; }
+    .svg-chart .hover-text { fill: var(--text); font-size: 11px; font-family: 'Inter', sans-serif; }
+
+    /* Donut chart */
+    .donut-container { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+    .donut-svg { flex-shrink: 0; }
+    .donut-legend { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 140px; }
+    .donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .donut-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .donut-legend-label { color: var(--textDim); }
+    .donut-legend-value { margin-left: auto; font-weight: 600; color: var(--text); }
+    .donut-center-text { text-anchor: middle; dominant-baseline: middle; }
+    .donut-center-num { fill: var(--text); font-size: 24px; font-weight: 700; font-family: 'Inter', sans-serif; }
+    .donut-center-label { fill: var(--textDim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-family: 'Inter', sans-serif; }
+
+    /* World map */
+    .world-map-container { position: relative; width: 100%; }
+    .world-map-svg { width: 100%; height: auto; display: block; }
+    .world-map-svg .map-bg { fill: var(--surface2); }
+    .world-map-svg .map-dot { fill: var(--accent); opacity: 0.7; transition: opacity 0.2s; cursor: pointer; }
+    .world-map-svg .map-dot:hover { opacity: 1; fill: var(--accent2); }
+    .map-tooltip {
+      position: absolute;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 10;
+      white-space: nowrap;
+    }
+    .map-tooltip.show { opacity: 1; }
+    .map-tooltip .mt-country { font-weight: 600; }
+    .map-tooltip .mt-count { color: var(--accent2); }
+    .country-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .country-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 12px;
+    }
+    .country-chip .cc-flag { font-size: 16px; }
+    .country-chip .cc-count { color: var(--accent2); font-weight: 600; }
+
+    /* Bar chart (improved) */
     .bar-chart { display: flex; flex-direction: column; gap: 8px; }
     .bar-row {
       display: flex;
@@ -216,48 +289,6 @@
       color: white;
       font-weight: 600;
     }
-
-    /* Timeline */
-    .timeline {
-      display: flex;
-      align-items: flex-end;
-      gap: 2px;
-      height: 120px;
-      padding-top: 16px;
-    }
-    .timeline-bar {
-      flex: 1;
-      background: var(--accent);
-      border-radius: 3px 3px 0 0;
-      min-height: 2px;
-      position: relative;
-      cursor: pointer;
-      transition: opacity 0.2s;
-    }
-    .timeline-bar:hover { opacity: 0.7; }
-    .timeline-bar .tooltip {
-      display: none;
-      position: absolute;
-      bottom: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 4px 8px;
-      font-size: 11px;
-      white-space: nowrap;
-      z-index: 10;
-    }
-    .timeline-bar:hover .tooltip { display: block; }
-    .timeline-labels {
-      display: flex;
-      gap: 2px;
-      margin-top: 4px;
-      font-size: 10px;
-      color: var(--textDim);
-    }
-    .timeline-labels span { flex: 1; text-align: center; }
 
     /* Table */
     .events-table {
@@ -389,38 +420,49 @@
   </div>
 
   <div class="chart-card">
-    <h2>Events Over Time (Last 30 Days)</h2>
-    <div id="timeline" class="timeline">
+    <h2>Events Over Time</h2>
+    <div class="chart-sub">Last 30 days</div>
+    <div id="timeline">
       <div class="loading"><div class="spinner"></div> Loading…</div>
     </div>
-    <div class="timeline-labels" id="timeline-labels"></div>
   </div>
 
-  <div class="chart-card">
-    <h2>Event Types</h2>
-    <div id="event-types" class="bar-chart">
-      <div class="loading"><div class="spinner"></div> Loading…</div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h2>Event Types</h2>
+      <div id="event-types">
+        <div class="loading"><div class="spinner"></div> Loading…</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Top Tools Used</h2>
+      <div id="top-tools" class="bar-chart">
+        <div class="loading"><div class="spinner"></div> Loading…</div>
+      </div>
     </div>
   </div>
 
   <div class="chart-card">
     <h2>Users by Country</h2>
-    <div id="country-breakdown" class="bar-chart">
+    <div id="country-breakdown">
       <div class="loading"><div class="spinner"></div> Loading…</div>
     </div>
   </div>
 
-  <div class="chart-card">
-    <h2>Error Codes</h2>
-    <div id="error-codes" class="bar-chart">
-      <div class="loading"><div class="spinner"></div> Loading…</div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h2>Error Codes</h2>
+      <div id="error-codes" class="bar-chart">
+        <div class="loading"><div class="spinner"></div> Loading…</div>
+      </div>
     </div>
-  </div>
 
-  <div class="chart-card">
-    <h2>Top Tools Used</h2>
-    <div id="top-tools" class="bar-chart">
-      <div class="loading"><div class="spinner"></div> Loading…</div>
+    <div class="chart-card">
+      <h2>App Versions</h2>
+      <div id="version-breakdown" class="bar-chart">
+        <div class="loading"><div class="spinner"></div> Loading…</div>
+      </div>
     </div>
   </div>
 
