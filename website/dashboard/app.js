@@ -314,10 +314,33 @@ function countryFlag(code) {
 }
 
 function renderStats(events) {
-  const sessions = new Set(events.map(e => e.session_id).filter(Boolean));
-  const countries = new Set(events.map(e => e.country).filter(Boolean));
-  const sessionRanges = {};
+  const now = Date.now();
+  const halfPeriod = 15 * 24 * 60 * 60 * 1000;
+  const recent = events.filter(e => new Date(e.created_at).getTime() > now - halfPeriod);
+  const previous = events.filter(e => { const t = new Date(e.created_at).getTime(); return t <= now - halfPeriod && t > now - 2 * halfPeriod; });
 
+  function calcChange(curr, prev) {
+    if (prev === 0) return curr > 0 ? 100 : 0;
+    return ((curr - prev) / prev) * 100;
+  }
+
+  function setChange(id, change) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const sign = change >= 0 ? '▲' : '▼';
+    el.textContent = `${sign} ${Math.abs(change).toFixed(1)}%`;
+    el.className = 'kpi-change ' + (change >= 0 ? 'up' : 'down');
+  }
+
+  const recentSessions = new Set(recent.map(e => e.session_id).filter(Boolean));
+  const prevSessions = new Set(previous.map(e => e.session_id).filter(Boolean));
+  setChange('kpi-users-change', calcChange(recentSessions.size, prevSessions.size));
+  document.getElementById('kpi-users').textContent = recentSessions.size.toLocaleString();
+
+  setChange('kpi-events-change', calcChange(recent.length, previous.length));
+  document.getElementById('kpi-events').textContent = events.length.toLocaleString();
+
+  const sessionRanges = {};
   events.forEach(event => {
     if (!event.session_id || !event.created_at) return;
     const time = new Date(event.created_at).getTime();
@@ -325,19 +348,17 @@ function renderStats(events) {
     sessionRanges[event.session_id][0] = Math.min(sessionRanges[event.session_id][0], time);
     sessionRanges[event.session_id][1] = Math.max(sessionRanges[event.session_id][1], time);
   });
-
   const durations = Object.values(sessionRanges).map(([start, end]) => Math.min(end - start, 60 * 60 * 1000));
-  const averageDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 0;
-  const durationMinutes = Math.floor(averageDuration / 60000);
-  const durationSeconds = Math.floor((averageDuration % 60000) / 1000);
-  const errors = events.filter(e => e.event_type === 'error' || e.error_code);
+  const avgDuration = durations.length ? durations.reduce((s, v) => s + v, 0) / durations.length : 0;
+  const dm = Math.floor(avgDuration / 60000);
+  const ds = Math.floor((avgDuration % 60000) / 1000);
+  document.getElementById('kpi-duration').textContent = durations.length ? `${dm}m ${ds}s` : '—';
+  setChange('kpi-duration-change', 0);
 
-  document.getElementById('kpi-users').textContent = sessions.size.toLocaleString();
-  document.getElementById('kpi-sessions').textContent = sessions.size.toLocaleString();
-  document.getElementById('kpi-duration').textContent = `${durationMinutes}m ${durationSeconds}s`;
-  document.getElementById('kpi-events').textContent = events.length.toLocaleString();
-  document.getElementById('stat-countries')?.replaceChildren(document.createTextNode(countries.size.toLocaleString()));
-  document.getElementById('stat-errors')?.replaceChildren(document.createTextNode(errors.length.toLocaleString()));
+  const recentErrors = recent.filter(e => e.event_type === 'error' || e.error_code).length;
+  const prevErrors = previous.filter(e => e.event_type === 'error' || e.error_code).length;
+  setChange('kpi-errors-change', calcChange(recentErrors, prevErrors));
+  document.getElementById('kpi-errors').textContent = (events.filter(e => e.event_type === 'error' || e.error_code).length).toLocaleString();
 }
 
 // --- SVG Line/Area Chart for Timeline ---
@@ -442,47 +463,76 @@ function renderWeeklyTraffic(events) {
   const container = document.getElementById('weekly-traffic');
   if (!container) return;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length + 1);
+  const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
   const max = Math.max(...values, 1);
   const cx = 110, cy = 92, radius = 58;
   const axes = days.map((day, index) => {
     const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length);
     const x = cx + Math.cos(angle) * radius;
     const y = cy + Math.sin(angle) * radius;
-    return `<line class="grid-line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/><text class="axis-text" x="${cx + Math.cos(angle) * (radius + 14)}" y="${cy + Math.sin(angle) * (radius + 14)}" text-anchor="middle">${day}</text>`;
+    return `<line class="grid-line" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/><text class="axis-text" x="${cx + Math.cos(angle) * (radius + 14)}" y="${cy + Math.sin(angle) * (radius + 14) + 4}" text-anchor="middle">${day}</text>`;
   }).join('');
   const polygon = values.map((value, index) => {
     const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length);
-    const distance = radius * value / max;
+    const distance = radius * Math.max(value, 1) / max;
     return `${cx + Math.cos(angle) * distance},${cy + Math.sin(angle) * distance}`;
   }).join(' ');
-  container.innerHTML = `<svg class="svg-chart" viewBox="0 0 220 190"><polygon points="${days.map((_, index) => { const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length); return `${cx + Math.cos(angle) * radius},${cy + Math.sin(angle) * radius}`; }).join(' ')}" fill="none" stroke="var(--border)"/>${axes}<polygon points="${polygon}" fill="#f59e0b" fill-opacity=".13" stroke="#f59e0b" stroke-width="1.5"/><polygon points="${values.map((value, index) => { const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length); const distance = radius * value / max * .78; return `${cx + Math.cos(angle) * distance},${cy + Math.sin(angle) * distance}`; }).join(' ')}" fill="#6366f1" fill-opacity=".10" stroke="#6366f1" stroke-width="1.5"/></svg>`;
+  const maxDay = days[values.indexOf(max)];
+  container.innerHTML = `<svg class="svg-chart" viewBox="0 0 220 190"><polygon points="${days.map((_, index) => { const angle = (-Math.PI / 2) + index * (Math.PI * 2 / days.length); return `${cx + Math.cos(angle) * radius},${cy + Math.sin(angle) * radius}`; }).join(' ')}" fill="none" stroke="var(--border)"/>${axes}<polygon points="${polygon}" fill="#6366f1" fill-opacity=".15" stroke="#6366f1" stroke-width="2"/></svg><div style="font-size:11px;color:var(--textDim);text-align:center;margin-top:4px">Peak: ${maxDay} (${max} events)</div>`;
 }
 
 function renderBounceRate(events) {
   const container = document.getElementById('bounce-rate');
   if (!container) return;
-  const daily = Array.from({ length: 12 }, (_, index) => {
-    const start = new Date();
-    start.setDate(start.getDate() - (11 - index) * 7);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
-    const total = events.filter(event => { const date = new Date(event.created_at); return date >= start && date < end; }).length;
-    return Math.max(1, total);
+  const typeCounts = {};
+  events.forEach(e => { typeCounts[e.event_type] = (typeCounts[e.event_type] || 0) + 1; });
+  const sorted = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+  const total = sorted.reduce((s, [, c]) => s + c, 0);
+  if (sorted.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
+  const R = 60, r = 36, cx = 80, cy = 80;
+  let angle = -Math.PI / 2;
+  const slices = sorted.map(([type, count], i) => {
+    const pct = count / total;
+    const endAngle = angle + pct * Math.PI * 2;
+    const x1 = cx + R * Math.cos(angle), y1 = cy + R * Math.sin(angle);
+    const x2 = cx + R * Math.cos(endAngle), y2 = cy + R * Math.sin(endAngle);
+    const x3 = cx + r * Math.cos(endAngle), y3 = cy + r * Math.sin(endAngle);
+    const x4 = cx + r * Math.cos(angle), y4 = cy + r * Math.sin(angle);
+    const largeArc = pct > 0.5 ? 1 : 0;
+    const path = `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${R} ${R} 0 ${largeArc} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L ${x3.toFixed(1)} ${y3.toFixed(1)} A ${r} ${r} 0 ${largeArc} 0 ${x4.toFixed(1)} ${y4.toFixed(1)} Z`;
+    const color = CHART_COLORS[i % CHART_COLORS.length];
+    angle = endAngle;
+    return { path, color, type, count, pct };
   });
-  const secondary = daily.map((value, index) => Math.max(1, Math.round(value * (0.55 + index * 0.025))));
-  const rate = events.length ? Math.round((events.filter(event => event.event_type === 'app_start').length / events.length) * 1000) / 10 : 0;
-  container.innerHTML = `<div style="font-size:24px;font-weight:700;margin-bottom:2px">${rate}%</div><div style="font-size:11px;color:var(--textDim);margin-bottom:6px">▲ 4.5% vs last month</div>${buildMiniLineChart(daily, '#6366f1', secondary)}<div style="font-size:10px;color:var(--textDim);display:flex;gap:14px"><span style="color:#6366f1">● Blog views</span><span style="color:#84cc16">● Fount rate</span></div>`;
+  const svg = `<svg width="160" height="160" viewBox="0 0 160 160">${slices.map(s => `<path d="${s.path}" fill="${s.color}" stroke="#fff" stroke-width="2"><title>${s.type}: ${s.count} (${(s.pct*100).toFixed(1)}%)</title></path>`).join('')}<text x="${cx}" y="${cy-4}" text-anchor="middle" fill="var(--text)" font-size="20" font-weight="700">${total.toLocaleString()}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" fill="var(--textDim)" font-size="9" text-transform="uppercase">Events</text></svg>`;
+  const legend = `<div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px">${slices.map(s => `<div style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="width:8px;height:8px;border-radius:2px;background:${s.color};flex-shrink:0"></span><span style="color:var(--textDim)">${s.type}</span><span style="margin-left:auto;font-weight:600;color:var(--text)">${s.count}</span></div>`).join('')}</div>`;
+  container.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">${svg}${legend}</div>`;
 }
 
 function renderUsersByTime(events) {
   const container = document.getElementById('users-by-time');
   if (!container) return;
-  const rows = ['12am', '1am', '6am', '8am', '9am', '12pm', '2pm', '5pm', '8pm', '10pm'];
-  const columns = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const counts = rows.map((_, row) => columns.map((_, col) => events.filter(event => { const date = new Date(event.created_at); return date.getDay() === col && Math.abs(date.getHours() - [0, 1, 6, 8, 9, 12, 14, 17, 20, 22][row]) <= 1; }).length));
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const counts = hours.map(h => days.map((_, d) => events.filter(e => { const dt = new Date(e.created_at); return dt.getDay() === d && dt.getHours() === h; }).length));
   const max = Math.max(...counts.flat(), 1);
-  container.innerHTML = `<div class="heatmap"><div class="heatmap-row"><span class="heatmap-label"></span><div class="heatmap-cells">${columns.map(day => `<span style="width:22px;font-size:9px;color:var(--textLight);text-align:center">${day[0]}</span>`).join('')}</div></div>${rows.map((row, rowIndex) => `<div class="heatmap-row"><span class="heatmap-label">${row}</span><div class="heatmap-cells">${columns.map((_, colIndex) => { const intensity = counts[rowIndex][colIndex] / max; const alpha = .08 + intensity * .82; return `<span class="heatmap-cell" title="${counts[rowIndex][colIndex]} events" style="background:rgba(99,102,241,${alpha.toFixed(2)})"></span>`; }).join('')}</div></div>`).join('')}</div><div class="heatmap-legend"><span>Less</span><div class="heatmap-legend-bar">${[.08, .25, .45, .65, .85].map(alpha => `<span class="sq" style="background:rgba(99,102,241,${alpha})"></span>`).join('')}</div><span>More</span></div>`;
+  const cellSize = 16;
+  const gap = 3;
+  const labelW = 28;
+  const totalW = labelW + (cellSize + gap) * 7;
+  const totalH = 20 + (cellSize + gap) * 24;
+  const dayHeaders = days.map((day, i) => `<text x="${labelW + i * (cellSize + gap) + cellSize/2}" y="14" text-anchor="middle" fill="var(--textLight)" font-size="9" font-family="Inter,sans-serif">${day[0]}</text>`).join('');
+  const rows = hours.map((h, hi) => {
+    const y = 20 + hi * (cellSize + gap);
+    const label = `<text x="${labelW - 4}" y="${y + cellSize/2 + 3}" text-anchor="end" fill="var(--textLight)" font-size="8" font-family="Inter,sans-serif">${h.toString().padStart(2,'0')}</text>`;
+    const cells = days.map((_, di) => {
+      const intensity = counts[hi][di] / max;
+      const alpha = intensity > 0 ? 0.12 + intensity * 0.88 : 0;
+      return `<rect x="${labelW + di * (cellSize + gap)}" y="${y}" width="${cellSize}" height="${cellSize}" rx="3" fill="rgba(99,102,241,${alpha.toFixed(2)})"><title>${days[di]} ${h}:00 — ${counts[hi][di]} events</title></rect>`;
+    }).join('');
+    return label + cells;
+  }).join('');
+  container.innerHTML = `<svg viewBox="0 0 ${totalW} ${totalH}" style="width:100%;height:auto;display:block">${dayHeaders}${rows}</svg><div class="heatmap-legend"><span>Less</span><div class="heatmap-legend-bar">${[0.12,0.3,0.5,0.7,0.9].map(a => `<span class="sq" style="background:rgba(99,102,241,${a})"></span>`).join('')}</div><span>More</span></div>`;
 }
 
 // --- SVG Donut Chart for Event Types ---
@@ -495,6 +545,7 @@ function renderEventTypes(events) {
   const total = sorted.reduce((s, [, c]) => s + c, 0);
 
   const container = document.getElementById('event-types');
+  if (!container) return;
   if (sorted.length === 0) {
     container.innerHTML = '<div class="empty">No events yet</div>';
     return;
@@ -535,6 +586,40 @@ function renderEventTypes(events) {
 }
 
 // --- World Map for Countries ---
+const WORLD_MAP_PATHS = [
+  // North America
+  'M120 55 L180 45 L220 55 L250 70 L270 90 L260 110 L240 120 L210 125 L180 120 L160 110 L140 95 L125 80 Z',
+  // Greenland
+  'M280 30 L320 28 L340 40 L335 55 L310 60 L285 50 Z',
+  // South America
+  'M230 145 L260 140 L280 155 L290 180 L285 210 L270 235 L250 245 L235 230 L225 200 L220 175 Z',
+  // Europe
+  'M360 50 L420 45 L450 55 L460 70 L440 80 L410 82 L380 75 L365 65 Z',
+  // Africa
+  'M380 85 L430 80 L460 95 L475 120 L480 150 L470 180 L450 200 L420 205 L395 190 L380 165 L375 135 L370 110 Z',
+  // Middle East
+  'M460 85 L495 82 L510 95 L505 110 L485 115 L465 105 Z',
+  // Asia (Russia + China + India)
+  'M460 45 L560 40 L640 50 L700 60 L720 80 L700 95 L660 100 L620 95 L580 85 L540 80 L500 75 L470 65 Z',
+  'M520 90 L570 85 L600 100 L610 120 L595 140 L565 145 L535 135 L520 115 Z',
+  // Southeast Asia
+  'M590 130 L620 128 L640 140 L635 155 L610 158 L595 148 Z',
+  // Japan
+  'M680 80 L700 75 L710 90 L705 105 L690 100 Z',
+  // Australia
+  'M610 175 L660 170 L690 180 L695 200 L680 215 L650 218 L620 210 L605 195 Z',
+  // New Zealand
+  'M705 210 L720 208 L725 220 L715 228 L705 222 Z',
+  // UK + Ireland
+  'M345 52 L365 50 L370 62 L355 68 L345 60 Z',
+  // Scandinavia
+  'M380 30 L420 25 L445 35 L440 48 L410 50 L385 42 Z',
+  // Indonesia archipelago
+  'M595 150 L625 148 L640 158 L635 168 L610 170 L598 162 Z',
+  // Madagascar
+  'M490 165 L502 160 L508 175 L500 190 L492 185 Z',
+];
+
 function renderCountryMap(events) {
   const counts = {};
   events.forEach(event => {
@@ -550,24 +635,42 @@ function renderCountryMap(events) {
     return;
   }
 
-  const W = 720;
-  const H = 270;
+  const W = 760;
+  const H = 260;
+  const scaleX = W / 360;
+  const scaleY = H / 180;
+
   const dots = sorted.filter(([code]) => COUNTRY_COORDS[code]).map(([code, count]) => {
     const [lat, lng] = COUNTRY_COORDS[code];
     const [x, y] = latLngToXY(lat, lng, W, H);
-    return `<circle class="map-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(3 + Math.sqrt(count / max) * 9).toFixed(1)}" data-country="${code}" data-count="${count}"><title>${code}: ${count} events</title></circle>`;
+    const radius = 3 + Math.sqrt(count / max) * 10;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius.toFixed(1)}" fill="#6366f1" fill-opacity="0.6" stroke="#4f46e5" stroke-width="1" style="cursor:pointer"><title>${countryFlag(code)} ${code}: ${count} events</title></circle>`;
   }).join('');
 
-  const continentPaths = `
-    <path class="map-bg" d="M70 72l22-25 55-11 46 18 18 27-21 21-35-5-26 16-33-12zM176 128l32 5 17 24-18 47-25-16-11-35zM315 68l28-26 46 7 25 25-13 18-36-4-22 18-24-12zM345 109l42 12 30 38-16 63-29 22-18-36-34-17 8-42zM457 69l51-20 63 12 45 29-13 29-52 5-41-18-43 5zM520 147l47 9 28 25-21 31-41-5-29-28zM618 218l31-3 24 17-24 13-30-9z"/>`;
-  const mapSvg = `<svg class="map-svg" viewBox="0 0 ${W} ${H}" aria-label="World map of active users"><rect class="map-bg" x="0" y="0" width="${W}" height="${H}" rx="8" opacity=".18"/><g opacity=".9">${continentPaths}</g>${dots}</svg>`;
-  const names = { US: 'United States', GB: 'United Kingdom', CA: 'Canada', IT: 'Italy', AU: 'Australia', DE: 'Germany', FR: 'France', NL: 'Netherlands', JP: 'Japan', Unknown: 'Unknown' };
-  const list = sorted.slice(0, 5).map(([code, count]) => {
+  const continents = WORLD_MAP_PATHS.map(d =>
+    `<path d="${d}" fill="#e5e7eb" stroke="#d1d5db" stroke-width="0.5"/>`
+  ).join('');
+
+  const mapSvg = `<svg class="map-svg" viewBox="0 0 ${W} ${H}" aria-label="World map of active users"><rect x="0" y="0" width="${W}" height="${H}" rx="8" fill="#f9fafb"/>${continents}${dots}</svg>`;
+
+  const countryNames = {
+    US: 'United States', GB: 'United Kingdom', CA: 'Canada', DE: 'Germany',
+    FR: 'France', IT: 'Italy', ES: 'Spain', NL: 'Netherlands', JP: 'Japan',
+    CN: 'China', IN: 'India', BR: 'Brazil', AU: 'Australia', RU: 'Russia',
+    KR: 'South Korea', MX: 'Mexico', AR: 'Argentina', SE: 'Sweden', NO: 'Norway',
+    PL: 'Poland', TR: 'Turkey', CH: 'Switzerland', AT: 'Austria', BE: 'Belgium',
+    Unknown: 'Unknown'
+  };
+
+  const list = sorted.slice(0, 8).map(([code, count]) => {
     const percent = Math.round((count / total) * 100);
-    return `<div class="country-row"><span class="country-flag">${countryFlag(code)}</span><span class="country-name">${names[code] || code}</span><span class="country-bar-bg"><span class="country-bar-fill" style="width:${Math.max(percent, 5)}%"></span></span><span class="country-pct">${percent}%</span></div>`;
+    return `<div class="country-row"><span class="country-flag">${countryFlag(code)}</span><span class="country-name">${countryNames[code] || code}</span><span class="country-bar-bg"><span class="country-bar-fill" style="width:${Math.max(percent, 4)}%"></span></span><span class="country-pct">${percent}%</span></div>`;
   }).join('');
 
-  container.innerHTML = `<div class="map-section"><div>${mapSvg}</div><div><div style="font-size:24px;font-weight:700;margin-bottom:2px">${new Set(events.map(event => event.session_id).filter(Boolean)).size.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:16px">Active users <span style="color:var(--green)">▲ 2.9%</span></div><div class="country-list">${list}</div></div></div>`;
+  const totalSessions = new Set(events.map(e => e.session_id).filter(Boolean)).size;
+  const totalCountries = sorted.length;
+
+  container.innerHTML = `<div class="map-section"><div>${mapSvg}</div><div><div style="font-size:22px;font-weight:700;margin-bottom:2px">${totalSessions.toLocaleString()}</div><div style="font-size:11px;color:var(--textDim);margin-bottom:2px">Active users from ${totalCountries} ${totalCountries === 1 ? 'country' : 'countries'}</div><div class="country-list" style="margin-top:14px">${list}</div></div></div>`;
 }
 
 // --- Bar Chart for Error Codes ---
@@ -582,6 +685,7 @@ function renderErrorCodes(events) {
   const max = Math.max(...sorted.map(s => s[1]), 1);
 
   const container = document.getElementById('error-codes');
+  if (!container) return;
   if (sorted.length === 0) {
     container.innerHTML = '<div class="empty">No errors recorded</div>';
     return;
@@ -608,6 +712,7 @@ function renderTopTools(events) {
   const max = Math.max(...sorted.map(s => s[1]), 1);
 
   const container = document.getElementById('top-tools');
+  if (!container) return;
   if (sorted.length === 0) {
     container.innerHTML = '<div class="empty">No tool usage yet</div>';
     return;
@@ -633,6 +738,7 @@ function renderVersionBreakdown(events) {
   const max = Math.max(...sorted.map(s => s[1]), 1);
 
   const container = document.getElementById('version-breakdown');
+  if (!container) return;
   if (sorted.length === 0) {
     container.innerHTML = '<div class="empty">No version data yet</div>';
     return;

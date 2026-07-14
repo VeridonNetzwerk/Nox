@@ -493,24 +493,24 @@
     <div class="dashboard-grid">
       <div class="kpi-col">
         <div class="kpi-card">
-          <div class="kpi-label">Users <span class="kpi-change up">▲ 4.6%</span></div>
+          <div class="kpi-label">Users <span class="kpi-change" id="kpi-users-change"></span></div>
           <div class="kpi-value" id="kpi-users">—</div>
-          <div class="kpi-change" style="color:var(--textLight)">Unique devices</div>
+          <div class="kpi-change" style="color:var(--textLight)">Unique sessions</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Sessions <span class="kpi-change up">▲ 5.9%</span></div>
-          <div class="kpi-value" id="kpi-sessions">—</div>
-          <div class="kpi-change" style="color:var(--textLight)">Total sessions</div>
+          <div class="kpi-label">Events <span class="kpi-change" id="kpi-events-change"></span></div>
+          <div class="kpi-value" id="kpi-events">—</div>
+          <div class="kpi-change" style="color:var(--textLight)">Total events</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Avg. Session <span class="kpi-change down">▼ 2.1%</span></div>
+          <div class="kpi-label">Avg. Session <span class="kpi-change" id="kpi-duration-change"></span></div>
           <div class="kpi-value" id="kpi-duration">—</div>
           <div class="kpi-change" style="color:var(--textLight)">Session duration</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Page views <span class="kpi-change up">▲ 1.8%</span></div>
-          <div class="kpi-value" id="kpi-events">—</div>
-          <div class="kpi-change" style="color:var(--textLight)">Total events</div>
+          <div class="kpi-label">Errors <span class="kpi-change" id="kpi-errors-change"></span></div>
+          <div class="kpi-value" id="kpi-errors">—</div>
+          <div class="kpi-change" style="color:var(--textLight)">Error events</div>
         </div>
       </div>
 
@@ -542,7 +542,6 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">Top countries by active users</span>
-            <a href="#" class="card-link">Learn More</a>
           </div>
           <div id="country-breakdown">
             <div class="loading"><div class="spinner"></div> Loading…</div>
@@ -552,17 +551,16 @@
         <div class="charts-row">
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Bounce rate</span>
-              <a href="#" class="card-link">Learn More</a>
+              <span class="card-title">Event Types</span>
             </div>
-            <div id="bounce-rate">
+            <div id="event-types">
               <div class="loading"><div class="spinner"></div> Loading…</div>
             </div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Users by time</span>
+              <span class="card-title">Activity by hour</span>
             </div>
             <div id="users-by-time">
               <div class="loading"><div class="spinner"></div> Loading…</div>
