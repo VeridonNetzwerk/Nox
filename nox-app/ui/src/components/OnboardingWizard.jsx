@@ -678,9 +678,9 @@ function OnboardingWizard({ locale, onLocaleChange, onComplete }) {
               {gpuInfo && (
                 <div className="flex items-center justify-between px-3 py-2.5 nox-console-card text-sm">
                   <span className="nox-label">{s.gpu || "GPU"}</span>
-                  <span className={`text-xs font-mono ${gpuInfo.cuda_available ? "text-nox-phosphor" : "text-nox-amber"}`}>
+                  <span className={`text-xs font-mono ${gpuInfo.cuda_available ? "text-nox-phosphor" : "text-nox-amber"} flex items-center gap-1.5`}>
                     {gpuInfo.cuda_available
-                      ? `✓ ${gpuInfo.gpu_name || "GPU"}`
+                      ? <><span className="nox-status-dot" /> {gpuInfo.gpu_name || "GPU"}</>
                       : gpuInfo.nvidia_driver_present
                       ? "⚠ CPU-Fallback"
                       : "CPU-Modus"}
