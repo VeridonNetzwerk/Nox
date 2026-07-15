@@ -465,12 +465,14 @@ function renderTimeline(events, days = 30) {
     d.setHours(0, 0, 0, 0);
     buckets.push({ date: d, count: 0, label: d.toLocaleDateString('en', { month: 'short', day: 'numeric' }) });
   }
+  const dayUsers = buckets.map(() => new Set());
   events.forEach(e => {
     const d = new Date(e.created_at);
     d.setHours(0, 0, 0, 0);
-    const bucket = buckets.find(b => b.date.getTime() === d.getTime());
-    if (bucket) bucket.count++;
+    const idx = buckets.findIndex(b => b.date.getTime() === d.getTime());
+    if (idx >= 0) dayUsers[idx].add(e.install_id || e.session_id);
   });
+  buckets.forEach((b, i) => { b.count = dayUsers[i].size; });
   if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
   const W = 800, H = 165, padL = 38, padR = 18, padT = 10, padB = 25;
@@ -516,7 +518,7 @@ function renderTimeline(events, days = 30) {
   // Hover dots
   const dots = pts.map(p => {
     const isZero = p.count === 0;
-    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="var(--accent)" stroke="var(--chart-stroke)" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} events"></circle>`;
+    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="var(--accent)" stroke="var(--chart-stroke)" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} users"></circle>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">
@@ -540,7 +542,7 @@ function renderWeeklyTraffic(events) {
   const container = document.getElementById('weekly-traffic');
   if (!container) return;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const values = days.map((_, index) => events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).length);
+  const values = days.map((_, index) => new Set(events.filter(event => new Date(event.created_at).getDay() === (index + 1) % 7).map(e => e.install_id || e.session_id).filter(Boolean)).size);
   const maxVal = Math.max(...values, 1);
   if (events.length === 0) { container.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
@@ -581,7 +583,7 @@ function renderWeeklyTraffic(events) {
 
   const dots = pts.map(p => {
     const isZero = p.count === 0;
-    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="var(--accent)" stroke="var(--chart-stroke)" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} events"></circle>`;
+    return `<circle class="chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${isZero ? 0 : 3.5}" fill="var(--accent)" stroke="var(--chart-stroke)" stroke-width="2" opacity="${isZero ? 0 : 1}" data-label="${p.label}" data-detail="${p.count} users"></circle>`;
   }).join('');
 
   container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:Inter,sans-serif">
@@ -682,7 +684,7 @@ function renderUsersByTime(events) {
   if (!container) return;
   const hours = Array.from({ length: 24 }, (_, h) => h);
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const counts = hours.map(h => days.map((_, d) => events.filter(e => { const dt = new Date(e.created_at); return dt.getDay() === d && dt.getHours() === h; }).length));
+  const counts = hours.map(h => days.map((_, d) => new Set(events.filter(e => { const dt = new Date(e.created_at); return dt.getDay() === d && dt.getHours() === h; }).map(e => e.install_id || e.session_id).filter(Boolean)).size));
   const max = Math.max(...counts.flat(), 1);
   const cellSize = 16;
   const gap = 3;
@@ -696,7 +698,7 @@ function renderUsersByTime(events) {
     const cells = days.map((_, di) => {
       const intensity = counts[hi][di] / max;
       const alpha = intensity > 0 ? 0.12 + intensity * 0.88 : 0;
-      return `<rect x="${labelW + di * (cellSize + gap)}" y="${y}" width="${cellSize}" height="${cellSize}" rx="3" fill="rgba(99,102,241,${alpha.toFixed(2)})" class="heatmap-cell" data-label="${days[di]} ${h.toString().padStart(2,'0')}:00" data-detail="${counts[hi][di]} events"></rect>`;
+      return `<rect x="${labelW + di * (cellSize + gap)}" y="${y}" width="${cellSize}" height="${cellSize}" rx="3" fill="rgba(99,102,241,${alpha.toFixed(2)})" class="heatmap-cell" data-label="${days[di]} ${h.toString().padStart(2,'0')}:00" data-detail="${counts[hi][di]} users"></rect>`;
     }).join('');
     return label + cells;
   }).join('');
@@ -736,14 +738,17 @@ async function renderCountryMap(events) {
   if (!container) return;
 
   const counts = {};
+  const countryUsers = {};
   events.forEach(event => {
     const country = event.country;
     if (country && country !== 'Unknown' && country.length === 2) {
-      counts[country] = (counts[country] || 0) + 1;
+      if (!countryUsers[country]) countryUsers[country] = new Set();
+      countryUsers[country].add(event.install_id || event.session_id);
     }
   });
+  Object.entries(countryUsers).forEach(([code, users]) => { counts[code] = users.size; });
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const total = Math.max(events.length, 1);
+  const total = Math.max(Object.values(counts).reduce((s, v) => s + v, 0), 1);
   const max = Math.max(...sorted.map(([, count]) => count), 1);
 
   if (sorted.length === 0) {
@@ -789,8 +794,8 @@ async function renderCountryMap(events) {
       const fill = count > 0 ? choroplethColor(count / max) : 'var(--map-empty)';
       const label = `${countryFlag(code)} ${countryName(code)}`;
       const detail = count > 0
-        ? `${count.toLocaleString()} events (${Math.round((count / total) * 100)}%)`
-        : 'no events';
+        ? `${count.toLocaleString()} users (${Math.round((count / total) * 100)}%)`
+        : 'no users';
       paths.forEach(p => {
         p.setAttribute('stroke', 'var(--chart-stroke)');
         p.setAttribute('stroke-width', '0.4');
@@ -802,7 +807,7 @@ async function renderCountryMap(events) {
       });
     });
 
-    const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--gradient-start),var(--accent))"></div><span>${max.toLocaleString()} events</span></div>`;
+    const legendHtml = `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--textDim)"><span>0</span><div style="flex:0 0 90px;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--gradient-start),var(--accent))"></div><span>${max.toLocaleString()} users</span></div>`;
     container.innerHTML = `<div class="map-section"><div><div class="map-holder" style="position:relative"></div>${legendHtml}</div>${infoHtml}</div>`;
     const holder = container.querySelector('.map-holder');
     holder.appendChild(svg);
