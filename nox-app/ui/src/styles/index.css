@@ -1,0 +1,625 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   CSS Variables – Theme tokens (Clean Neutral)
+   --------------------------------------------------------------------------- */
+
+[data-theme="dark"] {
+  --nox-bg: rgba(28, 28, 30, 0.92);
+  --nox-bg-solid: #1b1c1d;
+  --nox-surface: rgba(38, 39, 42, 0.92);
+  --nox-surface-hover: rgba(48, 49, 53, 0.95);
+  --nox-surface-raised: rgba(53, 54, 58, 0.98);
+  --nox-border: rgba(255, 255, 255, 0.08);
+  --nox-border-hover: rgba(255, 255, 255, 0.14);
+  --nox-border-accent: rgba(138, 180, 248, 0.25);
+  --nox-text: #e3e3e6;
+  --nox-text-dim: #9b9da3;
+  --nox-text-faint: #6b6d73;
+  --nox-accent: #8ab4f8;
+  --nox-accent-hover: #aac8fa;
+  --nox-accent-fg: #1b1c1d;
+  --nox-violet: #8ab4f8;
+  --nox-glow-2: #c2d7fc;
+  --nox-phosphor: #5bb97c;
+  --nox-phosphor-dim: rgba(91, 185, 124, 0.12);
+  --nox-amber: #f29800;
+  --nox-red: #f28b82;
+  --nox-shadow: rgba(0, 0, 0, 0.3);
+  --nox-shadow-strong: rgba(0, 0, 0, 0.45);
+  --nox-backdrop: rgba(0, 0, 0, 0.5);
+  --nox-pill-bg: #28292c;
+  --nox-pill-border: rgba(255, 255, 255, 0.06);
+  --nox-pill-halo-opacity: 0.35;
+  --nox-scrollbar: rgba(255, 255, 255, 0.12);
+  --nox-scrollbar-hover: rgba(255, 255, 255, 0.2);
+  --nox-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --nox-font-mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  --nox-font-body: "Inter", system-ui, sans-serif;
+}
+
+[data-theme="light"] {
+  --nox-bg: rgba(255, 255, 255, 0.92);
+  --nox-bg-solid: #ffffff;
+  --nox-surface: rgba(248, 249, 250, 0.93);
+  --nox-surface-hover: rgba(241, 243, 244, 0.96);
+  --nox-surface-raised: rgba(244, 245, 246, 0.98);
+  --nox-border: rgba(0, 0, 0, 0.08);
+  --nox-border-hover: rgba(0, 0, 0, 0.14);
+  --nox-border-accent: rgba(26, 115, 232, 0.25);
+  --nox-text: #1b1c1d;
+  --nox-text-dim: #5f6368;
+  --nox-text-faint: #9aa0a6;
+  --nox-accent: #1a73e8;
+  --nox-accent-hover: #1765cc;
+  --nox-accent-fg: #ffffff;
+  --nox-violet: #1a73e8;
+  --nox-glow-2: #4c9aff;
+  --nox-phosphor: #1e8e3e;
+  --nox-phosphor-dim: rgba(30, 142, 62, 0.10);
+  --nox-amber: #f29800;
+  --nox-red: #d93025;
+  --nox-shadow: rgba(0, 0, 0, 0.08);
+  --nox-shadow-strong: rgba(0, 0, 0, 0.16);
+  --nox-backdrop: rgba(0, 0, 0, 0.25);
+  --nox-pill-bg: #f8f9fa;
+  --nox-pill-border: rgba(0, 0, 0, 0.06);
+  --nox-pill-halo-opacity: 0.4;
+  --nox-scrollbar: rgba(0, 0, 0, 0.12);
+  --nox-scrollbar-hover: rgba(0, 0, 0, 0.2);
+  --nox-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --nox-font-mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  --nox-font-body: "Inter", system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  font-family: var(--nox-font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------------------------------------------------------------------------
+   Window background (transparent + blur)
+   --------------------------------------------------------------------------- */
+
+.nox-window-bg {
+  background: var(--nox-bg);
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbar
+   --------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nox-scrollbar);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--nox-scrollbar-hover);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Animations
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes nox-slide-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+}
+
+@keyframes nox-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: nox-slide-in 200ms ease-out forwards;
+}
+
+.animate-slide-out {
+  animation: nox-slide-out 200ms ease-in forwards;
+}
+
+.animate-slide-in-right {
+  animation: nox-slide-in-right 200ms ease-out forwards;
+}
+
+/* ---------------------------------------------------------------------------
+   Glassmorphism utilities
+   --------------------------------------------------------------------------- */
+
+@layer components {
+  .glass-panel {
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--nox-surface) 72%, transparent);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--nox-border);
+    box-shadow: 0 8px 32px var(--nox-shadow-strong);
+  }
+
+  .glass-card {
+    border-radius: 4px;
+    background: var(--nox-surface);
+    border: 1px solid var(--nox-border);
+    transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  }
+
+  .glass-card:hover {
+    background: var(--nox-surface-hover);
+    border-color: var(--nox-border-hover);
+  }
+
+  .glass-input {
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--nox-surface) 50%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--nox-border);
+    transition: border-color 200ms ease;
+  }
+
+  .glass-input:focus {
+    border-color: var(--nox-accent);
+  }
+
+  .accent-text-gradient {
+    background: linear-gradient(135deg, var(--nox-accent), var(--nox-glow-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Console-style label — monospace, uppercase, letter-spacing */
+  .nox-label {
+    font-family: var(--nox-font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--nox-text-dim);
+  }
+
+  /* Console-style heading — Space Grotesk display font */
+  .nox-heading {
+    font-family: var(--nox-font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* Console-style button — monospace, sharp, glow */
+  .nox-btn-primary {
+    font-family: var(--nox-font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    background: var(--nox-accent);
+    color: var(--nox-accent-fg);
+    box-shadow: 0 1px 3px var(--nox-shadow);
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .nox-btn-primary:hover {
+    background: var(--nox-accent-hover);
+    box-shadow: 0 2px 8px var(--nox-shadow);
+    transform: translateY(-1px);
+  }
+
+  .nox-btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .nox-btn-secondary {
+    font-family: var(--nox-font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--nox-text);
+    border: 1px solid var(--nox-border);
+    transition: all 0.25s ease;
+    cursor: pointer;
+  }
+
+  .nox-btn-secondary:hover {
+    border-color: var(--nox-border-hover);
+    background: color-mix(in srgb, var(--nox-text) 5%, transparent);
+  }
+
+  .nox-btn-secondary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Status dot — subtle green pulse */
+  .nox-status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nox-phosphor);
+    animation: nox-dot-pulse 2.5s ease-in-out infinite;
+  }
+
+  /* Console card — raised surface with accent border */
+  .nox-console-card {
+    border-radius: 4px;
+    background: var(--nox-surface-raised);
+    border: 1px solid var(--nox-border);
+    transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+
+  .nox-console-card:hover {
+    border-color: var(--nox-border-accent);
+    box-shadow: 0 1px 6px var(--nox-shadow);
+  }
+
+  /* Gemini-style input pill — solid pill with multi-color ambient gradient halo */
+  .nox-input-pill {
+    position: relative;
+    border-radius: 28px;
+    background: var(--nox-pill-bg);
+    border: 1px solid var(--nox-pill-border);
+    box-shadow: 0 4px 18px var(--nox-shadow);
+    transition: box-shadow 0.3s ease;
+  }
+
+  /* Gradient halo painted behind the pill background */
+  .nox-input-pill::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: inherit;
+    background: linear-gradient(
+      100deg,
+      var(--nox-accent),
+      var(--nox-violet),
+      var(--nox-glow-2),
+      var(--nox-accent)
+    );
+    background-size: 200% 100%;
+    filter: blur(9px);
+    opacity: var(--nox-pill-halo-opacity);
+    z-index: -1;
+    transition: opacity 0.3s ease, filter 0.3s ease;
+  }
+
+  .nox-input-pill:hover::before {
+    opacity: calc(var(--nox-pill-halo-opacity) + 0.2);
+    filter: blur(11px);
+  }
+
+  /* Active-listening state — rotating colorful border ring (Gemini style) */
+  .nox-input-pill.is-listening::before {
+    inset: -2px;
+    border-radius: inherit;
+    background: conic-gradient(
+      from var(--pill-angle, 0deg),
+      #ff0080,
+      #ff8c00,
+      #ffd700,
+      #00ff7f,
+      #00bfff,
+      #8a2be2,
+      #ff0080
+    );
+    filter: blur(3px);
+    opacity: 0.7;
+    animation: pill-angle-rotate 3s linear infinite;
+  }
+
+  /* Rotating gradient ring wrapper — wrap around the mic/orb button */
+  .nox-orb-ring {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+  }
+
+  .nox-orb-ring.is-listening::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--nox-accent), var(--nox-violet), var(--nox-glow-2), var(--nox-accent));
+    filter: blur(5px);
+    opacity: 0.9;
+    animation: nox-gradient-rotate 2.2s linear infinite;
+    z-index: 0;
+  }
+
+  .nox-orb-ring > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Gemini-style response card — dark floating modal above input pill */
+  .nox-response-card {
+    background: var(--nox-pill-bg);
+    border: 1px solid var(--nox-pill-border);
+    box-shadow: 0 8px 32px var(--nox-shadow-strong);
+  }
+
+  /* Gemini-style action buttons — subtle icon buttons */
+  .nox-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    color: var(--nox-text-dim);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .nox-action-btn:hover {
+    color: var(--nox-text);
+    background: color-mix(in srgb, var(--nox-surface-hover) 80%, transparent);
+  }
+
+  .nox-action-btn:active {
+    transform: scale(0.92);
+  }
+}
+
+@keyframes nox-dot-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--nox-phosphor); }
+  50% { opacity: 0.5; box-shadow: 0 0 1px var(--nox-phosphor); }
+}
+
+@property --pill-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes pill-angle-rotate {
+  to { --pill-angle: 360deg; }
+}
+
+@keyframes nox-gradient-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------------------------------------------------------------------------
+   Orb animations
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-orb-idle {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--nox-accent) 20%, transparent), 0 2px 8px rgba(0,0,0,0.2);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--nox-accent) 30%, transparent), 0 2px 8px rgba(0,0,0,0.2);
+  }
+}
+
+@keyframes nox-orb-listening {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--nox-accent) 35%, transparent), 0 2px 8px rgba(0,0,0,0.2);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--nox-accent) 55%, transparent), 0 2px 8px rgba(0,0,0,0.2);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--nox-accent) 35%, transparent), 0 2px 8px rgba(0,0,0,0.2);
+  }
+}
+
+@keyframes nox-orb-thinking {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.08); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes nox-orb-speaking {
+  0%, 100% {
+    transform: scaleY(1);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--nox-accent) 35%, transparent);
+  }
+  25% {
+    transform: scaleY(1.1) scaleX(0.95);
+    box-shadow: 0 0 22px color-mix(in srgb, var(--nox-accent) 50%, transparent);
+  }
+  50% {
+    transform: scaleY(0.95) scaleX(1.05);
+    box-shadow: 0 0 28px color-mix(in srgb, var(--nox-accent) 60%, transparent);
+  }
+  75% {
+    transform: scaleY(1.08) scaleX(0.97);
+    box-shadow: 0 0 20px color-mix(in srgb, var(--nox-accent) 45%, transparent);
+  }
+}
+
+@keyframes nox-orb-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.orb-idle {
+  animation: nox-orb-idle 3s ease-in-out infinite;
+}
+.orb-listening {
+  animation: nox-orb-listening 1.2s ease-in-out infinite;
+}
+.orb-thinking {
+  animation: nox-orb-thinking 2s linear infinite;
+}
+.orb-speaking {
+  animation: nox-orb-speaking 0.6s ease-in-out infinite;
+}
+
+.orb-ripple {
+  animation: nox-orb-ripple 1.5s ease-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Slide in for chat bubbles
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-bubble-in {
+  animation: nox-bubble-in 250ms ease-out forwards;
+}
+
+/* ---------------------------------------------------------------------------
+   Thinking dots — bounce animation
+   --------------------------------------------------------------------------- */
+
+@keyframes nox-thinking-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+.thinking-dot:nth-child(1) { animation: nox-thinking-bounce 1.4s ease-in-out infinite; }
+.thinking-dot:nth-child(2) { animation: nox-thinking-bounce 1.4s ease-in-out 0.2s infinite; }
+.thinking-dot:nth-child(3) { animation: nox-thinking-bounce 1.4s ease-in-out 0.4s infinite; }
+
+/* ---------------------------------------------------------------------------
+   Drag region — for frameless main window title bar
+   --------------------------------------------------------------------------- */
+
+.drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.drag-region button,
+.drag-region input,
+.drag-region select,
+.drag-region a {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Audio Equalizer (listening state) ── */
+.nox-equalizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 1;
+  height: 24px;
+}
+
+.nox-equalizer-bar {
+  width: 3px;
+  min-height: 4px;
+  border-radius: 2px;
+  background: var(--nox-accent);
+  transition: height 0.05s linear, opacity 0.05s linear;
+}
+
+/* Only animate when transcribing (no mic access) */
+.nox-equalizer.is-transcribing .nox-equalizer-bar {
+  animation: eq-wave 1.2s ease-in-out infinite;
+  animation-delay: var(--eq-delay, 0s);
+}
+
+@keyframes eq-wave {
+  0%, 100% { height: 4px; opacity: 0.4; }
+  50% { height: var(--eq-height, 16px); opacity: 0.9; }
+}
+
+/* Smooth fade transition for equalizer */
+.nox-equalizer-enter {
+  animation: eq-fade-in 0.3s ease forwards;
+}
+
+@keyframes eq-fade-in {
+  from { opacity: 0; transform: scaleY(0.5); }
+  to { opacity: 1; transform: scaleY(1); }
+}

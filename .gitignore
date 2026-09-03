@@ -41,3 +41,9 @@ nox-app/dist/win-unpacked/resources/app-extracted/
 # Temp files
 *.tmp
 *.bak
+
+# Wake word training recordings
+hey_nox_recordings/
+
+# Python pytest cache
+.pytest_cache/

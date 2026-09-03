@@ -1,12 +1,13 @@
 {
   "name": "nox-ui",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "Nox – Electron + React Frontend",
+  "author": "VeridonNetzwerk",
   "private": true,
-  "main": "electron/main.js",
+  "main": "electron/main/main.js",
   "scripts": {
-    "dev": "concurrently -n vite,electron -c magenta,cyan \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "build": "vite build",
+    "dev": "concurrently -n vite,electron -c magenta,cyan \"vite --config config/vite.config.js\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build --config config/vite.config.js",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
@@ -36,6 +37,18 @@
       "target": "nsis",
       "icon": "../assets/branding/icon_1024.ico"
     },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "../assets/branding/icon_1024x1024.png",
+      "category": "Utility",
+      "maintainer": "Nox",
+      "vendor": "Nox",
+      "synopsis": "Local AI Desktop Assistant"
+    },
+    "deb": {
+      "depends": ["xdotool", "xprop", "pulseaudio-utils | pipewire-pulse"],
+      "category": "Utility"
+    },
     "nsis": {
       "include": "nsis/installer.nsh",
       "oneClick": false,
@@ -60,9 +73,12 @@
         "to": "backend",
         "filter": [
           "**/*",
-          "!__pycache__/**",
-          "!*.pyc",
-          "!.build-cache/**"
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!.build-cache/**",
+          "!**/.git/**",
+          "!**/tests/**",
+          "!**/*.egg-info/**"
         ]
       },
       {

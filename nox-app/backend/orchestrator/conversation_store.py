@@ -14,8 +14,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-import httpx
-
 logger = logging.getLogger("nox.orchestrator.conversation")
 
 SCHEMA_SQL = """
@@ -26,11 +24,18 @@ CREATE TABLE IF NOT EXISTS conversations (
     content TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     token_count INTEGER DEFAULT 0,
-    voice_input INTEGER DEFAULT 0
+    voice_input INTEGER DEFAULT 0,
+    stats TEXT DEFAULT ''         -- JSON string of response stats
 );
 
 CREATE INDEX IF NOT EXISTS idx_conv_id ON conversations(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_conv_timestamp ON conversations(conversation_id, timestamp);
+
+CREATE TABLE IF NOT EXISTS conversation_titles (
+    conversation_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -40,10 +45,9 @@ class ConversationStore:
     def __init__(
         self,
         db_path: str = "",
-        ollama_host: str = "http://localhost:11434",
-        ollama_model: str = "qwen3:14b",
         max_context_tokens: int = 4096,
         summary_threshold: float = 0.75,
+        summarize_fn: Optional[callable] = None,
     ):
         if db_path:
             self.db_path = db_path
@@ -52,10 +56,9 @@ class ConversationStore:
             data_dir.mkdir(parents=True, exist_ok=True)
             self.db_path = str(data_dir / "nox.db")
 
-        self.ollama_host = ollama_host
-        self.ollama_model = ollama_model
         self.max_context_tokens = max_context_tokens
         self.summary_threshold = summary_threshold
+        self._summarize_fn = summarize_fn
         self._lock = threading.Lock()
         self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
@@ -64,8 +67,44 @@ class ConversationStore:
         with self._lock:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._conn.executescript(SCHEMA_SQL)
+            # Migration: add stats column if missing (existing DBs)
+            try:
+                cols = [r[1] for r in self._conn.execute("PRAGMA table_info(conversations)").fetchall()]
+                if "stats" not in cols:
+                    self._conn.execute("ALTER TABLE conversations ADD COLUMN stats TEXT DEFAULT ''")
+                    self._conn.commit()
+                    logger.info("Migrated conversations table: added stats column")
+            except Exception as exc:
+                logger.warning("Migration check failed (ok if fresh DB): %s", exc)
             self._conn.commit()
             logger.info("ConversationStore initialized: %s", self.db_path)
+
+    def set_title(self, conversation_id: str, title: str) -> None:
+        """Set or update the AI-generated title for a conversation."""
+        timestamp = datetime.now().isoformat()
+        with self._lock:
+            try:
+                self._conn.execute(
+                    "INSERT INTO conversation_titles (conversation_id, title, updated_at) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT(conversation_id) DO UPDATE SET title=excluded.title, updated_at=excluded.updated_at",
+                    (conversation_id, title, timestamp),
+                )
+                self._conn.commit()
+            except Exception as exc:
+                logger.error("Failed to set conversation title: %s", exc, exc_info=True)
+
+    def get_title(self, conversation_id: str) -> str | None:
+        """Get the AI-generated title for a conversation, if any."""
+        with self._lock:
+            try:
+                row = self._conn.execute(
+                    "SELECT title FROM conversation_titles WHERE conversation_id = ?",
+                    (conversation_id,),
+                ).fetchone()
+                return row[0] if row else None
+            except Exception:
+                return None
 
     def add_turn(
         self,
@@ -74,15 +113,16 @@ class ConversationStore:
         content: str,
         token_count: int = 0,
         voice_input: bool = False,
+        stats: str = "",
     ) -> None:
         """Add a conversation turn to the store."""
         timestamp = datetime.now().isoformat()
         with self._lock:
             try:
                 self._conn.execute(
-                    "INSERT INTO conversations (conversation_id, role, content, timestamp, token_count, voice_input) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (conversation_id, role, content, timestamp, token_count, int(voice_input)),
+                    "INSERT INTO conversations (conversation_id, role, content, timestamp, token_count, voice_input, stats) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (conversation_id, role, content, timestamp, token_count, int(voice_input), stats),
                 )
                 self._conn.commit()
             except Exception as exc:
@@ -101,7 +141,7 @@ class ConversationStore:
         with self._lock:
             try:
                 rows = self._conn.execute(
-                    "SELECT role, content, timestamp, voice_input FROM conversations "
+                    "SELECT role, content, timestamp, voice_input, stats FROM conversations "
                     "WHERE conversation_id = ? AND role != 'summary' "
                     "ORDER BY id DESC LIMIT ?",
                     (conversation_id, n),
@@ -109,7 +149,7 @@ class ConversationStore:
                 # Reverse to oldest-first
                 rows = list(reversed(rows))
                 return [
-                    {"role": r[0], "content": r[1], "timestamp": r[2], "voice_input": bool(r[3])}
+                    {"role": r[0], "content": r[1], "timestamp": r[2], "voice_input": bool(r[3]), "stats": r[4] if r[4] else None}
                     for r in rows
                 ]
             except Exception as exc:
@@ -180,43 +220,34 @@ class ConversationStore:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{self.ollama_host}/api/generate",
-                    json={
-                        "model": self.ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                summary = data.get("response", "").strip()
+            summary = None
+            if self._summarize_fn:
+                summary = await self._summarize_fn(prompt)
+            if summary:
+                summary = summary.strip()
+                # Delete old turns (keep summary + recent)
+                with self._lock:
+                    # Get IDs of turns to remove
+                    old_ids = self._conn.execute(
+                        "SELECT id FROM conversations "
+                        "WHERE conversation_id = ? AND role != 'summary' "
+                        "ORDER BY id DESC LIMIT 50",
+                        (conversation_id,),
+                    ).fetchall()
+                    # Keep last 4, delete the rest
+                    ids_to_delete = [r[0] for r in old_ids[4:]]
+                    if ids_to_delete:
+                        placeholders = ",".join("?" * len(ids_to_delete))
+                        self._conn.execute(
+                            f"DELETE FROM conversations WHERE id IN ({placeholders})",
+                            ids_to_delete,
+                        )
+                        self._conn.commit()
 
-                if summary:
-                    # Delete old turns (keep summary + recent)
-                    with self._lock:
-                        # Get IDs of turns to remove
-                        old_ids = self._conn.execute(
-                            "SELECT id FROM conversations "
-                            "WHERE conversation_id = ? AND role != 'summary' "
-                            "ORDER BY id DESC LIMIT 50",
-                            (conversation_id,),
-                        ).fetchall()
-                        # Keep last 4, delete the rest
-                        ids_to_delete = [r[0] for r in old_ids[4:]]
-                        if ids_to_delete:
-                            placeholders = ",".join("?" * len(ids_to_delete))
-                            self._conn.execute(
-                                f"DELETE FROM conversations WHERE id IN ({placeholders})",
-                                ids_to_delete,
-                            )
-                            self._conn.commit()
-
-                    # Insert summary
-                    self.add_turn(conversation_id, "summary", summary, token_count=len(summary) // 4)
-                    logger.info("Conversation summarized: %s", conversation_id)
-                    return summary
+                # Insert summary
+                self.add_turn(conversation_id, "summary", summary, token_count=len(summary) // 4)
+                logger.info("Conversation summarized: %s", conversation_id)
+                return summary
 
         except Exception as exc:
             logger.error("Summarization failed: %s", exc, exc_info=True)
@@ -230,7 +261,7 @@ class ConversationStore:
         context: Optional[str] = None,
         max_turns: int = 10,
     ) -> list[dict[str, str]]:
-        """Build the message list for Ollama chat API.
+        """Build the message list for the LLM chat API.
 
         Structure:
         1. System prompt (persona + context)

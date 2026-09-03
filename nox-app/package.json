@@ -1,7 +1,8 @@
 {
   "name": "nox-app",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "Nox – Local AI Desktop Assistant",
+  "author": "VeridonNetzwerk",
   "private": true,
   "scripts": {
     "dev": "concurrently -n backend,ui -c blue,green \"npm:dev:backend\" \"npm:dev:ui\"",
@@ -10,6 +11,9 @@
     "build:backend": "cd backend && python build_backend.py",
     "build:ui": "cd ui && npm run build",
     "build": "npm run build:backend && npm run build:ui && cd ui && npx electron-builder",
+    "build:dir": "npm run build:backend && npm run build:ui && cd ui && npx electron-builder --dir",
+    "build:quick": "npm run build:ui && cd ui && npx electron-builder --dir",
+    "build:clean": "cd backend && python build_backend.py --clean && cd .. && npm run build:ui && cd ui && npx electron-builder",
     "dist": "cd ui && npm run dist"
   },
   "devDependencies": {

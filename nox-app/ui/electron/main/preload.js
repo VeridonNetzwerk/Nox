@@ -1,0 +1,64 @@
+const { contextBridge, ipcRenderer } = require("electron");
+
+// Expose a safe API to the renderer process
+contextBridge.exposeInMainWorld("nox", {
+  platform: process.platform,
+  versions: {
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+  },
+
+  // Theme
+  onThemeChanged: (callback) =>
+    ipcRenderer.on("theme-changed", (_, theme) => callback(theme)),
+  setThemePreference: (pref) => ipcRenderer.send("set-theme-preference", pref),
+
+  // Window visibility events
+  onWindowShow: (callback) =>
+    ipcRenderer.on("window-show", () => callback()),
+  onWindowHide: (callback) =>
+    ipcRenderer.on("window-hide", () => callback()),
+
+  // Settings
+  onOpenSettings: (callback) =>
+    ipcRenderer.on("open-settings", () => callback()),
+
+  // Actions — overlay (compact Hey Nox popup)
+  hideWindow: () => ipcRenderer.send("hide-window"),
+  showWindow: () => ipcRenderer.send("show-window"),
+  wakeShowWindow: () => ipcRenderer.send("wake-show-window"),
+  isMainWindowVisible: () => ipcRenderer.sendSync("is-main-window-visible"),
+  closeApp: () => ipcRenderer.send("close-app"),
+  closeWindow: () => ipcRenderer.send("close-window"),
+  onboardingComplete: () => ipcRenderer.send("onboarding-complete"),
+  onboardingActive: () => ipcRenderer.send("onboarding-active"),
+  onboardingNotNeeded: () => ipcRenderer.send("onboarding-not-needed"),
+  depsInstalled: () => ipcRenderer.send("deps-installed"),
+  updateHotkey: (hotkey) => ipcRenderer.send("update-hotkey", hotkey),
+  setThinkingState: (thinking) => ipcRenderer.send("thinking-state", thinking),
+  setVoiceState: (active) => ipcRenderer.send("voice-state", active),
+  resizeWindow: (scale) => ipcRenderer.send("resize-window", scale),
+  openPath: (path) => ipcRenderer.send("open-path", path),
+
+  // Logging — forward renderer logs to main process file logger
+  log: (msg) => ipcRenderer.send("renderer-log", msg),
+  error: (msg) => ipcRenderer.send("renderer-error", msg),
+
+  // Updates
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+  downloadAndInstallUpdate: () => ipcRenderer.invoke("update:download-and-install"),
+  openReleasePage: () => ipcRenderer.send("update:open-release-page"),
+  onUpdateAvailable: (callback) =>
+    ipcRenderer.on("update:available", (_, info) => callback(info)),
+  onUpdateProgress: (callback) =>
+    ipcRenderer.on("update:progress", (_, progress) => callback(progress)),
+});
+
+// Forward uncaught renderer errors to main process
+window.addEventListener("error", (e) => {
+  ipcRenderer.send("renderer-error", `Uncaught: ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  ipcRenderer.send("renderer-error", `Unhandled rejection: ${e.reason}`);
+});

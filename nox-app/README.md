@@ -119,7 +119,7 @@ This runs three steps:
 2. **build:ui** – Vite production build of the React frontend
 3. **electron-builder** – Packages everything into a single NSIS installer
 
-Output: `dist/Nox-Setup-0.5.0.exe` – a single self-contained installer.
+Output: `dist/Nox-Setup-0.1.0.exe` – a single self-contained installer.
 
 ### Installer Size
 

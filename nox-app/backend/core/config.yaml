@@ -1,0 +1,88 @@
+analytics_enabled: true
+analytics_supabase_url: ''
+analytics_supabase_key: ''
+analytics_token: ''
+audio_input_device: default
+audio_output_device: default
+end_turn_enabled: true
+end_turn_fillword_extension: 0.8
+end_turn_incomplete_sentence_extension: 1.0
+end_turn_max_silence: 2.5
+end_turn_silence_threshold: 1.0
+hotkey: CommandOrControl+Shift+Space
+log_context_content: false
+llm_backend: auto
+llm_endpoint: ''
+llm_model_path: ''
+llm_api_key: ''
+llm_gpu_layers: -1
+llm_speed_mode: balance
+max_context_tokens: 8192
+max_history_turns: 10
+memory_db_path: ''
+memory_embedding_model: paraphrase-multilingual-MiniLM-L12-v2
+music_platform: ''
+nox_eye_enabled: true
+nox_eye_excluded_apps:
+- keepass
+- 1password
+- bitwarden
+- lastpass
+- enpass
+- dashlane
+nox_eye_ocr_fallback: true
+nox_eye_ocr_gpu: true
+nox_eye_screenshot_interval: 60
+nox_eye_ttl_days: 7
+nox_eye_vision_provider: auto
+nox_eye_vision_local_model: minicpm-v4.6
+nox_eye_vision_local_vram_threshold: 4096
+nox_eye_vision_ovh_token: ''
+nox_eye_vision_florence2_model: microsoft/Florence-2-large-ft
+nox_eye_vision_florence2_vram_threshold: 2048
+nox_eye_vision_florence2_keep_alive: 5
+nox_files_custom_folders: []
+nox_files_db_path: ''
+nox_files_enabled: true
+nox_files_excluded_dirs: []
+nox_files_full_drive: false
+nox_files_ocr_gpu: true
+ollama_host: http://localhost:11434
+ollama_model: ''
+ollama_model_mode: balance
+ollama_preload: false
+ollama_preload_mode: vram
+ollama_vram_mode: auto
+ollama_think: false
+onboarding_completed: false
+server_host: 127.0.0.1
+server_port: 8420
+stt_compute_type: auto
+stt_device: auto
+stt_enabled: true
+stt_language: de
+stt_model: small
+summary_threshold: 0.75
+system_language: ''
+tts_enabled: true
+tts_engine: edge
+tts_model: de-DE-SeraphinaMultilingualNeural
+tts_sample_rate: 24000
+ui_theme: system
+ui_scale: 1.0
+user_profile:
+  location: ''
+  latitude: null
+  longitude: null
+  timezone: ''
+  name: ''
+  language: ''
+  units: metric
+vad_aggressiveness: 1
+vad_initial_silence_timeout: 5.0
+vad_silence_duration: 1.2
+vad_speech_onset_frames: 2
+vad_timeout: 30.0
+wake_word_enabled: true
+wake_word_model: hey_nox.onnx
+wake_word_threshold: 0.6

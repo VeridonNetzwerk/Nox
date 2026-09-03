@@ -13,8 +13,12 @@ Registered tools:
 import json
 import logging
 import re
+import subprocess
 from datetime import datetime
 from typing import Any, Callable, Optional
+
+from platform_utils import IS_WINDOWS, IS_LINUX, is_command_available  # core/ subdir on sys.path
+from user_profile import UserProfile  # core/ subdir on sys.path
 
 logger = logging.getLogger("nox.orchestrator.tools")
 
@@ -37,8 +41,8 @@ class Tool:
         self.parameters = parameters
         self.handler = handler
 
-    def to_ollama_schema(self) -> dict[str, Any]:
-        """Convert to Ollama tool schema format."""
+    def to_schema(self) -> dict[str, Any]:
+        """Convert to LLM tool schema format (OpenAI-compatible)."""
         return {
             "type": "function",
             "function": {
@@ -52,8 +56,9 @@ class Tool:
 # Short descriptions of settings the AI can read/change on request
 SETTINGS_DESCRIPTIONS = {
     "ollama_model": "KI-Modell (z.B. qwen3:14b, qwen3:8b, qwen3:32b)",
-    "ollama_host": "Ollama-Server-Adresse",
+    "ollama_host": "LLM-Backend-Server-Adresse",
     "ollama_preload": "Modell beim Start laden (true/false)",
+    "ollama_vram_mode": "VRAM-Management: 'auto' (adaptiv, Default), 'off' (modell bei jeder Antwort neu laden)",
     "ollama_think": "Thinking-Modus aktivieren – tiefere Antworten, aber langsamer (true/false)",
     "ui_theme": "Design: system, dark oder light",
     "ui_scale": "UI-Größe (0.7 bis 1.6, Standard 1.0)",
@@ -78,7 +83,6 @@ SETTINGS_DESCRIPTIONS = {
     "nox_files_full_drive": "Ganze Festplatte indexieren (true/false)",
     "max_history_turns": "Gesprächsverlauf-Länge (Anzahl Turns)",
     "max_context_tokens": "Max Token-Kontextfenster",
-    "audd_api_token": "Veraltet — Musikerkennung nutzt jetzt Shazam (kein Token nötig)",
     "music_platform": "Bevorzugte Musik-Plattform für Song-Links: spotify, apple_music, youtube (leer = Nutzer fragen)",
 }
 
@@ -96,22 +100,24 @@ class ToolHandler:
         self._broadcast = broadcast
         self._tools_cache: Optional[list[dict[str, Any]]] = None
         self._last_music_result: Optional[dict[str, Any]] = None
+        self._loop: Optional[Any] = None
+        self._user_profile = UserProfile(settings_manager)
         self._register_defaults()
         self._start_reminder_checker()
 
     def _register_defaults(self) -> None:
         """Register built-in tools."""
 
-        # kontext_suche
+        # bildschirm_suchen
         self.register(Tool(
-            name="kontext_suche",
-            description="Durchsucht den erfassten Bildschirmkontext nach einem Stichwort.",
+            name="bildschirm_suchen",
+            description="Sucht nach einem Stichwort im aktuellen Bildschirminhalt.",
             parameters={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Suchbegriff oder Frage zum Kontext",
+                        "description": "Suchbegriff",
                     }
                 },
                 "required": ["query"],
@@ -170,6 +176,9 @@ class ToolHandler:
         self.register(Tool(
             name="datei_lesen",
             description="Liest den Textinhalt einer konkreten Datei vom lokalen Dateisystem. "
+                        "Gibt den Inhalt mit Zeilennummern zurück (1-basiert). "
+                        "Mit 'suche' kannst du nach einem Text in der Datei suchen und bekommst nur die Treffer-Zeilen. "
+                        "Mit 'zeile' kannst du eine bestimmte Zeile abfragen. "
                         "Nur lesend – keine Ausführung, kein Schreiben.",
             parameters={
                 "type": "object",
@@ -178,18 +187,24 @@ class ToolHandler:
                         "type": "string",
                         "description": "Vollständiger Dateipfad",
                     },
+                    "suche": {
+                        "type": "string",
+                        "description": "Optional: Suchbegriff – gibt nur Zeilen zurück die diesen Text enthalten (mit Zeilennummer)",
+                    },
+                    "zeile": {
+                        "type": "integer",
+                        "description": "Optional: Gib nur diese Zeilennummer zurück (1-basiert)",
+                    },
                 },
                 "required": ["pfad"],
             },
             handler=self._tool_read_file,
         ))
 
-        # bildschirm_lesen
+        # bildschirm_ansehen
         self.register(Tool(
-            name="bildschirm_lesen",
-            description="Liest den aktuellen Bildschirminhalt. Versucht zuerst UI-Automation "
-                        "(Text aus dem aktiven Fenster), fällt zurück auf OCR (Screenshot + Texterkennung). "
-                        "Verwende dies, wenn du wissen musst, was der Nutzer gerade auf dem Bildschirm sieht.",
+            name="bildschirm_ansehen",
+            description="Sieht was gerade auf dem Bildschirm des Nutzers ist.",
             parameters={"type": "object", "properties": {}},
             handler=self._tool_read_screen,
         ))
@@ -267,14 +282,17 @@ class ToolHandler:
         self.register(Tool(
             name="app_oeffnen",
             description="Startet ein Programm oder öffnet eine App auf dem PC. "
-                        "Verwende dies wenn der Nutzer sagt 'öffne Chrome', 'starte Spotify', 'mach Word auf' etc. "
-                        "Der Parameter 'name' ist der Name der App oder der Pfad zur ausführbaren Datei.",
+                        "Verwende dies wenn der Nutzer sagt 'öffne Chrome', 'starte Spotify', 'mach Word auf', 'öffne den Taschenrechner' etc. "
+                        "Der Parameter 'name' ist der Name der App. Übersetze deutsche Namen ins Englische: "
+                        "Taschenrechner/Rechner → 'calc', Editor → 'notepad', Zeichnung → 'mspaint', "
+                        "Einstellungen → 'ms-settings', Datei-Explorer → 'explorer', Task-Manager → 'taskmgr'. "
+                        "Gängige Apps: chrome, firefox, edge, spotify, discord, vscode, notepad, calc, explorer.",
             parameters={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Name der App (z.B. 'chrome', 'spotify', 'notepad') oder vollständiger Pfad zur .exe",
+                        "description": "App-Name oder ausführbare Datei (z.B. 'calc' für Taschenrechner, 'notepad' für Editor, 'chrome', 'spotify')",
                     },
                 },
                 "required": ["name"],
@@ -435,12 +453,13 @@ class ToolHandler:
         # erinnerung_speichern
         self.register(Tool(
             name="erinnerung_speichern",
-            description="Speichert eine persistente Erinnerung mit Timestamp, die beim Fälligwerden gepusht wird. "
-                        "Verwende dies wenn der Nutzer sagt 'erinnere mich morgen an...', 'am Freitag um 15 Uhr erinnern', 'nächste Woche Montag...' etc. "
+            description="Speichert eine langfristige persistente Erinnerung die einen Neustart überlebt. "
+                        "Verwende dies für Erinnerungen die Stunden, Tage oder Wochen in der Zukunft liegen: "
+                        "'erinnere mich morgen an Müll rausbringen', 'am Freitag um 15 Uhr erinnern', 'nächste Woche Montag' etc. "
+                        "NICHT verwenden für kurze Timer wie 'in 5 Minuten' oder 'in 1 Stunde' — dafür timer_stellen nutzen. "
                         "Der Parameter 'aktion' bestimmt was passieren soll: 'speichern', 'liste', 'loeschen', 'abbrechen'. "
                         "Für 'speichern': 'zeitpunkt' ist der Fälligkeitszeitpunkt (ISO-Format oder natürliche Sprache), 'text' ist die Erinnerung. "
-                        "Für 'loeschen': 'id' ist die Erinnerungs-ID. "
-                        "Erinnerungen überleben einen Neustart und werden automatisch gepusht wenn sie fällig sind.",
+                        "Für 'loeschen': 'id' ist die Erinnerungs-ID.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -494,26 +513,49 @@ class ToolHandler:
         # wetter_abfragen
         self.register(Tool(
             name="wetter_abfragen",
-            description="Fragt das aktuelle Wetter oder eine Wettervorhersage ab. "
-                        "Verwende dies wenn der Nutzer sagt 'wie ist das Wetter', 'wird es regnen', 'Temperatur in Berlin' etc. "
-                        "Nutzt die Open-Meteo API (kostenlos, kein Token nötig). "
-                        "Der Parameter 'ort' ist der Ort (z.B. 'Berlin', 'München', 'New York'). "
-                        "Der optionale Parameter 'tage' gibt die Vorhersagetage an (1-7, Standard 1 für aktuell).",
+            description="Fragt das aktuelle Wetter ab. Rufe dieses Tool IMMER auf wenn der Nutzer nach Wetter fragt. "
+                        "Wenn der Nutzer keinen Ort nennt, rufe es trotzdem AUF (ohne ort) — das System verwendet den gespeicherten Standort. "
+                        "FRAGE NIEMALS nach dem Ort. Rufe das Tool einfach auf.",
             parameters={
                 "type": "object",
                 "properties": {
                     "ort": {
                         "type": "string",
-                        "description": "Ort für die Wetterabfrage (z.B. 'Berlin', 'München', 'Paris', 'Tokyo')",
+                        "description": "Ort für Wetterabfrage. LEER LASSEN wenn Nutzer keinen Ort nennt — System nutzt gespeicherten Standort.",
                     },
                     "tage": {
                         "type": "number",
-                        "description": "Vorhersagetage (1-7, Standard 1 = nur aktuelles Wetter)",
+                        "description": "Vorhersagetage (1-7, Standard 1)",
                     },
                 },
-                "required": ["ort"],
+                "required": [],
             },
             handler=self._tool_weather,
+        ))
+
+        # profil_speichern
+        self.register(Tool(
+            name="profil_speichern",
+            description="Speichert Nutzerdaten wie Standort, Name, Zeitzone etc. im Profil. "
+                        "Verwende dies WENN der Nutzer persönliche Informationen teilt: "
+                        "'Ich wohne in München', 'Ich heiße Thomas', 'Mein Standort ist Berlin' etc. "
+                        "Der Parameter 'feld' ist eines von: 'location' (Wohnort/Stadt), 'name' (Name des Nutzers), 'timezone' (Zeitzone), 'language' (Sprache), 'units' (Einheiten: metric oder imperial). "
+                        "Der Parameter 'wert' ist der Wert für das Feld (z.B. 'München' für location, 'Thomas' für name).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "feld": {
+                        "type": "string",
+                        "description": "Das zu speichernde Feld: 'location' (Wohnort), 'name' (Name), 'timezone' (Zeitzone), 'language' (Sprache), 'units' (Einheiten)",
+                    },
+                    "wert": {
+                        "type": "string",
+                        "description": "Der Wert für das Feld (z.B. 'München', 'Thomas', 'Europe/Berlin', 'de', 'metric')",
+                    },
+                },
+                "required": ["feld", "wert"],
+            },
+            handler=self._tool_save_profile,
         ))
 
         # uebersetzen
@@ -579,19 +621,62 @@ class ToolHandler:
             handler=self._tool_convert,
         ))
 
+        # bild_generieren
+        self.register(Tool(
+            name="bild_generieren",
+            description="Generiert ein Bild aus einer Textbeschreibung. "
+                        "Verwende dies wenn der Nutzer sagt 'male ein Bild', 'generiere ein Bild von', 'zeichne einen Hund' etc. "
+                        "Der Parameter 'prompt' ist die detaillierte englische Beschreibung des gewünschten Bildes. "
+                        "Schreibe den Prompt auf Englisch für beste Ergebnisse, auch wenn der Nutzer Deutsch spricht. "
+                        "Der optionale Parameter 'stil' bestimmt den Stil: 'realistisch', 'anime', 'digital_art', 'oelgemaelde', '3d_render', 'skizze'. "
+                        "Der optionale Parameter 'groesse' bestimmt das Format: 'quadrat' (1024x1024), 'hochformat' (768x1024), 'querformat' (1024x768).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Detaillierte englische Textbeschreibung des gewünschten Bildes",
+                    },
+                    "stil": {
+                        "type": "string",
+                        "description": "Bildstil: 'realistisch', 'anime', 'digital_art', 'oelgemaelde', '3d_render', 'skizze' (Standard: realistisch)",
+                    },
+                    "groesse": {
+                        "type": "string",
+                        "description": "Bildformat: 'quadrat' (1024x1024), 'hochformat' (768x1024), 'querformat' (1024x768) (Standard: quadrat)",
+                    },
+                },
+                "required": ["prompt"],
+            },
+            handler=self._tool_generate_image,
+        ))
+
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._tools_cache = None
         logger.debug("Tool registered: %s", tool.name)
 
-    def get_ollama_tools(self) -> list[dict[str, Any]]:
-        """Get all tools in Ollama API format (cached)."""
+    def get_tools(self) -> list[dict[str, Any]]:
+        """Get all tools in LLM API format (cached)."""
         if self._tools_cache is None:
-            self._tools_cache = [t.to_ollama_schema() for t in self._tools.values()]
+            self._tools_cache = [t.to_schema() for t in self._tools.values()]
         return self._tools_cache
 
     def has_tool(self, name: str) -> bool:
         return name in self._tools
+
+    def _emit_progress(self, tool: str, phase: str, **extra) -> None:
+        """Broadcast a search_progress event to connected WebSocket clients."""
+        if not self._broadcast or not self._loop or not self._loop.is_running():
+            return
+        import asyncio
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast({"type": "search_progress", "tool": tool, "phase": phase, **extra}),
+                self._loop,
+            )
+        except Exception:
+            pass
 
     def execute(self, name: str, arguments: dict[str, Any]) -> str:
         """Execute a tool by name with given arguments."""
@@ -661,27 +746,39 @@ class ToolHandler:
             return "Dateisuche nicht verfügbar."
 
         try:
+            self._emit_progress("dateien_suchen", "searching", query=query, source="Lokale Dateien")
             results = self._files_manager.search(query, k=10, folder=folder)
             if not results:
+                self._emit_progress("dateien_suchen", "done", query=query, count=0, results=[])
                 return "Keine passenden Dateien gefunden."
 
+            self._emit_progress("dateien_suchen", "found", query=query, count=len(results))
+
             lines = []
+            progress_results = []
             for r in results:
                 name = r.get("file_name", "")
                 path = r.get("file_path", "")
                 snippet = r.get("snippet", "")
-                # Truncate snippet for tool output
                 if len(snippet) > 200:
                     snippet = snippet[:200] + "..."
                 lines.append(f"Datei: {name}\nPfad: {path}\nAusschnitt: {snippet}")
+                progress_results.append({"name": name, "path": path, "snippet": snippet[:100]})
 
+            self._emit_progress("dateien_suchen", "done", query=query, count=len(results), results=progress_results)
             return "\n---\n".join(lines)
         except Exception as exc:
             logger.error("dateien_suchen error: %s", exc, exc_info=True)
+            self._emit_progress("dateien_suchen", "error", query=query, error=str(exc))
             return f"Fehler bei Dateisuche: {exc}"
 
     def _tool_read_file(self, args: dict[str, Any]) -> str:
-        """Read a specific file's content via nox_files."""
+        """Read a specific file's content via nox_files.
+
+        Returns content with line numbers (1-based) so the LLM can reference
+        specific lines. If 'zeile' is given, returns only that line.
+        If 'suche' is given, returns all lines containing that string.
+        """
         file_path = args.get("pfad", "")
         if not file_path:
             return "Kein Dateipfad angegeben."
@@ -692,7 +789,40 @@ class ToolHandler:
             content = self._files_manager.read_file(file_path)
             if content is None:
                 return f"Datei nicht gefunden oder nicht lesbar: {file_path}"
-            return content
+
+            lines = content.split("\n")
+            total = len(lines)
+
+            # If a search term is provided, return matching lines with numbers
+            suche = args.get("suche", "")
+            if suche:
+                matches = []
+                for i, line in enumerate(lines):
+                    if suche.lower() in line.lower():
+                        matches.append(f"Zeile {i+1}: {line}")
+                if not matches:
+                    return f"'{suche}' nicht in Datei gefunden. Die Datei hat {total} Zeilen."
+                return f"{len(matches)} Treffer für '{suche}' in {file_path}:\n" + "\n".join(matches)
+
+            # If a specific line is requested
+            zeile = args.get("zeile")
+            if zeile is not None:
+                try:
+                    idx = int(zeile) - 1
+                    if 0 <= idx < total:
+                        return f"Zeile {zeile}: {lines[idx]}"
+                    return f"Zeile {zeile} existiert nicht. Die Datei hat {total} Zeilen."
+                except (ValueError, TypeError):
+                    pass
+
+            # Default: return all lines with line numbers
+            numbered = []
+            for i, line in enumerate(lines):
+                numbered.append(f"{i+1}: {line}")
+            result = "\n".join(numbered)
+            if len(result) > 100_000:
+                result = result[:100_000] + f"\n\n[... gekürzt. Die Datei hat insgesamt {total} Zeilen.]"
+            return result
         except Exception as exc:
             logger.error("datei_lesen error: %s", exc, exc_info=True)
             return f"Fehler beim Lesen der Datei: {exc}"
@@ -768,7 +898,7 @@ class ToolHandler:
         """Recognize currently playing music from system audio loopback."""
         output_device = self._config.get("audio_output_device", "default")
         try:
-            from nox_voice.music_recognizer import recognize_song
+            from voice.music_recognizer import recognize_song
             result = recognize_song(output_device=output_device)
             if "error" in result:
                 return result["error"]
@@ -840,9 +970,8 @@ class ToolHandler:
                 "soundcloud_url": result.get("soundcloud_url", ""),
                 "opened_platform": opened_platform,
             }
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._broadcast(payload), loop)
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._broadcast(payload), self._loop)
         except Exception:
             pass
 
@@ -856,28 +985,24 @@ class ToolHandler:
 
     def _tool_close_window(self, args: dict[str, Any]) -> str:
         """Hide the Nox window (app stays running in background)."""
-        if self._broadcast:
+        if self._broadcast and self._loop and self._loop.is_running():
             try:
                 import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.run_coroutine_threadsafe(
-                        self._broadcast({"type": "close_window"}), loop
-                    )
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast({"type": "close_window"}), self._loop
+                )
             except Exception:
                 pass
         return "Fenster geschlossen. Du kannst mich mit Hey Nox oder dem Hotkey wieder aufrufen."
 
     def _tool_quit_app(self, args: dict[str, Any]) -> str:
         """Quit the Nox application completely."""
-        if self._broadcast:
+        if self._broadcast and self._loop and self._loop.is_running():
             try:
                 import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.run_coroutine_threadsafe(
-                        self._broadcast({"type": "quit_app"}), loop
-                    )
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast({"type": "quit_app"}), self._loop
+                )
             except Exception:
                 pass
         return "Nox wird beendet. Bis zum nächsten Mal."
@@ -939,6 +1064,12 @@ class ToolHandler:
         "clock": "clock",
         "uhr": "clock",
         "calculator": "calc",
+        "taschenrechner": "calc",
+        "editor": "notepad",
+        "texteditor": "notepad",
+        "zeichnen": "mspaint",
+        "datei-explorer": "explorer",
+        "datei explorer": "explorer",
     }
 
     # UWP apps that need 'start <protocol>:' instead of direct exe
@@ -956,7 +1087,6 @@ class ToolHandler:
 
     def _tool_open_app(self, args: dict[str, Any]) -> str:
         """Open an application on the PC."""
-        import subprocess
         import shutil
         import os
 
@@ -969,13 +1099,16 @@ class ToolHandler:
         # If it's a URL, open in browser
         if name_lower.startswith(("http://", "https://")):
             try:
-                os.startfile(name)
+                if IS_WINDOWS:
+                    os.startfile(name)
+                else:
+                    subprocess.Popen(["xdg-open", name])
                 return f"Geöffnet: {name}"
             except Exception as exc:
                 return f"Konnte URL nicht öffnen: {exc}"
 
-        # If it's a full path to an .exe, launch directly
-        if name_lower.endswith(".exe") and os.path.isfile(name):
+        # If it's a full path to an executable, launch directly
+        if os.path.isfile(name):
             try:
                 subprocess.Popen([name])
                 return f"App gestartet: {os.path.basename(name)}"
@@ -986,15 +1119,16 @@ class ToolHandler:
         alias_cmd = self._APP_ALIASES.get(name_lower)
         if alias_cmd:
             try:
-                # UWP apps use 'start protocol:' syntax
-                if alias_cmd.startswith("start "):
-                    subprocess.Popen(alias_cmd, shell=True)
-                    return f"App gestartet: {name}"
-                # Built-in Windows apps (calc, notepad, etc.)
-                if alias_cmd in ("calc", "notepad", "mspaint", "explorer", "cmd", "taskmgr", "wt"):
-                    subprocess.Popen(alias_cmd, shell=True)
-                    return f"App gestartet: {name}"
-                # Try to find the executable on PATH
+                if IS_WINDOWS:
+                    # UWP apps use 'start protocol:' syntax
+                    if alias_cmd.startswith("start "):
+                        subprocess.Popen(alias_cmd, shell=True)
+                        return f"App gestartet: {name}"
+                    # Built-in Windows apps (calc, notepad, etc.)
+                    if alias_cmd in ("calc", "notepad", "mspaint", "explorer", "cmd", "taskmgr", "wt"):
+                        subprocess.Popen(alias_cmd, shell=True)
+                        return f"App gestartet: {name}"
+                # Try to find the executable on PATH (cross-platform)
                 exe_path = shutil.which(alias_cmd)
                 if exe_path:
                     subprocess.Popen([exe_path])
@@ -1007,7 +1141,9 @@ class ToolHandler:
                 return f"Konnte '{name}' nicht starten: {exc}"
 
         # No alias found — try to find executable on PATH by the given name
-        exe_candidates = [name_lower, f"{name_lower}.exe"]
+        exe_candidates = [name_lower]
+        if IS_WINDOWS:
+            exe_candidates.append(f"{name_lower}.exe")
         for candidate in exe_candidates:
             exe_path = shutil.which(candidate)
             if exe_path:
@@ -1017,9 +1153,13 @@ class ToolHandler:
                 except Exception as exc:
                     return f"Konnte '{name}' nicht starten: {exc}"
 
-        # Last resort: try 'start' command which uses Windows shell resolution
+        # Last resort: try 'start' (Windows) or 'xdg-open' (Linux)
         try:
-            subprocess.Popen(f"start {name}", shell=True)
+            if IS_WINDOWS:
+                subprocess.Popen(f"start {name}", shell=True)
+            else:
+                # On Linux, try xdg-open or the command directly
+                subprocess.Popen(["xdg-open", name])
             return f"App gestartet: {name}"
         except Exception as exc:
             return f"Konnte '{name}' nicht finden oder starten: {exc}"
@@ -1060,7 +1200,6 @@ class ToolHandler:
 
     def _tool_system_control(self, args: dict[str, Any]) -> str:
         """Control the system: lock, shutdown, restart, or hibernate."""
-        import subprocess
         import ctypes
 
         aktion_raw = args.get("aktion", "").strip().lower()
@@ -1072,8 +1211,10 @@ class ToolHandler:
 
         if aktion == "sperren":
             try:
-                # LockWorkStation from user32.dll
-                ctypes.windll.user32.LockWorkStation()
+                if IS_WINDOWS:
+                    ctypes.windll.user32.LockWorkStation()
+                else:
+                    subprocess.Popen(["loginctl", "lock-session"])
                 return "PC wird gesperrt."
             except Exception as exc:
                 logger.error("system_steuerung sperren failed: %s", exc)
@@ -1081,8 +1222,10 @@ class ToolHandler:
 
         elif aktion == "herunterfahren":
             try:
-                # shutdown /s /t 0 — immediate shutdown
-                subprocess.Popen(["shutdown", "/s", "/t", "0"])
+                if IS_WINDOWS:
+                    subprocess.Popen(["shutdown", "/s", "/t", "0"])
+                else:
+                    subprocess.Popen(["shutdown", "-h", "now"])
                 return "PC wird heruntergefahren. Bis bald!"
             except Exception as exc:
                 logger.error("system_steuerung herunterfahren failed: %s", exc)
@@ -1090,8 +1233,10 @@ class ToolHandler:
 
         elif aktion == "neustart":
             try:
-                # shutdown /r /t 0 — immediate restart
-                subprocess.Popen(["shutdown", "/r", "/t", "0"])
+                if IS_WINDOWS:
+                    subprocess.Popen(["shutdown", "/r", "/t", "0"])
+                else:
+                    subprocess.Popen(["shutdown", "-r", "now"])
                 return "PC wird neu gestartet. Bis gleich!"
             except Exception as exc:
                 logger.error("system_steuerung neustart failed: %s", exc)
@@ -1099,10 +1244,10 @@ class ToolHandler:
 
         elif aktion == "ruhezustand":
             try:
-                # Try hibernate first (saves to disk), fall back to sleep
-                # rundll32.exe powrprof.dll,SetSuspendState 0,1,0 = hibernate
-                # rundll32.exe powrprof.dll,SetSuspendState 0,0,0 = sleep (standby)
-                subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                if IS_WINDOWS:
+                    subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                else:
+                    subprocess.Popen(["systemctl", "suspend"])
                 return "PC geht in den Ruhezustand."
             except Exception as exc:
                 logger.error("system_steuerung ruhezustand failed: %s", exc)
@@ -1219,6 +1364,8 @@ class ToolHandler:
 
     def _get_windows_volume(self) -> tuple[Optional[float], Optional[bool]]:
         """Get Windows master volume (0.0-1.0) and mute state via pycaw."""
+        if not IS_WINDOWS:
+            return None, None
         try:
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
             from ctypes import cast, POINTER
@@ -1240,6 +1387,8 @@ class ToolHandler:
 
     def _set_windows_volume(self, level: float) -> bool:
         """Set Windows master volume (0.0-1.0) via pycaw."""
+        if not IS_WINDOWS:
+            return False
         try:
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
             from ctypes import cast, POINTER
@@ -1257,6 +1406,8 @@ class ToolHandler:
 
     def _set_windows_mute(self, muted: bool) -> bool:
         """Set Windows master mute via pycaw."""
+        if not IS_WINDOWS:
+            return False
         try:
             from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
             from ctypes import cast, POINTER
@@ -1272,14 +1423,83 @@ class ToolHandler:
             logger.warning("Failed to set Windows mute: %s", exc)
             return False
 
+    # --- Linux volume control via pactl (PulseAudio/PipeWire) ---
+
+    def _get_linux_volume(self) -> tuple[Optional[float], Optional[bool]]:
+        """Get Linux master volume (0.0-1.0) and mute state via pactl."""
+        if not IS_LINUX or not is_command_available("pactl"):
+            return None, None
+        try:
+            result = subprocess.run(
+                ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                return None, None
+            # Parse output: "Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: ..."
+            output = result.stdout
+            # Extract first percentage
+            import re
+            pct_match = re.search(r'(\d+)%', output)
+            if pct_match:
+                level = int(pct_match.group(1)) / 100.0
+            else:
+                return None, None
+
+            # Check mute state
+            result_mute = subprocess.run(
+                ["pactl", "get-sink-mute", "@DEFAULT_SINK@"],
+                capture_output=True, text=True, timeout=5
+            )
+            muted = "yes" in result_mute.stdout.lower() if result_mute.returncode == 0 else False
+            return level, muted
+        except Exception as exc:
+            logger.warning("Failed to get Linux volume: %s", exc)
+            return None, None
+
+    def _set_linux_volume(self, level: float) -> bool:
+        """Set Linux master volume (0.0-1.0) via pactl."""
+        if not IS_LINUX or not is_command_available("pactl"):
+            return False
+        try:
+            pct = int(max(0.0, min(1.0, level)) * 100)
+            result = subprocess.run(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"],
+                capture_output=True, text=True, timeout=5
+            )
+            return result.returncode == 0
+        except Exception as exc:
+            logger.warning("Failed to set Linux volume: %s", exc)
+            return False
+
+    def _set_linux_mute(self, muted: bool) -> bool:
+        """Set Linux master mute via pactl."""
+        if not IS_LINUX or not is_command_available("pactl"):
+            return False
+        try:
+            state = "1" if muted else "0"
+            result = subprocess.run(
+                ["pactl", "set-sink-mute", "@DEFAULT_SINK@", state],
+                capture_output=True, text=True, timeout=5
+            )
+            return result.returncode == 0
+        except Exception as exc:
+            logger.warning("Failed to set Linux mute: %s", exc)
+            return False
+
     def _tool_volume_control(self, args: dict[str, Any]) -> str:
-        """Control system volume — VoiceMeeter if running, else Windows via pycaw."""
+        """Control system volume — VoiceMeeter/pycaw (Windows) or pactl (Linux)."""
         aktion = args.get("aktion", "").strip().lower()
         wert = args.get("wert")
 
         if not aktion:
             return "Keine Aktion angegeben. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
 
+        # Linux path: use pactl directly (no VoiceMeeter/pycaw)
+        if IS_LINUX:
+            return self._volume_control_linux(aktion, wert)
+
+        # Windows path: VoiceMeeter if running, else pycaw
         # Check if VoiceMeeter is running
         vm_running = self._is_voicemeeter_running()
         vmr_dll = None
@@ -1383,6 +1603,61 @@ class ToolHandler:
         else:
             return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
 
+    def _volume_control_linux(self, aktion: str, wert: Any) -> str:
+        """Volume control on Linux via pactl."""
+        current_level, current_mute = self._get_linux_volume()
+        if current_level is None:
+            return "Lautstärke-Steuerung nicht verfügbar. pactl nicht gefunden oder kein Audio-Gerät."
+
+        current_pct = int(current_level * 100)
+
+        if aktion == "restore":
+            if self._saved_volume is None:
+                return "Keine gespeicherte Lautstärke zum Wiederherstellen."
+            self._set_linux_volume(self._saved_volume / 100)
+            if self._saved_mute is not None:
+                self._set_linux_mute(self._saved_mute)
+            restored_pct = self._saved_volume
+            self._saved_volume = None
+            self._saved_mute = None
+            return f"Lautstärke wiederhergestellt auf {restored_pct}%."
+
+        # Save current state before changing (for restore)
+        self._saved_volume = current_pct
+        self._saved_mute = current_mute
+
+        if aktion == "mute":
+            self._set_linux_mute(True)
+            return f"Stumm geschaltet. (Vorher: {current_pct}%)"
+
+        elif aktion == "unmute":
+            self._set_linux_mute(False)
+            return f"Stumm aus. (Aktuell: {current_pct}%)"
+
+        elif aktion == "lauter":
+            new_pct = min(100, current_pct + 10)
+            self._set_linux_volume(new_pct / 100)
+            return f"Lautstärke auf {new_pct}% erhöht. (Vorher: {current_pct}%)"
+
+        elif aktion == "leiser":
+            new_pct = max(0, current_pct - 10)
+            self._set_linux_volume(new_pct / 100)
+            return f"Lautstärke auf {new_pct}% verringert. (Vorher: {current_pct}%)"
+
+        elif aktion == "setzen":
+            if wert is None:
+                return "Für 'setzen' muss ein Wert (0-100) angegeben werden."
+            try:
+                target_pct = int(float(wert))
+            except (ValueError, TypeError):
+                return f"Ungültiger Wert '{wert}'. Bitte eine Zahl 0-100 angeben."
+            target_pct = max(0, min(100, target_pct))
+            self._set_linux_volume(target_pct / 100)
+            return f"Lautstärke auf {target_pct}% gesetzt. (Vorher: {current_pct}%)"
+
+        else:
+            return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
+
     def _tool_search_web(self, args: dict[str, Any]) -> str:
         """Search the web via DuckDuckGo HTML scraping — no API key needed."""
         query = args.get("query", "").strip()
@@ -1402,6 +1677,8 @@ class ToolHandler:
             import re
             import urllib.parse
 
+            self._emit_progress("search_web", "searching", query=query, source="DuckDuckGo")
+
             # DuckDuckGo HTML endpoint — no API key needed
             url = "https://html.duckduckgo.com/html/"
             headers = {
@@ -1417,6 +1694,7 @@ class ToolHandler:
 
             # Parse results from DuckDuckGo HTML
             results = []
+            progress_results = []
 
             # DDG HTML results have result blocks with class="result__body"
             # Each has: result__a (title link), result__snippet (text), result__url (display URL)
@@ -1455,9 +1733,13 @@ class ToolHandler:
 
                 if title and snippet:
                     results.append(f"Titel: {title}\nURL: {url_text}\nAusschnitt: {snippet}")
+                    progress_results.append({"title": title, "url": url_text, "snippet": snippet[:100]})
+
+            self._emit_progress("search_web", "found", query=query, count=len(results))
 
             if not results:
                 # Last resort: try DuckDuckGo Instant Answer API (still no key needed)
+                self._emit_progress("search_web", "searching", query=query, source="DuckDuckGo Instant Answers")
                 try:
                     ia_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
                     ia_resp = requests.get(ia_url, headers=headers, timeout=10)
@@ -1467,26 +1749,33 @@ class ToolHandler:
                         abstract = ia_data["AbstractText"]
                         source = ia_data.get("AbstractURL", "")
                         results.append(f"Titel: {ia_data.get('Heading', query)}\nURL: {source}\nAusschnitt: {abstract}")
+                        progress_results.append({"title": ia_data.get('Heading', query), "url": source, "snippet": abstract[:100]})
 
                     for topic in (ia_data.get("RelatedTopics") or [])[:count - len(results)]:
                         if isinstance(topic, dict) and topic.get("Text"):
                             text = topic["Text"]
                             first_url = topic.get("FirstURL", "")
                             results.append(f"URL: {first_url}\nAusschnitt: {text}")
+                            progress_results.append({"title": "", "url": first_url, "snippet": text[:100]})
                 except Exception as exc:
                     logger.warning("DuckDuckGo Instant Answer API failed: %s", exc)
 
             if not results:
+                self._emit_progress("search_web", "done", query=query, count=0, results=[])
                 return f"Keine Suchergebnisse gefunden für '{query}'."
 
+            self._emit_progress("search_web", "done", query=query, count=len(results), results=progress_results)
             return f"Web-Suche nach '{query}' ({len(results)} Ergebnisse):\n\n" + "\n---\n".join(results)
 
         except requests.exceptions.Timeout:
+            self._emit_progress("search_web", "error", query=query, error="Timeout")
             return f"Web-Suche hat das Zeitlimit überschritten. Bitte später erneut versuchen."
         except requests.exceptions.ConnectionError:
+            self._emit_progress("search_web", "error", query=query, error="Keine Internetverbindung")
             return f"Keine Internetverbindung für Web-Suche verfügbar."
         except Exception as exc:
             logger.error("search_web error: %s", exc, exc_info=True)
+            self._emit_progress("search_web", "error", query=query, error=str(exc))
             return f"Web-Suche fehlgeschlagen: {exc}"
 
     # Known website aliases → full URL
@@ -1581,7 +1870,11 @@ class ToolHandler:
         if not name:
             return "Kein Fenster-Name angegeben."
 
-        # Try pygetwindow first, fall back to win32gui
+        # Linux: use wmctrl + xdotool
+        if IS_LINUX:
+            return self._window_fokus_linux(aktion, name)
+
+        # Windows: try pygetwindow first, fall back to win32gui
         try:
             import pygetwindow as gw
         except ImportError:
@@ -1673,6 +1966,167 @@ class ToolHandler:
         except Exception as exc:
             logger.error("fenster_fokus action '%s' failed for '%s': %s", aktion, win.title, exc)
             return f"Konnte Aktion '{aktion}' nicht ausführen auf '{win.title}': {exc}"
+
+    def _window_fokus_linux(self, aktion: str, name: str) -> str:
+        """Window management on Linux via cosmic-ext-window-helper (COSMIC) or wmctrl+xdotool (X11)."""
+        from platform_utils import is_cosmic, is_wayland
+
+        # COSMIC Wayland: use cosmic-ext-window-helper
+        if is_cosmic() and is_wayland() and is_command_available("cosmic-ext-window-helper"):
+            return self._window_fokus_cosmic(aktion, name)
+
+        if not is_command_available("wmctrl") and not is_command_available("xdotool"):
+            return "Fenster-Steuerung nicht verfügbar. Weder wmctrl/xdotool (X11) noch cosmic-ext-window-helper (COSMIC) sind installiert."
+
+        name_lower = name.lower()
+
+        # Get window list via wmctrl or xdotool
+        window_id = None
+        window_title = None
+
+        if is_command_available("wmctrl"):
+            try:
+                result = subprocess.run(
+                    ["wmctrl", "-l"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        parts = line.split(None, 3)
+                        if len(parts) >= 4:
+                            wid = parts[0]
+                            title = parts[3]
+                            if name_lower in title.lower():
+                                window_id = wid
+                                window_title = title
+                                break
+            except Exception as exc:
+                logger.warning("wmctrl list failed: %s", exc)
+
+        if not window_id and is_command_available("xdotool"):
+            try:
+                result = subprocess.run(
+                    ["xdotool", "search", "--name", name],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    window_id = result.stdout.strip().split("\n")[0]
+                    window_title = name
+            except Exception as exc:
+                logger.warning("xdotool search failed: %s", exc)
+
+        if not window_id:
+            return f"Kein Fenster gefunden für '{name}'."
+
+        try:
+            if aktion == "fokus":
+                subprocess.run(["wmctrl", "-i", "-a", window_id], capture_output=True, timeout=5)
+                return f"Fokus auf '{window_title}' gesetzt."
+
+            elif aktion == "minimieren":
+                subprocess.run(["xdotool", "windowminimize", window_id], capture_output=True, timeout=5)
+                return f"'{window_title}' minimiert."
+
+            elif aktion == "maximieren":
+                subprocess.run(["wmctrl", "-i", "-r", window_id, "-b", "add,maximized_vert,maximized_horz"], capture_output=True, timeout=5)
+                return f"'{window_title}' maximiert."
+
+            elif aktion == "wiederherstellen":
+                subprocess.run(["wmctrl", "-i", "-r", window_id, "-b", "remove,maximized_vert,maximized_horz"], capture_output=True, timeout=5)
+                return f"'{window_title}' wiederhergestellt."
+
+            elif aktion == "schliessen":
+                subprocess.run(["wmctrl", "-i", "-c", window_id], capture_output=True, timeout=5)
+                return f"'{window_title}' geschlossen."
+
+            else:
+                return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
+
+        except Exception as exc:
+            logger.error("fenster_fokus Linux action '%s' failed: %s", aktion, exc)
+            return f"Konnte Aktion '{aktion}' nicht ausführen auf '{window_title}': {exc}"
+
+    def _window_fokus_cosmic(self, aktion: str, name: str) -> str:
+        """Window management on COSMIC via cosmic-ext-window-helper."""
+        name_lower = name.lower()
+
+        try:
+            # Use 'state' command to get JSON list of all windows
+            result = subprocess.run(
+                ["cosmic-ext-window-helper", "state"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                return f"Konnte Fensterliste nicht abrufen: {result.stderr}"
+
+            import json
+            windows = json.loads(result.stdout.strip())
+
+            # Find matching window by app_id or title
+            matched_app_id = ""
+            matched_title = ""
+            for win in windows:
+                app_id = win.get("app_id", "").lower()
+                title = win.get("title", "").lower()
+                if name_lower in app_id or name_lower in title:
+                    matched_app_id = win.get("app_id", "")
+                    matched_title = win.get("title", "")
+                    break
+
+            if not matched_app_id and not matched_title:
+                return f"Kein Fenster gefunden für '{name}'."
+
+            # Build query — use app_id if available, otherwise title regex
+            if matched_app_id:
+                query = f"app_id = '{matched_app_id}'"
+            else:
+                query = f"title ~= '{name}'i"
+
+            if aktion == "fokus":
+                subprocess.run(
+                    ["cosmic-ext-window-helper", "activate", query],
+                    capture_output=True, timeout=5
+                )
+                return f"Fokus auf '{matched_title or matched_app_id}' gesetzt."
+
+            elif aktion == "minimieren":
+                subprocess.run(
+                    ["cosmic-ext-window-helper", "minimize", "true", query],
+                    capture_output=True, timeout=5
+                )
+                return f"'{matched_title or matched_app_id}' minimiert."
+
+            elif aktion == "maximieren":
+                subprocess.run(
+                    ["cosmic-ext-window-helper", "maximize", "true", query],
+                    capture_output=True, timeout=5
+                )
+                return f"'{matched_title or matched_app_id}' maximiert."
+
+            elif aktion == "wiederherstellen":
+                subprocess.run(
+                    ["cosmic-ext-window-helper", "maximize", "false", query],
+                    capture_output=True, timeout=5
+                )
+                subprocess.run(
+                    ["cosmic-ext-window-helper", "minimize", "false", query],
+                    capture_output=True, timeout=5
+                )
+                return f"'{matched_title or matched_app_id}' wiederhergestellt."
+
+            elif aktion == "schliessen":
+                subprocess.run(
+                    ["cosmic-ext-window-helper", "close", query],
+                    capture_output=True, timeout=5
+                )
+                return f"'{matched_title or matched_app_id}' geschlossen."
+
+            else:
+                return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
+
+        except Exception as exc:
+            logger.error("fenster_fokus COSMIC action '%s' failed: %s", aktion, exc)
+            return f"Konnte Aktion '{aktion}' nicht ausführen: {exc}"
 
     def _window_fallback_win32(self, aktion: str, name: str) -> str:
         """Fallback window management using win32gui (no pygetwindow needed)."""
@@ -1912,15 +2366,13 @@ class ToolHandler:
             logger.warning("Toast notification failed: %s", exc)
 
         # 2. Broadcast timer_alert event to UI
-        if self._broadcast:
+        if self._broadcast and self._loop and self._loop.is_running():
             try:
                 import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.run_coroutine_threadsafe(
-                        self._broadcast({"type": "timer_alert", "message": message, "timer_id": timer_id}),
-                        loop
-                    )
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast({"type": "timer_alert", "message": message, "timer_id": timer_id}),
+                    self._loop
+                )
             except Exception:
                 pass
 
@@ -2241,15 +2693,13 @@ class ToolHandler:
             logger.warning("Reminder toast notification failed: %s", exc)
 
         # 2. Broadcast reminder_alert event to UI
-        if self._broadcast:
+        if self._broadcast and self._loop and self._loop.is_running():
             try:
                 import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.run_coroutine_threadsafe(
-                        self._broadcast({"type": "timer_alert", "message": message, "reminder_id": rid}),
-                        loop
-                    )
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast({"type": "timer_alert", "message": message, "reminder_id": rid}),
+                    self._loop
+                )
             except Exception:
                 pass
 
@@ -2293,8 +2743,8 @@ class ToolHandler:
             return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: kopieren, einfuegen, leeren."
 
     def _clipboard_copy(self, text: str) -> bool:
-        """Copy text to system clipboard. Tries pyperclip, then ctypes fallback."""
-        # Try pyperclip first
+        """Copy text to system clipboard. Tries pyperclip, then Windows ctypes fallback."""
+        # Try pyperclip first (cross-platform)
         try:
             import pyperclip
             pyperclip.copy(text)
@@ -2304,7 +2754,9 @@ class ToolHandler:
         except Exception as exc:
             logger.warning("pyperclip copy failed: %s", exc)
 
-        # Fallback: Windows ctypes with user32
+        # Fallback: Windows ctypes with user32 (Windows only)
+        if not IS_WINDOWS:
+            return False
         try:
             import ctypes
             import ctypes.wintypes as wintypes
@@ -2352,8 +2804,8 @@ class ToolHandler:
             return False
 
     def _clipboard_paste(self) -> Optional[str]:
-        """Read text from system clipboard. Tries pyperclip, then ctypes fallback."""
-        # Try pyperclip first
+        """Read text from system clipboard. Tries pyperclip, then Windows ctypes fallback."""
+        # Try pyperclip first (cross-platform)
         try:
             import pyperclip
             return pyperclip.paste()
@@ -2362,7 +2814,9 @@ class ToolHandler:
         except Exception as exc:
             logger.warning("pyperclip paste failed: %s", exc)
 
-        # Fallback: Windows ctypes with user32
+        # Fallback: Windows ctypes with user32 (Windows only)
+        if not IS_WINDOWS:
+            return None
         try:
             import ctypes
             import ctypes.wintypes as wintypes
@@ -2451,6 +2905,40 @@ class ToolHandler:
         99: "Gewitter mit starkem Hagel",
     }
 
+    def _broadcast_weather_result(self, data: dict[str, Any]) -> None:
+        """Send structured weather result event to the UI."""
+        if not self._broadcast:
+            logger.warning("weather_result: no broadcast function available")
+            return
+        try:
+            import asyncio
+            payload = {
+                "type": "weather_result",
+                "data": data,
+            }
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._broadcast(payload), self._loop)
+                logger.info("weather_result event sent to UI")
+            else:
+                logger.warning("weather_result: event loop not available (loop=%s, running=%s)", self._loop, self._loop.is_running() if self._loop else "N/A")
+        except Exception as exc:
+            logger.error("weather_result broadcast failed: %s", exc, exc_info=True)
+
+    def _tool_save_profile(self, args: dict[str, Any]) -> str:
+        """Save a user profile field (location, name, etc.)."""
+        feld = args.get("feld", "").strip().lower()
+        wert = args.get("wert", "").strip()
+
+        if not feld or not wert:
+            return "Fehler: 'feld' und 'wert' müssen angegeben werden."
+
+        valid_fields = {"location", "name", "timezone", "language", "units"}
+        if feld not in valid_fields:
+            return f"Fehler: Ungültiges Feld '{feld}'. Erlaubt: {', '.join(sorted(valid_fields))}"
+
+        self._user_profile.set(feld, wert)
+        return f"Gespeichert: {feld} = {wert}"
+
     def _tool_weather(self, args: dict[str, Any]) -> str:
         """Fetch weather via Open-Meteo API (free, no API key needed)."""
         import requests
@@ -2458,7 +2946,17 @@ class ToolHandler:
 
         ort = args.get("ort", "").strip()
         if not ort:
-            return "Kein Ort angegeben."
+            # Auto-use stored profile location
+            stored_loc = self._user_profile.get_location()
+            if stored_loc:
+                ort = stored_loc
+            else:
+                # Try auto-detect once
+                detected = self._user_profile.auto_detect()
+                if "location" in detected:
+                    ort = detected["location"]
+                else:
+                    return "Kein Ort angegeben und kein Standort im Profil gespeichert. Sag mir z.B. 'Ich bin in München' damit ich mir das merke."
 
         tage = args.get("tage", 1)
         try:
@@ -2468,65 +2966,137 @@ class ToolHandler:
         tage = max(1, min(7, tage))
 
         try:
-            # Step 1: Geocode the location via Open-Meteo Geocoding API
-            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(ort)}&count=1&language=de&format=json"
-            geo_resp = requests.get(geo_url, timeout=10)
-            geo_resp.raise_for_status()
-            geo_data = geo_resp.json()
+            # Check if we already have coords from profile
+            coords = self._user_profile.get_coords()
+            if coords and ort == self._user_profile.get_location():
+                lat, lon = coords
+                location_str = ort
+            else:
+                # Step 1: Geocode the location via Open-Meteo Geocoding API
+                # Try multiple spelling variants for German umlauts (ae→ä, oe→ö, ue→ü)
+                # since users with US keyboards can't type ä, ö, ü
+                def _try_geocode(query, count=1):
+                    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(query)}&count={count}&language=de&format=json"
+                    resp = requests.get(geo_url, timeout=10)
+                    resp.raise_for_status()
+                    return resp.json().get("results", [])
 
-            results = geo_data.get("results", [])
-            if not results:
-                return f"Ort '{ort}' nicht gefunden."
+                def _try_umlaut_variants(query):
+                    """Try original, then ae→ä, oe→ö, ue→ü, and also ä→ae etc."""
+                    variants = [query]
+                    # ae/oe/ue → ä/ö/ü (US keyboard users)
+                    v = query.replace("ae", "ä").replace("oe", "ö").replace("ue", "ü")
+                    if v != query:
+                        variants.append(v)
+                    # ae→a, oe→o, ue→u (stripped)
+                    v2 = query.replace("ae", "a").replace("oe", "o").replace("ue", "u")
+                    if v2 != query:
+                        variants.append(v2)
+                    return variants
 
-            loc = results[0]
-            lat = loc["latitude"]
-            lon = loc["longitude"]
-            name = loc.get("name", ort)
-            country = loc.get("country", "")
-            admin1 = loc.get("admin1", "")
-            location_str = f"{name}" + (f", {admin1}" if admin1 else "") + (f", {country}" if country else "")
+                results = []
+                for variant in _try_umlaut_variants(ort):
+                    results = _try_geocode(variant)
+                    if results:
+                        break
+
+                # If still no results, try a broader search (count=5) with fuzzy matching
+                if not results:
+                    for variant in _try_umlaut_variants(ort):
+                        broad = _try_geocode(variant, count=5)
+                        if broad:
+                            # Pick the first result (best match)
+                            results = broad
+                            break
+
+                # If Open-Meteo found nothing, try Nominatim (OpenStreetMap) — much better for small villages
+                if not results:
+                    try:
+                        for variant in _try_umlaut_variants(ort):
+                            nom_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(variant)}&format=json&limit=1&accept-language=de"
+                            nom_resp = requests.get(nom_url, timeout=10, headers={"User-Agent": "Nox/1.0"})
+                            nom_resp.raise_for_status()
+                            nom_data = nom_resp.json()
+                            if nom_data:
+                                loc_data = nom_data[0]
+                                results = [{
+                                    "latitude": float(loc_data["lat"]),
+                                    "longitude": float(loc_data["lon"]),
+                                    "name": loc_data.get("name", "") or variant,
+                                    "country": "",
+                                    "admin1": "",
+                                }]
+                                # Try to extract display name parts
+                                display = loc_data.get("display_name", "")
+                                if display:
+                                    parts = [p.strip() for p in display.split(",")]
+                                    if parts:
+                                        results[0]["name"] = parts[0]
+                                        if len(parts) > 2:
+                                            results[0]["admin1"] = parts[1] if len(parts) > 1 else ""
+                                            results[0]["country"] = parts[-1] if parts[-1] else ""
+                                break
+                    except Exception as exc:
+                        logger.debug("Nominatim fallback failed: %s", exc)
+
+                if not results:
+                    return f"Ort '{ort}' nicht gefunden."
+
+                loc = results[0]
+                lat = loc["latitude"]
+                lon = loc["longitude"]
+                name = loc.get("name", ort)
+                country = loc.get("country", "")
+                admin1 = loc.get("admin1", "")
+                location_str = f"{name}" + (f", {admin1}" if admin1 else "") + (f", {country}" if country else "")
 
             # Step 2: Fetch weather from Open-Meteo Forecast API
             params = (
                 f"latitude={lat}&longitude={lon}"
                 f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
                 f"weather_code,wind_speed_10m,wind_direction_10m,precipitation,pressure_msl"
+                f"&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,"
+                f"weather_code,precipitation,wind_speed_10m,wind_direction_10m"
                 f"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,"
                 f"wind_speed_10m_max,sunrise,sunset"
                 f"&timezone=auto"
-                f"&forecast_days={tage}"
+                f"&forecast_days={max(tage, 2)}"
             )
             weather_url = f"https://api.open-meteo.com/v1/forecast?{params}"
             weather_resp = requests.get(weather_url, timeout=10)
             weather_resp.raise_for_status()
             w = weather_resp.json()
 
-            lines = [f"Wetter für {location_str}:"]
-
             # Current weather
             current = w.get("current", {})
-            if current:
-                temp = current.get("temperature_2m", "?")
-                feels = current.get("apparent_temperature", "?")
-                humidity = current.get("relative_humidity_2m", "?")
-                wcode = current.get("weather_code", 0)
-                wind = current.get("wind_speed_10m", "?")
-                wind_dir = current.get("wind_direction_10m", "?")
-                precip = current.get("precipitation", 0)
-                pressure = current.get("pressure_msl", "?")
-                desc = self._WMO_CODES.get(wcode, f"Code {wcode}")
-
-                lines.append("\nAktuell (" + desc + "):")
-                lines.append(f"  Temperatur: {temp}°C (gefühlt {feels}°C)")
-                lines.append(f"  Luftfeuchte: {humidity}%")
-                lines.append(f"  Wind: {wind} km/h aus {wind_dir}°")
-                lines.append(f"  Niederschlag: {precip} mm")
-                lines.append(f"  Luftdruck: {pressure} hPa")
-
-            # Daily forecast (if tage > 1 or just today)
             daily = w.get("daily", {})
-            if daily and tage > 1:
-                lines.append("\nVorhersage (" + str(tage) + " Tage):")
+
+            # Build structured weather data for UI card
+            weather_data: dict[str, Any] = {
+                "location": location_str,
+                "lat": lat,
+                "lon": lon,
+                "current": {},
+                "forecast": [],
+            }
+
+            if current:
+                wcode = current.get("weather_code", 0)
+                desc = self._WMO_CODES.get(wcode, f"Code {wcode}")
+                weather_data["current"] = {
+                    "temp": current.get("temperature_2m", "?"),
+                    "feels_like": current.get("apparent_temperature", "?"),
+                    "humidity": current.get("relative_humidity_2m", "?"),
+                    "weather_code": wcode,
+                    "description": desc,
+                    "wind_speed": current.get("wind_speed_10m", "?"),
+                    "wind_dir": current.get("wind_direction_10m", "?"),
+                    "precipitation": current.get("precipitation", 0),
+                    "pressure": current.get("pressure_msl", "?"),
+                }
+
+            # Daily forecast
+            if daily:
                 dates = daily.get("time", [])
                 t_max = daily.get("temperature_2m_max", [])
                 t_min = daily.get("temperature_2m_min", [])
@@ -2537,16 +3107,83 @@ class ToolHandler:
                 sunsets = daily.get("sunset", [])
 
                 for i in range(min(len(dates), tage)):
-                    d = dates[i][:10] if i < len(dates) else "?"
-                    tx = t_max[i] if i < len(t_max) else "?"
-                    tn = t_min[i] if i < len(t_min) else "?"
                     dc = d_codes[i] if i < len(d_codes) else 0
-                    dp = d_precip[i] if i < len(d_precip) else 0
-                    dw = d_wind[i] if i < len(d_wind) else "?"
                     dd = self._WMO_CODES.get(dc, f"Code {dc}")
                     sr = sunrises[i][11:] if i < len(sunrises) and len(sunrises[i]) > 11 else "?"
                     ss = sunsets[i][11:] if i < len(sunsets) and len(sunsets[i]) > 11 else "?"
-                    lines.append(f"  {d}: {dd}, {tn}°C bis {tx}°C, Niederschlag {dp} mm, Wind {dw} km/h, Sonne {sr}-{ss}")
+                    weather_data["forecast"].append({
+                        "date": dates[i][:10] if i < len(dates) else "?",
+                        "temp_max": t_max[i] if i < len(t_max) else "?",
+                        "temp_min": t_min[i] if i < len(t_min) else "?",
+                        "weather_code": dc,
+                        "description": dd,
+                        "precipitation": d_precip[i] if i < len(d_precip) else 0,
+                        "wind_max": d_wind[i] if i < len(d_wind) else "?",
+                        "sunrise": sr,
+                        "sunset": ss,
+                    })
+
+            # Build hourly data for UI (current hour ± 4 hours)
+            hourly = w.get("hourly", {})
+            if hourly and hourly.get("time"):
+                h_times = hourly.get("time", [])
+                h_temps = hourly.get("temperature_2m", [])
+                h_codes = hourly.get("weather_code", [])
+                h_precip = hourly.get("precipitation", [])
+                h_wind = hourly.get("wind_speed_10m", [])
+                h_wind_dir = hourly.get("wind_direction_10m", [])
+                h_humid = hourly.get("relative_humidity_2m", [])
+
+                # Find current hour index
+                now_iso = ""
+                if current and current.get("time"):
+                    now_iso = current["time"][:13]  # "2026-09-01T20"
+                else:
+                    from datetime import datetime, timezone as tz
+                    now_iso = datetime.now().strftime("%Y-%m-%dT%H")
+
+                current_idx = -1
+                for i, ht in enumerate(h_times):
+                    if ht[:13] == now_iso:
+                        current_idx = i
+                        break
+
+                if current_idx >= 0:
+                    start = max(0, current_idx - 4)
+                    end = min(len(h_times), current_idx + 5)  # +5 to include current + 4 ahead
+                    hourly_list = []
+                    for i in range(start, end):
+                        h_code = h_codes[i] if i < len(h_codes) else 0
+                        hourly_list.append({
+                            "time": h_times[i][11:] if len(h_times[i]) > 11 else h_times[i],  # "HH:00"
+                            "temp": h_temps[i] if i < len(h_temps) else "?",
+                            "weather_code": h_code,
+                            "precipitation": h_precip[i] if i < len(h_precip) else 0,
+                            "wind_speed": h_wind[i] if i < len(h_wind) else 0,
+                            "wind_dir": h_wind_dir[i] if i < len(h_wind_dir) else "?",
+                            "humidity": h_humid[i] if i < len(h_humid) else "?",
+                            "is_now": i == current_idx,
+                        })
+                    weather_data["hourly"] = hourly_list
+
+            # Broadcast structured weather data to UI (with hourly if available)
+            self._broadcast_weather_result(weather_data)
+
+            # Build text summary for LLM
+            lines = [f"Wetter für {location_str}:"]
+            if weather_data["current"]:
+                c = weather_data["current"]
+                lines.append(f"\nAktuell ({c['description']}):")
+                lines.append(f"  Temperatur: {c['temp']}°C (gefühlt {c['feels_like']}°C)")
+                lines.append(f"  Luftfeuchte: {c['humidity']}%")
+                lines.append(f"  Wind: {c['wind_speed']} km/h aus {c['wind_dir']}°")
+                lines.append(f"  Niederschlag: {c['precipitation']} mm")
+                lines.append(f"  Luftdruck: {c['pressure']} hPa")
+
+            if weather_data["forecast"] and tage > 1:
+                lines.append(f"\nVorhersage ({tage} Tage):")
+                for f in weather_data["forecast"]:
+                    lines.append(f"  {f['date']}: {f['description']}, {f['temp_min']}°C bis {f['temp_max']}°C, Niederschlag {f['precipitation']} mm, Wind {f['wind_max']} km/h, Sonne {f['sunrise']}-{f['sunset']}")
 
             return "\n".join(lines)
 
@@ -2989,3 +3626,67 @@ class ToolHandler:
         except Exception as exc:
             logger.error("einheit_rechnen waehrung error: %s", exc, exc_info=True)
             return f"Währungsumrechnung fehlgeschlagen: {exc}"
+
+    # -----------------------------------------------------------------------
+    # Image generation
+    # -----------------------------------------------------------------------
+
+    def _tool_generate_image(self, args: dict[str, Any]) -> str:
+        """Generate an image via Pollinations.ai (free, no API key)."""
+        import urllib.parse
+
+        prompt = args.get("prompt", "").strip()
+        if not prompt:
+            return "Kein Prompt für Bildgenerierung angegeben."
+
+        stil = args.get("stil", "realistisch").strip().lower()
+        groesse = args.get("groesse", "quadrat").strip().lower()
+
+        # Style suffixes to enhance the prompt
+        style_suffixes = {
+            "realistisch": ", photorealistic, high detail, 8k, sharp focus, professional photography",
+            "anime": ", anime style, vibrant colors, detailed, studio ghibli inspired",
+            "digital_art": ", digital art, concept art, trending on artstation, highly detailed",
+            "oelgemaelde": ", oil painting, textured brushstrokes, classical art style, masterpiece",
+            "3d_render": ", 3d render, octane render, cinema 4d, volumetric lighting, ultra detailed",
+            "skizze": ", pencil sketch, black and white, hand drawn, detailed shading",
+        }
+        suffix = style_suffixes.get(stil, style_suffixes["realistisch"])
+        full_prompt = prompt + suffix
+
+        # Size mapping
+        size_map = {
+            "quadrat": (1024, 1024),
+            "hochformat": (768, 1024),
+            "querformat": (1024, 768),
+        }
+        width, height = size_map.get(groesse, size_map["quadrat"])
+
+        # Build Pollinations.ai URL
+        encoded_prompt = urllib.parse.quote(full_prompt, safe="")
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&seed={hash(prompt) % 1000000}"
+
+        # Broadcast to UI
+        self._broadcast_image_result(image_url, prompt, stil, groesse, width, height)
+
+        return f"Bild wurde generiert und wird in der UI angezeigt. Prompt: {prompt}"
+
+    def _broadcast_image_result(self, url: str, prompt: str, stil: str, groesse: str, width: int, height: int) -> None:
+        """Send image result event to the UI."""
+        if not self._broadcast:
+            return
+        try:
+            import asyncio
+            payload = {
+                "type": "image_result",
+                "url": url,
+                "prompt": prompt,
+                "stil": stil,
+                "groesse": groesse,
+                "width": width,
+                "height": height,
+            }
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._broadcast(payload), self._loop)
+        except Exception:
+            pass
