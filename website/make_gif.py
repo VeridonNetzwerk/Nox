@@ -16,14 +16,15 @@ HTML_FILE = "nox-avatar-frames.html"
 FRAMES_DIR = os.path.join(WEBSITE_DIR, "_gif_frames")
 OUTPUT_GIF = os.path.join(WEBSITE_DIR, "..", "docs", "img", "nox-avatar.gif")
 
-NUM_FRAMES = 36
-TOTAL_MS = 13000
+NUM_FRAMES = 60
+TOTAL_MS = 104000
 WINDOW_WIDTH = 400
 WINDOW_HEIGHT = 460
 
 # Chroma key color (pure green — doesn't appear in violet/blue/cyan avatar)
 CHROMA_R, CHROMA_G, CHROMA_B = 0, 255, 0
-CHROMA_THRESHOLD = 80  # higher threshold to catch anti-aliased green edges
+CHROMA_THRESHOLD = 120  # higher threshold to catch anti-aliased green edges
+CHROMA_FEATHER = 40  # pixels within this range get partial transparency
 
 def start_server():
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=WEBSITE_DIR)
@@ -60,14 +61,19 @@ def capture_frame(ms, idx):
     return out_path
 
 def remove_green_background(img_rgba):
-    """Replace pure green chroma key pixels with transparency."""
-    arr = np.array(img_rgba)  # H x W x 4
+    """Replace pure green chroma key pixels with transparency, with edge feathering."""
+    arr = np.array(img_rgba).astype(np.float32)  # H x W x 4
     r, g, b = arr[:,:,0], arr[:,:,1], arr[:,:,2]
     # Distance from pure green
-    dist = np.sqrt((r.astype(int) - CHROMA_R)**2 + (g.astype(int) - CHROMA_G)**2 + (b.astype(int) - CHROMA_B)**2)
-    mask = dist < CHROMA_THRESHOLD
-    arr[mask, 3] = 0  # set alpha to 0 (transparent)
-    return Image.fromarray(arr, "RGBA")
+    dist = np.sqrt((r - CHROMA_R)**2 + (g - CHROMA_G)**2 + (b - CHROMA_B)**2)
+    # Full transparency within threshold
+    alpha = arr[:,:,3].copy()
+    alpha[dist < CHROMA_THRESHOLD] = 0
+    # Feather edge: partial transparency in the feather zone
+    feather_mask = (dist >= CHROMA_THRESHOLD) & (dist < CHROMA_THRESHOLD + CHROMA_FEATHER)
+    alpha[feather_mask] = (255 * (dist[feather_mask] - CHROMA_THRESHOLD) / CHROMA_FEATHER).astype(np.float32)
+    arr[:,:,3] = alpha
+    return Image.fromarray(arr.astype(np.uint8), "RGBA")
 
 def main():
     os.makedirs(FRAMES_DIR, exist_ok=True)
@@ -114,50 +120,43 @@ def main():
     target_h = int(target_w * (frames[0].height / frames[0].width))
     resized = [f.resize((target_w, target_h), Image.LANCZOS) for f in frames]
 
-    # Build transparent GIF: convert each RGBA frame to P-mode
-    # with a shared palette where index 0 = transparent
+    # Build transparent GIF with Floyd-Steinberg dithering for smooth gradients
     p_frames = []
     for frame in resized:
-        # Create a P-mode image with transparency
-        # First, get the RGBA data
         rgba = np.array(frame)
         alpha = rgba[:,:,3]
 
-        # Quantize the RGB channels (ignore transparent pixels)
+        # Convert to RGB and apply Floyd-Steinberg dithering for smooth gradients
         rgb_frame = Image.fromarray(rgba[:,:,:3], "RGB")
-        p_frame = rgb_frame.quantize(colors=254, method=Image.FASTOCTREE)
+        p_frame = rgb_frame.quantize(colors=254, method=Image.FASTOCTREE, dither=Image.FLOYDSTEINBERG)
 
-        # Now create a new P-mode image with 256 colors
-        # Index 0 = transparent, indices 1-254 = quantized colors, index 255 = spare
         palette = p_frame.getpalette()
-        new_p = Image.new("P", frame.size, 0)  # fill with index 0 (transparent)
-        
-        # Shift all pixel indices by +1 (so 0 is reserved for transparent)
         p_array = np.array(p_frame)
         p_array = p_array + 1  # shift to 1-254
         p_array[alpha < 128] = 0  # transparent pixels = index 0
-        
+
         new_p = Image.fromarray(p_array, "P")
-        
-        # Build palette: index 0 = transparent (black), indices 1-254 = original colors
-        new_palette = [0, 0, 0]  # index 0 = transparent (won't be visible)
-        new_palette.extend(palette[:254 * 3])  # indices 1-254
-        # Pad to 256 colors
+
+        new_palette = [0, 0, 0]  # index 0 = transparent
+        new_palette.extend(palette[:254 * 3])
         while len(new_palette) < 256 * 3:
             new_palette.extend([0, 0, 0])
         new_p.putpalette(new_palette)
-        
+
         p_frames.append(new_p)
+
+    # Duration: 104s cycle / 60 frames ≈ 1733ms per frame for natural speed
+    frame_duration = int(TOTAL_MS / NUM_FRAMES)
 
     p_frames[0].save(
         OUTPUT_GIF,
         save_all=True,
         append_images=p_frames[1:],
-        duration=80,
+        duration=frame_duration,
         loop=0,
         disposal=2,
         transparency=0,
-        optimize=False,  # don't optimize — it can break transparency
+        optimize=False,
     )
 
     shutil.rmtree(FRAMES_DIR, ignore_errors=True)
