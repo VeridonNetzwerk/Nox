@@ -53,8 +53,18 @@
       <defs>
         <linearGradient id="nox-grad" x1="10%" y1="5%" x2="90%" y2="95%">
           <stop offset="0%" stop-color="#e930f0" />
+          <stop offset="8%" stop-color="#e22ceef" />
+          <stop offset="16%" stop-color="#dc2eed" />
+          <stop offset="24%" stop-color="#d52bec" />
           <stop offset="32%" stop-color="#8b2df5" />
+          <stop offset="40%" stop-color="#7a2df2" />
+          <stop offset="47%" stop-color="#692cef" />
+          <stop offset="55%" stop-color="#582ded" />
           <stop offset="62%" stop-color="#2b6cf0" />
+          <stop offset="70%" stop-color="#2872ef" />
+          <stop offset="78%" stop-color="#2578ed" />
+          <stop offset="86%" stop-color="#2284eb" />
+          <stop offset="93%" stop-color="#1f9ce8" />
           <stop offset="100%" stop-color="#1fe0e0" />
         </linearGradient>
       </defs>
@@ -68,11 +78,12 @@
   <script>
     const params = new URLSearchParams(location.search);
     const t = parseFloat(params.get('t') || '0');
-    if (t > 0) {
-      document.querySelectorAll('.nox-avatar, .nox-blob-path, .nox-droplet-a, .nox-droplet-b').forEach(el => {
-        const cs = getComputedStyle(el);
-        const dur = parseFloat(cs.animationDuration);
-        if (dur > 0) el.style.animationDelay = (-(t / 1000) % dur) + 's';
+    if (t >= 0) {
+      document.querySelectorAll('.nox-avatar, .nox-blob-path, .nox-droplet-a, .nox-droplet-b').forEach(function(el) {
+        el.getAnimations().forEach(function(anim) {
+          anim.currentTime = t;
+          anim.pause();
+        });
       });
     }
   </script>
