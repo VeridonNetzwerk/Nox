@@ -4,17 +4,12 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #00ff00; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
-  .nox-avatar { width: 300px; height: 300px; position: relative; animation: nox-avatar-breathe 32s ease-in-out infinite; }
-  .nox-avatar::before {
-    content: ''; position: absolute; inset: -12%; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, rgba(233,48,240,0.3) 0%, rgba(43,108,240,0.2) 40%, rgba(31,224,224,0.14) 60%, transparent 72%);
-    filter: blur(42px); opacity: 0.45; z-index: 0; pointer-events: none;
-  }
+  .nox-avatar { width: 300px; height: 300px; position: relative; animation: nox-avatar-breathe 13s ease-in-out infinite; }
   .nox-blob-svg { width: 100%; height: 100%; position: relative; z-index: 1; display: block; overflow: visible; }
-  .nox-blob-path { transform-origin: 50% 50%; animation: nox-body-wobble 26s ease-in-out infinite; will-change: transform; }
+  .nox-blob-path { transform-origin: 50% 50%; animation: nox-body-wobble 13s ease-in-out infinite; will-change: transform; }
   .nox-droplet { transform-origin: center; will-change: transform; }
-  .nox-droplet-a { animation: nox-droplet-float-a 14s ease-in-out infinite; }
-  .nox-droplet-b { animation: nox-droplet-float-b 11s ease-in-out infinite; }
+  .nox-droplet-a { animation: nox-droplet-float-a 13s ease-in-out infinite; }
+  .nox-droplet-b { animation: nox-droplet-float-b 13s ease-in-out infinite; }
   @keyframes nox-body-wobble {
     0%,100% { transform: scale(1,1) rotate(0deg) translate(0,0); }
     20% { transform: scale(1.08,0.93) rotate(3deg) translate(1px,-1px); }
@@ -36,7 +31,7 @@
   }
   @keyframes nox-avatar-breathe {
     0%,100% { transform: scale(1); }
-    50% { transform: scale(1.04); }
+    50% { transform: scale(1.06); }
   }
   .nox-title {
     font-family: 'Space Grotesk','Inter',system-ui,sans-serif;

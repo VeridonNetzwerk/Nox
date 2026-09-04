@@ -23,7 +23,7 @@ WINDOW_HEIGHT = 460
 
 # Chroma key color (pure green — doesn't appear in violet/blue/cyan avatar)
 CHROMA_R, CHROMA_G, CHROMA_B = 0, 255, 0
-CHROMA_THRESHOLD = 30  # pixels within this distance of chroma key become transparent
+CHROMA_THRESHOLD = 80  # higher threshold to catch anti-aliased green edges
 
 def start_server():
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=WEBSITE_DIR)
@@ -114,12 +114,40 @@ def main():
     target_h = int(target_w * (frames[0].height / frames[0].width))
     resized = [f.resize((target_w, target_h), Image.LANCZOS) for f in frames]
 
-    # Build transparent GIF using P mode with transparency
-    # Convert each RGBA frame to P (palette) mode, preserving transparency
+    # Build transparent GIF: convert each RGBA frame to P-mode
+    # with a shared palette where index 0 = transparent
     p_frames = []
     for frame in resized:
-        p_frame = frame.quantize(colors=255, method=Image.FASTOCTREE)
-        p_frames.append(p_frame)
+        # Create a P-mode image with transparency
+        # First, get the RGBA data
+        rgba = np.array(frame)
+        alpha = rgba[:,:,3]
+
+        # Quantize the RGB channels (ignore transparent pixels)
+        rgb_frame = Image.fromarray(rgba[:,:,:3], "RGB")
+        p_frame = rgb_frame.quantize(colors=254, method=Image.FASTOCTREE)
+
+        # Now create a new P-mode image with 256 colors
+        # Index 0 = transparent, indices 1-254 = quantized colors, index 255 = spare
+        palette = p_frame.getpalette()
+        new_p = Image.new("P", frame.size, 0)  # fill with index 0 (transparent)
+        
+        # Shift all pixel indices by +1 (so 0 is reserved for transparent)
+        p_array = np.array(p_frame)
+        p_array = p_array + 1  # shift to 1-254
+        p_array[alpha < 128] = 0  # transparent pixels = index 0
+        
+        new_p = Image.fromarray(p_array, "P")
+        
+        # Build palette: index 0 = transparent (black), indices 1-254 = original colors
+        new_palette = [0, 0, 0]  # index 0 = transparent (won't be visible)
+        new_palette.extend(palette[:254 * 3])  # indices 1-254
+        # Pad to 256 colors
+        while len(new_palette) < 256 * 3:
+            new_palette.extend([0, 0, 0])
+        new_p.putpalette(new_palette)
+        
+        p_frames.append(new_p)
 
     p_frames[0].save(
         OUTPUT_GIF,
@@ -129,7 +157,7 @@ def main():
         loop=0,
         disposal=2,
         transparency=0,
-        optimize=True,
+        optimize=False,  # don't optimize — it can break transparency
     )
 
     shutil.rmtree(FRAMES_DIR, ignore_errors=True)
