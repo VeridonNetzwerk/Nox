@@ -24,14 +24,19 @@ WEBSITE_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE = "nox-avatar-frames.html"
 OUTPUT_GIF = os.path.join(WEBSITE_DIR, "..", "docs", "img", "nox-avatar.gif")
 
-FPS = 15
+FPS = 10
 CYCLE_MS = 26000  # matches wobble duration for seamless loop
-NUM_FRAMES = int(FPS * CYCLE_MS / 1000)  # 390
-FRAME_MS = int(1000 / FPS)  # 66ms
+NUM_FRAMES = int(FPS * CYCLE_MS / 1000)  # 260
+FRAME_MS = int(1000 / FPS)  # 100ms
 
-WINDOW_WIDTH = 400
-WINDOW_HEIGHT = 400
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 800
 CDP_PORT = 9222
+
+OUTPUT_SIZE = 200
+# Keep faint glow pixels (app's glow has very low alpha). Premultiplied against
+# black so they match how the app renders over its dark background.
+ALPHA_KEEP_THRESHOLD = 12
 
 def start_server():
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=WEBSITE_DIR)
@@ -165,49 +170,46 @@ def main():
     print(f"Unique frames: {len(hashes)}/{len(frames)}")
 
     print(f"Building GIF with {len(frames)} frames...")
-    target_w = 200
-    target_h = int(target_w * (frames[0].height / frames[0].width))
-    resized = [f.resize((target_w, target_h), Image.LANCZOS) for f in frames]
+    target_h = int(OUTPUT_SIZE * (frames[0].height / frames[0].width))
+    resized = [f.resize((OUTPUT_SIZE, target_h), Image.LANCZOS) for f in frames]
+
+    # Premultiply alpha against black. The app renders on a dark background, so
+    # semi-transparent pixels (anti-aliased edges + the soft glow halo) appear
+    # darkened there. Premultiplying reproduces that exact look, since GIF only
+    # supports binary transparency and cannot store partial alpha.
+    print("  Premultiplying alpha...")
+    premultiplied = []
+    for frame in resized:
+        rgba = np.array(frame).astype(np.float32)
+        alpha = rgba[:, :, 3:4] / 255.0
+        rgb = (rgba[:, :, :3] * alpha).astype(np.uint8)
+        premultiplied.append((rgb, np.array(frame)[:, :, 3]))
 
     # Build a global palette from all frames for consistent smooth gradients
-    # Combine all non-transparent pixels into one image for quantization
     print("  Building global palette...")
-    all_pixels = []
-    for frame in resized:
-        rgba = np.array(frame)
-        alpha = rgba[:,:,3]
-        opaque = rgba[alpha >= 128][:,:3]  # only non-transparent pixels
-        all_pixels.append(opaque)
-    combined = np.concatenate(all_pixels, axis=0)
-    combined_img = Image.fromarray(combined.reshape(-1, 1, 3) if combined.shape[0] > 0 else np.zeros((1,1,3), dtype=np.uint8), "RGB")
-    global_p = combined_img.quantize(colors=255, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG)
+    samples = []
+    for rgb, alpha in premultiplied:
+        samples.append(rgb[alpha >= ALPHA_KEEP_THRESHOLD])
+    combined = np.concatenate(samples, axis=0)
+    combined_img = Image.fromarray(combined.reshape(-1, 1, 3), "RGB")
+    global_p = combined_img.quantize(colors=255, method=Image.MEDIANCUT)
     global_palette = global_p.getpalette()
 
-    # Apply global palette to each frame
+    # Palette with index 0 reserved for transparency
+    gif_palette = [0, 0, 0] + list(global_palette[: 255 * 3])
+    while len(gif_palette) < 256 * 3:
+        gif_palette.extend([0, 0, 0])
+
     print("  Quantizing frames with global palette...")
     p_frames = []
-    for frame in resized:
-        rgba = np.array(frame)
-        alpha = rgba[:,:,3]
-        rgb_frame = Image.fromarray(rgba[:,:,:3], "RGB")
+    for rgb, alpha in premultiplied:
+        rgb_frame = Image.fromarray(rgb, "RGB")
+        p_frame = rgb_frame.quantize(palette=global_p, dither=Image.FLOYDSTEINBERG)
 
-        # Use global palette — remap colors
-        p_frame = rgb_frame.quantize(colors=255, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG,
-                                      palette=global_p)
-
-        p_array = np.array(p_frame)
-        p_array = p_array + 1  # shift to 1-255
-        p_array[alpha < 128] = 0  # transparent = index 0
-
-        new_p = Image.fromarray(p_array, "P")
-
-        # Build palette: index 0 = transparent, 1-255 = global palette
-        new_palette = [0, 0, 0]
-        new_palette.extend(global_palette[:255 * 3])
-        while len(new_palette) < 256 * 3:
-            new_palette.extend([0, 0, 0])
-        new_p.putpalette(new_palette)
-
+        p_array = np.array(p_frame).astype(np.uint16) + 1  # shift to 1..255
+        p_array[alpha < ALPHA_KEEP_THRESHOLD] = 0  # transparent
+        new_p = Image.fromarray(p_array.astype(np.uint8), "P")
+        new_p.putpalette(gif_palette)
         p_frames.append(new_p)
 
     p_frames[0].save(

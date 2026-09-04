@@ -7,14 +7,14 @@
 
   /* ── Exact copy of Nox app CSS ── */
   .nox-avatar {
-    width: 300px; height: 300px;
+    width: 600px; height: 600px;
     position: relative; flex-shrink: 0;
     animation: nox-avatar-breathe 32s ease-in-out infinite;
   }
   .nox-avatar::before {
     content: ''; position: absolute; inset: -12%; border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, rgba(233,48,240,0.3) 0%, rgba(43,108,240,0.2) 40%, rgba(31,224,224,0.14) 60%, transparent 72%);
-    filter: blur(42px); opacity: 0.45; z-index: 0; pointer-events: none;
+    filter: blur(84px); opacity: 0.45; z-index: 0; pointer-events: none;
   }
   .nox-blob-svg { width: 100%; height: 100%; position: relative; z-index: 1; display: block; overflow: visible; }
   .nox-blob-path { transform-origin: 50% 50%; animation: nox-body-wobble 26s ease-in-out infinite; will-change: transform; }
@@ -53,18 +53,8 @@
       <defs>
         <linearGradient id="nox-grad" x1="10%" y1="5%" x2="90%" y2="95%">
           <stop offset="0%" stop-color="#e930f0" />
-          <stop offset="8%" stop-color="#e22ceef" />
-          <stop offset="16%" stop-color="#dc2eed" />
-          <stop offset="24%" stop-color="#d52bec" />
           <stop offset="32%" stop-color="#8b2df5" />
-          <stop offset="40%" stop-color="#7a2df2" />
-          <stop offset="47%" stop-color="#692cef" />
-          <stop offset="55%" stop-color="#582ded" />
           <stop offset="62%" stop-color="#2b6cf0" />
-          <stop offset="70%" stop-color="#2872ef" />
-          <stop offset="78%" stop-color="#2578ed" />
-          <stop offset="86%" stop-color="#2284eb" />
-          <stop offset="93%" stop-color="#1f9ce8" />
           <stop offset="100%" stop-color="#1fe0e0" />
         </linearGradient>
       </defs>
