@@ -77,6 +77,138 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Nox Avatar — Lebende Flüssigkeit: SVG N with organic displacement
+   Flat 2D, gradient violet → blue → turquoise, morphing edges
+   --------------------------------------------------------------------------- */
+
+.nox-avatar {
+  --na-size: var(--nox-avatar-size, 32px);
+
+  width: var(--na-size);
+  height: var(--na-size);
+  position: relative;
+  flex-shrink: 0;
+  animation: nox-avatar-breathe 32s ease-in-out infinite;
+}
+
+/* Soft glow halo — magenta to cyan */
+.nox-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(233, 48, 240, 0.3) 0%,
+    rgba(43, 108, 240, 0.2) 40%,
+    rgba(31, 224, 224, 0.14) 60%,
+    transparent 72%
+  );
+  filter: blur(calc(var(--na-size) * 0.14));
+  opacity: 0.45;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.nox-avatar-glowing::before {
+  opacity: 0.75;
+}
+
+/* SVG fills the container */
+.nox-blob-svg {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+  display: block;
+  overflow: visible;
+}
+
+/* Main N body — slow organic wobble */
+.nox-blob-path {
+  transform-origin: 50% 50%;
+  animation: nox-body-wobble 26s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Satellite droplets — playful floating */
+.nox-droplet {
+  transform-origin: center;
+  will-change: transform;
+}
+
+.nox-droplet-a {
+  animation: nox-droplet-float-a 14s ease-in-out infinite;
+}
+
+.nox-droplet-b {
+  animation: nox-droplet-float-b 11s ease-in-out infinite;
+}
+
+@keyframes nox-body-wobble {
+  0%, 100% { transform: scale(1, 1) rotate(0deg) translate(0, 0); }
+  20%      { transform: scale(1.04, 0.97) rotate(1.5deg) translate(0.5px, -0.5px); }
+  40%      { transform: scale(0.97, 1.03) rotate(-1.2deg) translate(-0.5px, 0.5px); }
+  60%      { transform: scale(1.03, 0.98) rotate(0.9deg) translate(0.3px, 0.3px); }
+  80%      { transform: scale(0.98, 1.02) rotate(-0.6deg) translate(-0.3px, -0.3px); }
+}
+
+@keyframes nox-droplet-float-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  30%      { transform: translate(-2px, -3px) scale(1.15); }
+  55%      { transform: translate(1.5px, 1px) scale(0.85); }
+  80%      { transform: translate(-1px, 2px) scale(1.05); }
+}
+
+@keyframes nox-droplet-float-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  28%      { transform: translate(2.5px, 2px) scale(0.88); }
+  60%      { transform: translate(-1.5px, -2.5px) scale(1.18); }
+  85%      { transform: translate(1px, -1px) scale(0.96); }
+}
+
+@keyframes nox-avatar-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes nox-avatar-pulse {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(0.92); }
+  60% { transform: scale(1.06); }
+}
+
+/* ── State-driven behaviour ── */
+
+/* Idle — very slow, calm */
+.nox-avatar.orb-idle {
+  animation: nox-avatar-breathe 32s ease-in-out infinite;
+}
+
+/* Listening — gentle breathing, droplets perk up */
+.nox-avatar.orb-listening {
+  animation: nox-avatar-breathe 12s ease-in-out infinite;
+}
+.nox-avatar.orb-listening .nox-droplet-a { animation-duration: 6s; }
+.nox-avatar.orb-listening .nox-droplet-b { animation-duration: 4.8s; }
+
+/* Thinking — body wobbles faster, droplets orbit eagerly */
+.nox-avatar.orb-thinking {
+  animation: nox-avatar-breathe 16s ease-in-out infinite;
+}
+.nox-avatar.orb-thinking .nox-blob-path { animation-duration: 9s; }
+.nox-avatar.orb-thinking .nox-droplet-a { animation-duration: 3.6s; }
+.nox-avatar.orb-thinking .nox-droplet-b { animation-duration: 2.9s; }
+
+/* Speaking — contract and expand */
+.nox-avatar.orb-speaking {
+  animation: nox-avatar-pulse 4s ease-in-out infinite;
+}
+.nox-avatar.orb-speaking .nox-blob-path { animation-duration: 5s; }
+.nox-avatar.orb-speaking .nox-droplet-a { animation-duration: 2.4s; }
+.nox-avatar.orb-speaking .nox-droplet-b { animation-duration: 2s; }
+
+/* ---------------------------------------------------------------------------
    Base
    --------------------------------------------------------------------------- */
 

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0d0f; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
+  .nox-avatar { width: 300px; height: 300px; position: relative; animation: nox-avatar-breathe 32s ease-in-out infinite; }
+  .nox-avatar::before {
+    content: ''; position: absolute; inset: -12%; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(233,48,240,0.3) 0%, rgba(43,108,240,0.2) 40%, rgba(31,224,224,0.14) 60%, transparent 72%);
+    filter: blur(42px); opacity: 0.45; z-index: 0; pointer-events: none;
+  }
+  .nox-blob-svg { width: 100%; height: 100%; position: relative; z-index: 1; display: block; overflow: visible; }
+  .nox-blob-path { transform-origin: 50% 50%; animation: nox-body-wobble 26s ease-in-out infinite; will-change: transform; }
+  .nox-droplet { transform-origin: center; will-change: transform; }
+  .nox-droplet-a { animation: nox-droplet-float-a 14s ease-in-out infinite; }
+  .nox-droplet-b { animation: nox-droplet-float-b 11s ease-in-out infinite; }
+  @keyframes nox-body-wobble {
+    0%,100% { transform: scale(1,1) rotate(0deg) translate(0,0); }
+    20% { transform: scale(1.04,0.97) rotate(1.5deg) translate(0.5px,-0.5px); }
+    40% { transform: scale(0.97,1.03) rotate(-1.2deg) translate(-0.5px,0.5px); }
+    60% { transform: scale(1.03,0.98) rotate(0.9deg) translate(0.3px,0.3px); }
+    80% { transform: scale(0.98,1.02) rotate(-0.6deg) translate(-0.3px,-0.3px); }
+  }
+  @keyframes nox-droplet-float-a {
+    0%,100% { transform: translate(0,0) scale(1); }
+    30% { transform: translate(-2px,-3px) scale(1.15); }
+    55% { transform: translate(1.5px,1px) scale(0.85); }
+    80% { transform: translate(-1px,2px) scale(1.05); }
+  }
+  @keyframes nox-droplet-float-b {
+    0%,100% { transform: translate(0,0) scale(1); }
+    28% { transform: translate(2.5px,2px) scale(0.88); }
+    60% { transform: translate(-1.5px,-2.5px) scale(1.18); }
+    85% { transform: translate(1px,-1px) scale(0.96); }
+  }
+  @keyframes nox-avatar-breathe {
+    0%,100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+  .nox-title {
+    font-family: 'Space Grotesk','Inter',system-ui,sans-serif;
+    font-size: 48px; font-weight: 700; color: #e3e3e6; letter-spacing: 4px; margin-top: -10px;
+  }
+</style>
+</head>
+<body>
+  <div class="nox-avatar">
+    <svg viewBox="0 0 100 100" class="nox-blob-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="nox-grad" x1="10%" y1="5%" x2="90%" y2="95%">
+          <stop offset="0%" stop-color="#e930f0" />
+          <stop offset="32%" stop-color="#8b2df5" />
+          <stop offset="62%" stop-color="#2b6cf0" />
+          <stop offset="100%" stop-color="#1fe0e0" />
+        </linearGradient>
+      </defs>
+      <g fill="url(#nox-grad)">
+        <path class="nox-blob-path" d="M22,30 C21,17 33,11 42,19 C49,26 53,37 59,48 C61,53 64,54 64,47 C64,39 65,31 71,27 C80,21 89,28 87,39 C85,49 84,57 84,67 C84,79 75,87 67,82 C59,77 55,67 47,55 C44,50 41,50 40,57 C39,65 39,73 35,79 C28,86 17,81 17,70 C17,59 21,49 22,39 Z" />
+        <ellipse class="nox-droplet nox-droplet-a" cx="13" cy="87" rx="4.6" ry="4" />
+        <ellipse class="nox-droplet nox-droplet-b" cx="91" cy="20" rx="5" ry="4.3" />
+      </g>
+    </svg>
+  </div>
+  <div class="nox-title">Nox</div>
+</body>
+</html>

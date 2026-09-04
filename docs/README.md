@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="img/Nox_text_logo_2350x1024.png" height="128" alt="Nox Logo">
+<img src="img/nox-avatar.gif" width="200" alt="Nox Logo">
 
 **Local AI Desktop Assistant for Windows & Linux — Voice-enabled, private, and fully offline.**
 
