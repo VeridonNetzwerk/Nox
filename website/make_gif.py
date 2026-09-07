@@ -24,19 +24,19 @@ WEBSITE_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE = "nox-avatar-frames.html"
 OUTPUT_GIF = os.path.join(WEBSITE_DIR, "..", "docs", "img", "nox-avatar.gif")
 
-FPS = 10
+FPS = 30
 CYCLE_MS = 26000  # matches wobble duration for seamless loop
-NUM_FRAMES = int(FPS * CYCLE_MS / 1000)  # 260
-FRAME_MS = int(1000 / FPS)  # 100ms
+NUM_FRAMES = int(FPS * CYCLE_MS / 1000)  # 780
+FRAME_MS = int(1000 / FPS)  # 33ms
 
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 800
+WINDOW_WIDTH = 512
+WINDOW_HEIGHT = 512
 CDP_PORT = 9222
 
-OUTPUT_SIZE = 200
-# Keep faint glow pixels (app's glow has very low alpha). Premultiplied against
-# black so they match how the app renders over its dark background.
-ALPHA_KEEP_THRESHOLD = 12
+OUTPUT_SIZE = 256
+# Binary transparency threshold. Pixels with alpha >= this are opaque,
+# below are fully transparent. No premultiplication — clean alpha.
+ALPHA_THRESHOLD = 128
 
 def start_server():
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=WEBSITE_DIR)
@@ -173,23 +173,14 @@ def main():
     target_h = int(OUTPUT_SIZE * (frames[0].height / frames[0].width))
     resized = [f.resize((OUTPUT_SIZE, target_h), Image.LANCZOS) for f in frames]
 
-    # Premultiply alpha against black. The app renders on a dark background, so
-    # semi-transparent pixels (anti-aliased edges + the soft glow halo) appear
-    # darkened there. Premultiplying reproduces that exact look, since GIF only
-    # supports binary transparency and cannot store partial alpha.
-    print("  Premultiplying alpha...")
-    premultiplied = []
-    for frame in resized:
-        rgba = np.array(frame).astype(np.float32)
-        alpha = rgba[:, :, 3:4] / 255.0
-        rgb = (rgba[:, :, :3] * alpha).astype(np.uint8)
-        premultiplied.append((rgb, np.array(frame)[:, :, 3]))
-
-    # Build a global palette from all frames for consistent smooth gradients
+    # Build a global palette from all frames for consistent smooth gradients.
+    # No premultiplication — use original RGB with binary transparency.
     print("  Building global palette...")
     samples = []
-    for rgb, alpha in premultiplied:
-        samples.append(rgb[alpha >= ALPHA_KEEP_THRESHOLD])
+    for frame in resized:
+        rgba = np.array(frame)
+        alpha = rgba[:, :, 3]
+        samples.append(rgba[alpha >= ALPHA_THRESHOLD][:, :3])
     combined = np.concatenate(samples, axis=0)
     combined_img = Image.fromarray(combined.reshape(-1, 1, 3), "RGB")
     global_p = combined_img.quantize(colors=255, method=Image.MEDIANCUT)
@@ -202,12 +193,14 @@ def main():
 
     print("  Quantizing frames with global palette...")
     p_frames = []
-    for rgb, alpha in premultiplied:
-        rgb_frame = Image.fromarray(rgb, "RGB")
+    for frame in resized:
+        rgba = np.array(frame)
+        alpha = rgba[:, :, 3]
+        rgb_frame = Image.fromarray(rgba[:, :, :3], "RGB")
         p_frame = rgb_frame.quantize(palette=global_p, dither=Image.FLOYDSTEINBERG)
 
         p_array = np.array(p_frame).astype(np.uint16) + 1  # shift to 1..255
-        p_array[alpha < ALPHA_KEEP_THRESHOLD] = 0  # transparent
+        p_array[alpha < ALPHA_THRESHOLD] = 0  # transparent
         new_p = Image.fromarray(p_array.astype(np.uint8), "P")
         new_p.putpalette(gif_palette)
         p_frames.append(new_p)
