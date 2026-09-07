@@ -33,7 +33,7 @@ WINDOW_WIDTH = 512
 WINDOW_HEIGHT = 512
 CDP_PORT = 9222
 
-OUTPUT_SIZE = 320
+OUTPUT_SIZE = 288
 # Binary transparency threshold. Pixels with alpha >= this are opaque,
 # below are fully transparent. No premultiplication — clean alpha.
 ALPHA_THRESHOLD = 128
