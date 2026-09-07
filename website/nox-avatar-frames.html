@@ -11,11 +11,6 @@
     position: relative; flex-shrink: 0;
     animation: nox-avatar-breathe 32s ease-in-out infinite;
   }
-  .nox-avatar::before {
-    content: ''; position: absolute; inset: -12%; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, rgba(233,48,240,0.3) 0%, rgba(43,108,240,0.2) 40%, rgba(31,224,224,0.14) 60%, transparent 72%);
-    filter: blur(42px); opacity: 0.45; z-index: 0; pointer-events: none;
-  }
   .nox-blob-svg { width: 100%; height: 100%; position: relative; z-index: 1; display: block; overflow: visible; }
   .nox-blob-path { transform-origin: 50% 50%; animation: nox-body-wobble 26s ease-in-out infinite; will-change: transform; }
   .nox-droplet { transform-origin: center; will-change: transform; }
