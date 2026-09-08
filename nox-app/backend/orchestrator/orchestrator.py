@@ -31,7 +31,7 @@ logger = logging.getLogger("nox.orchestrator")
 class SentenceBuffer:
     """Accumulates streamed tokens and emits complete sentences for TTS."""
 
-    SENTENCE_END = re.compile(r'[.!?]\s')
+    _SENTENCE_ENDS = frozenset(".!?")
 
     def __init__(self):
         self._buffer = ""
@@ -39,16 +39,21 @@ class SentenceBuffer:
     def feed(self, token: str) -> list[str]:
         self._buffer += token
         sentences = []
+        buf = self._buffer
         while True:
-            match = self.SENTENCE_END.search(self._buffer)
-            if match:
-                end = match.end()
-                sentence = self._buffer[:end].strip()
-                if sentence:
-                    sentences.append(sentence)
-                self._buffer = self._buffer[end:]
-            else:
+            # Find next sentence-ending punctuation followed by whitespace
+            idx = -1
+            for i, ch in enumerate(buf):
+                if ch in self._SENTENCE_ENDS and i + 1 < len(buf) and buf[i + 1].isspace():
+                    idx = i + 2  # include the whitespace
+                    break
+            if idx == -1:
                 break
+            sentence = buf[:idx].strip()
+            if sentence:
+                sentences.append(sentence)
+            buf = buf[idx:]
+        self._buffer = buf
         return sentences
 
     def flush(self) -> str:
@@ -57,104 +62,35 @@ class SentenceBuffer:
         return remaining if remaining else ""
 
 
-def _parse_timer_params(params: str) -> dict[str, Any]:
-    """Parse timer_stellen fallback params: 'timer minuten=10 nachricht=Pizza' etc."""
-    parts = params.split()
-    if not parts:
-        return {"aktion": ""}
-    result: dict[str, Any] = {"aktion": parts[0]}
-    for part in parts[1:]:
-        if "=" in part:
-            key, value = part.split("=", 1)
-            key = key.strip().lower()
-            value = value.strip()
-            if key in ("minuten", "sekunden"):
-                try:
-                    result[key] = float(value)
-                except ValueError:
-                    pass
-            elif key == "uhrzeit":
-                result[key] = value
-            elif key == "nachricht":
-                result[key] = value
-    # If no nachricht was found, collect remaining non-key=value parts as nachricht
-    msg_parts = [p for p in parts[1:] if "=" not in p]
-    if msg_parts and "nachricht" not in result:
-        result["nachricht"] = " ".join(msg_parts)
-    return result
+def _parse_fallback_params(
+    params: str,
+    first_key: Optional[str] = None,
+    valid_keys: Optional[set[str]] = None,
+    float_keys: frozenset[str] = frozenset(),
+    int_keys: frozenset[str] = frozenset(),
+    collect_bare_into: Optional[str] = None,
+) -> dict[str, Any]:
+    """Parse key=value params from a fallback tool string.
 
+    All parsers share the same pattern: optional first bare token assigned to
+    first_key, then key=value pairs where values span until the next key=value
+    or end of string. Some keys get type conversions.
 
-def _parse_reminder_params(params: str) -> dict[str, Any]:
-    """Parse erinnerung_speichern fallback params: 'speichern zeitpunkt=morgen 08:00 text=Müll rausbringen' etc."""
-    parts = params.split()
-    if not parts:
-        return {"aktion": ""}
-    result: dict[str, Any] = {"aktion": parts[0]}
-    # Find key=value pairs — but zeitpunkt and text values may contain spaces
-    # Strategy: find keys, then everything between keys is the value
-    remaining = parts[1:]
-    keys = ["zeitpunkt", "text", "id"]
-    i = 0
-    while i < len(remaining):
-        part = remaining[i]
-        if "=" in part:
-            key, value = part.split("=", 1)
-            key = key.strip().lower()
-            value = value.strip()
-            # Collect continuation parts until next key=value or end
-            j = i + 1
-            while j < len(remaining) and "=" not in remaining[j]:
-                value += " " + remaining[j]
-                j += 1
-            if key in keys:
-                if key == "id":
-                    try:
-                        result[key] = int(value)
-                    except ValueError:
-                        pass
-                else:
-                    result[key] = value
-            i = j
-        else:
-            i += 1
-    return result
-
-
-def _parse_translate_params(params: str) -> dict[str, Any]:
-    """Parse uebersetzen fallback params: 'text=Hallo Welt zielsprache=en quellsprache=de' etc."""
-    result: dict[str, Any] = {}
-    remaining = params.split()
-    keys = ["text", "zielsprache", "quellsprache"]
-    i = 0
-    while i < len(remaining):
-        part = remaining[i]
-        if "=" in part:
-            key, value = part.split("=", 1)
-            key = key.strip().lower()
-            value = value.strip()
-            # Collect continuation parts until next key=value or end
-            j = i + 1
-            while j < len(remaining) and "=" not in remaining[j]:
-                value += " " + remaining[j]
-                j += 1
-            if key in keys:
-                result[key] = value
-            i = j
-        else:
-            i += 1
-    return result
-
-
-def _parse_kv_params(params: str, keys: list[str]) -> dict[str, Any]:
-    """Parse generic key=value params from a fallback tool string.
-    The first token without '=' is assigned to keys[0] if keys[0] not found as a key.
+    Args:
+        params: Space-separated params string.
+        first_key: If set, first bare token (without '=') is assigned to this key.
+        valid_keys: Only keys in this set are accepted (None = accept all).
+        float_keys: Keys whose values should be converted to float.
+        int_keys: Keys whose values should be converted to int.
+        collect_bare_into: If set, remaining non-key=value tokens are collected
+            into this key (if not already present).
     """
     result: dict[str, Any] = {}
     remaining = params.split()
+    bare_parts: list[str] = []
     i = 0
-    # Check if first token is a bare value (no '=')
-    if remaining and "=" not in remaining[0]:
-        result[keys[0]] = remaining[0]
+    if first_key and remaining and "=" not in remaining[0]:
+        result[first_key] = remaining[0]
         i = 1
     while i < len(remaining):
         part = remaining[i]
@@ -166,18 +102,137 @@ def _parse_kv_params(params: str, keys: list[str]) -> dict[str, Any]:
             while j < len(remaining) and "=" not in remaining[j]:
                 value += " " + remaining[j]
                 j += 1
-            if key in keys:
-                if key == "wert":
+            if valid_keys is None or key in valid_keys:
+                if key in float_keys:
                     try:
                         result[key] = float(value)
+                    except ValueError:
+                        result[key] = value
+                elif key in int_keys:
+                    try:
+                        result[key] = int(value)
                     except ValueError:
                         result[key] = value
                 else:
                     result[key] = value
             i = j
         else:
+            if collect_bare_into:
+                bare_parts.append(part)
             i += 1
+    if collect_bare_into and bare_parts and collect_bare_into not in result:
+        result[collect_bare_into] = " ".join(bare_parts)
     return result
+
+
+# Pre-compiled regex patterns for fallback tool param parsing
+_RE_SETTING = re.compile(r'key=(\S+)\s+value=(.+)')
+_RE_VOLUME = re.compile(r'(\w+)\s+wert=(\d+)')
+_RE_CLIPBOARD = re.compile(r'(\w+)\s+text=(.+)', re.DOTALL)
+_RE_WEATHER = re.compile(r'(.+?)\s+tage=(\d+)')
+_RE_IMAGE_GEN = re.compile(r'prompt=(.+?)(?:\s+stil=(\w+))?(?:\s+groesse=(\w+))?$', re.DOTALL)
+
+
+def _parse_einstellung(params: str) -> dict[str, Any]:
+    m = _RE_SETTING.match(params)
+    if m:
+        return {"key": m.group(1), "value": m.group(2).strip()}
+    return {"key": "", "value": ""}
+
+
+def _parse_lautstaerke(params: str) -> dict[str, Any]:
+    m = _RE_VOLUME.match(params)
+    if m:
+        return {"aktion": m.group(1), "wert": int(m.group(2))}
+    return {"aktion": params}
+
+
+def _parse_zwischenablage(params: str) -> dict[str, Any]:
+    m = _RE_CLIPBOARD.match(params)
+    if m:
+        return {"aktion": m.group(1), "text": m.group(2).strip()}
+    return {"aktion": params}
+
+
+def _parse_wetter(params: str) -> dict[str, Any]:
+    m = _RE_WEATHER.match(params)
+    if m:
+        return {"ort": m.group(1).strip(), "tage": int(m.group(2))}
+    if params.strip():
+        return {"ort": params.strip()}
+    return {}
+
+
+def _parse_bild_generieren(params: str) -> dict[str, Any]:
+    m = _RE_IMAGE_GEN.match(params)
+    if m:
+        args: dict[str, Any] = {"prompt": m.group(1).strip()}
+        if m.group(2):
+            args["stil"] = m.group(2)
+        if m.group(3):
+            args["groesse"] = m.group(3)
+        return args
+    return {"prompt": params}
+
+
+def _parse_fenster_fokus(params: str) -> dict[str, Any]:
+    parts = params.split(None, 1)
+    if len(parts) >= 2:
+        return {"aktion": parts[0], "name": parts[1]}
+    return {"aktion": parts[0] if parts else "", "name": ""}
+
+
+def _parse_passthrough(key: str):
+    return lambda params: {key: params}
+
+
+_NO_ARGS = lambda params: {}
+
+_FALLBACK_PARSERS: dict[str, Any] = {
+    "datei_lesen": _parse_passthrough("pfad"),
+    "dateien_suchen": _parse_passthrough("query"),
+    "einstellung_aendern": _parse_einstellung,
+    "einstellungen_lesen": _NO_ARGS,
+    "app_oeffnen": _parse_passthrough("name"),
+    "system_steuerung": _parse_passthrough("aktion"),
+    "lautstaerke": _parse_lautstaerke,
+    "search_web": _parse_passthrough("query"),
+    "website_oeffnen": _parse_passthrough("url_oder_suche"),
+    "fenster_fokus": _parse_fenster_fokus,
+    "timer_stellen": lambda p: _parse_fallback_params(
+        p, first_key="aktion",
+        valid_keys={"minuten", "sekunden", "uhrzeit", "nachricht"},
+        float_keys=frozenset({"minuten", "sekunden"}),
+        collect_bare_into="nachricht",
+    ),
+    "erinnerung_speichern": lambda p: _parse_fallback_params(
+        p, first_key="aktion",
+        valid_keys={"zeitpunkt", "text", "id"},
+        int_keys=frozenset({"id"}),
+    ),
+    "zwischenablage": _parse_zwischenablage,
+    "wetter_abfragen": _parse_wetter,
+    "profil_speichern": lambda p: _parse_fallback_params(
+        p, first_key="feld",
+        valid_keys={"feld", "wert"},
+        float_keys=frozenset({"wert"}),
+    ),
+    "uebersetzen": lambda p: _parse_fallback_params(
+        p, valid_keys={"text", "zielsprache", "quellsprache"},
+    ),
+    "einheit_rechnen": lambda p: _parse_fallback_params(
+        p, first_key="aktion",
+        valid_keys={"aktion", "wert", "von", "nach"},
+        float_keys=frozenset({"wert"}),
+    ),
+    "bild_generieren": _parse_bild_generieren,
+    "bildschirm_ansehen": _NO_ARGS,
+    "screenshot_historie": _NO_ARGS,
+    "musik_erkennen": _NO_ARGS,
+    "aktuelle_uhrzeit": _NO_ARGS,
+    "fenster_schliessen": _NO_ARGS,
+    "nox_beenden": _NO_ARGS,
+}
 
 
 class Orchestrator:
@@ -330,14 +385,16 @@ class Orchestrator:
         5. Persist turns
         """
         # Acquire lock — only one message at a time per conversation
-        if self._processing_lock.locked():
+        try:
+            await asyncio.wait_for(self._processing_lock.acquire(), timeout=0)
+        except asyncio.TimeoutError:
             logger.warning("process_message called while another is running — rejecting")
             if send:
                 await send({"type": "error", "content": "Es läuft bereits eine Anfrage. Bitte warte, bis sie fertig ist, oder stoppe sie."})
                 await send({"type": "done"})
             return
 
-        async with self._processing_lock:
+        try:
             # Proactive context: inject active window title + screen content
             context = context_override or ""
             screen_content_read = False  # Track if we proactively read screen content
@@ -524,6 +581,10 @@ class Orchestrator:
                     if isinstance(item, dict) and "stats" in item:
                         response_stats = item["stats"]
                         continue
+                    # Thinking trace — send to UI but don't include in response text
+                    if isinstance(item, dict) and "thinking" in item:
+                        await _send({"type": "thinking", "content": item["thinking"]})
+                        continue
                     # Native tool call sentinel
                     if isinstance(item, dict) and "tool_calls" in item and not tool_executed:
                         for tc in item["tool_calls"]:
@@ -553,6 +614,8 @@ class Orchestrator:
                                     if isinstance(token2, dict):
                                         if "stats" in token2:
                                             response_stats = token2["stats"]
+                                        elif "thinking" in token2:
+                                            await _send({"type": "thinking", "content": token2["thinking"]})
                                         continue
                                     full_response += token2
                                     if not card_only_tool:
@@ -575,76 +638,7 @@ class Orchestrator:
                         tool_name, tool_params = tool_match
                         if self.tool_handler.has_tool(tool_name):
                             # Map params to the correct argument key per tool
-                            if tool_name == "datei_lesen":
-                                tool_args = {"pfad": tool_params}
-                            elif tool_name == "dateien_suchen":
-                                tool_args = {"query": tool_params}
-                            elif tool_name == "einstellung_aendern":
-                                m = re.match(r'key=(\S+)\s+value=(.+)', tool_params)
-                                if m:
-                                    tool_args = {"key": m.group(1), "value": m.group(2).strip()}
-                                else:
-                                    tool_args = {"key": "", "value": ""}
-                            elif tool_name == "einstellungen_lesen":
-                                tool_args = {}
-                            elif tool_name == "app_oeffnen":
-                                tool_args = {"name": tool_params}
-                            elif tool_name == "system_steuerung":
-                                tool_args = {"aktion": tool_params}
-                            elif tool_name == "lautstaerke":
-                                m = re.match(r'(\w+)\s+wert=(\d+)', tool_params)
-                                if m:
-                                    tool_args = {"aktion": m.group(1), "wert": int(m.group(2))}
-                                else:
-                                    tool_args = {"aktion": tool_params}
-                            elif tool_name == "search_web":
-                                tool_args = {"query": tool_params}
-                            elif tool_name == "website_oeffnen":
-                                tool_args = {"url_oder_suche": tool_params}
-                            elif tool_name == "fenster_fokus":
-                                parts = tool_params.split(None, 1)
-                                if len(parts) >= 2:
-                                    tool_args = {"aktion": parts[0], "name": parts[1]}
-                                else:
-                                    tool_args = {"aktion": parts[0] if parts else "", "name": ""}
-                            elif tool_name == "timer_stellen":
-                                tool_args = _parse_timer_params(tool_params)
-                            elif tool_name == "erinnerung_speichern":
-                                tool_args = _parse_reminder_params(tool_params)
-                            elif tool_name == "zwischenablage":
-                                m = re.match(r'(\w+)\s+text=(.+)', tool_params, re.DOTALL)
-                                if m:
-                                    tool_args = {"aktion": m.group(1), "text": m.group(2).strip()}
-                                else:
-                                    tool_args = {"aktion": tool_params}
-                            elif tool_name == "wetter_abfragen":
-                                m = re.match(r'(.+?)\s+tage=(\d+)', tool_params)
-                                if m:
-                                    tool_args = {"ort": m.group(1).strip(), "tage": int(m.group(2))}
-                                elif tool_params.strip():
-                                    tool_args = {"ort": tool_params.strip()}
-                                else:
-                                    tool_args = {}
-                            elif tool_name == "profil_speichern":
-                                tool_args = _parse_kv_params(tool_params, ["feld", "wert"])
-                            elif tool_name == "uebersetzen":
-                                tool_args = _parse_translate_params(tool_params)
-                            elif tool_name == "einheit_rechnen":
-                                tool_args = _parse_kv_params(tool_params, ["aktion", "wert", "von", "nach"])
-                            elif tool_name == "bild_generieren":
-                                m_prompt = re.match(r'prompt=(.+?)(?:\s+stil=(\w+))?(?:\s+groesse=(\w+))?$', tool_params, re.DOTALL)
-                                if m_prompt:
-                                    tool_args = {"prompt": m_prompt.group(1).strip()}
-                                    if m_prompt.group(2):
-                                        tool_args["stil"] = m_prompt.group(2)
-                                    if m_prompt.group(3):
-                                        tool_args["groesse"] = m_prompt.group(3)
-                                else:
-                                    tool_args = {"prompt": tool_params}
-                            elif tool_name in ("bildschirm_ansehen", "screenshot_historie", "musik_erkennen", "aktuelle_uhrzeit", "fenster_schliessen", "nox_beenden"):
-                                tool_args = {}
-                            else:
-                                tool_args = {"query": tool_params, "text": tool_params}
+                            tool_args = _FALLBACK_PARSERS.get(tool_name, lambda p: {"query": p, "text": p})(tool_params)
                             tool_result = await asyncio.get_running_loop().run_in_executor(
                                 None, self.tool_handler.execute, tool_name, tool_args
                             )
@@ -671,6 +665,8 @@ class Orchestrator:
                                 if isinstance(token2, dict):
                                     if "stats" in token2:
                                         response_stats = token2["stats"]
+                                    elif "thinking" in token2:
+                                        await _send({"type": "thinking", "content": token2["thinking"]})
                                     continue
                                 full_response += token2
                                 if not card_only_tool:
@@ -751,6 +747,8 @@ class Orchestrator:
                 logger.error("Orchestrator error: %s", exc, exc_info=True)
                 await _send({"type": "error", "content": f"Fehler: {exc}"})
                 await _send({"type": "done"})
+        finally:
+            self._processing_lock.release()
 
     def _format_backend_error(self, exc: httpx.HTTPStatusError) -> str:
         """Format an LLM backend HTTP error into a user-friendly German message."""
@@ -796,10 +794,11 @@ class Orchestrator:
         messages: list[dict[str, str]],
         use_tools: bool = False,
         think_override: Optional[bool] = None,
+        response_format: Optional[dict[str, Any]] = None,
     ) -> AsyncIterator[Any]:
         """Stream tokens from the LLM backend.
 
-        Yields str tokens, or a dict with 'tool_calls' key as a sentinel.
+        Yields str tokens, or dicts with 'tool_calls', 'thinking', or 'stats' keys.
         """
         if self.backend is None:
             raise httpx.ConnectError("No LLM backend available")
@@ -819,6 +818,7 @@ class Orchestrator:
             think=think,
             num_ctx=self.max_context_tokens,
             keep_alive=keep_alive,
+            response_format=response_format,
         ):
             yield item
 
