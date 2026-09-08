@@ -2,6 +2,8 @@
 
 <img src="img/nox-avatar.gif" width="180" alt="Nox Logo">
 
+# **Nox**
+
 **Local AI Desktop Assistant for Windows & Linux — Voice-enabled, private, and fully offline.**
 
 <p>
