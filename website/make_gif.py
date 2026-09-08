@@ -24,16 +24,16 @@ WEBSITE_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_FILE = "nox-avatar-frames.html"
 OUTPUT_GIF = os.path.join(WEBSITE_DIR, "..", "docs", "img", "nox-avatar.gif")
 
-FPS = 10
+FPS = 30
 CYCLE_MS = 26000  # matches wobble duration for seamless loop
-NUM_FRAMES = int(FPS * CYCLE_MS / 1000)  # 260
-FRAME_MS = int(1000 / FPS)  # 100ms
+NUM_FRAMES = int(FPS * CYCLE_MS / 1000)  # 780
+FRAME_MS = int(1000 / FPS)  # ~33ms
 
 WINDOW_WIDTH = 512
 WINDOW_HEIGHT = 512
 CDP_PORT = 9222
 
-OUTPUT_SIZE = 288
+OUTPUT_SIZE = 400
 # Binary transparency threshold. Pixels with alpha >= this are opaque,
 # below are fully transparent. No premultiplication — clean alpha.
 ALPHA_THRESHOLD = 128
@@ -143,7 +143,7 @@ def main():
         frames = []
         for i in range(NUM_FRAMES):
             ms = int((i / NUM_FRAMES) * CYCLE_MS)
-            if i % 60 == 0:
+            if i % 120 == 0:
                 print(f"  Frame {i+1}/{NUM_FRAMES} ({ms}ms)...", flush=True)
             img = capture_via_cdp(ws, ms)
             frames.append(img)
