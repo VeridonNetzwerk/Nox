@@ -47,3 +47,6 @@ hey_nox_recordings/
 
 # Python pytest cache
 .pytest_cache/
+
+# Temp audio demo files
+nox-app/*.wav
