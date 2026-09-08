@@ -132,7 +132,7 @@ This starts:
 
 <div align="center">
 
-<img src="img/Nox_text_logo_glowing_2350x1024.png" alt="Nox Logo" width="600">
+<img src="img/Nox_Text.png" alt="Nox Logo" width="500">
 
 </div>
 
