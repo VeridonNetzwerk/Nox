@@ -122,7 +122,10 @@ def get_kokoro_voices_for_lang(lang_code: str) -> list:
 
 def _get_pipeline(lang_code: str):
     """Get or create a Kokoro pipeline for the given language."""
-    kokoro_lang = KOKORO_LANGUAGES.get(lang_code, "a")
+    kokoro_lang = KOKORO_LANGUAGES.get(lang_code)
+    if kokoro_lang is None:
+        logger.warning("Kokoro: language '%s' not supported, falling back to English", lang_code)
+        kokoro_lang = "a"
     with _kokoro_lock:
         if kokoro_lang not in _kokoro_pipelines:
             logger.info("Kokoro: creating pipeline for lang '%s'", kokoro_lang)
@@ -131,7 +134,7 @@ def _get_pipeline(lang_code: str):
         return _kokoro_pipelines[kokoro_lang]
 
 
-def kokoro_to_wav(text: str, voice: str, lang_code: str = "de_DE") -> Optional[bytes]:
+def kokoro_to_wav(text: str, voice: str, lang_code: str = "en_US") -> Optional[bytes]:
     """Synthesize text to WAV bytes using Kokoro-82M.
 
     Args:

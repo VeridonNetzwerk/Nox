@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Application locale, compatible CPU",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Serveur de narration et chat",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Autre serveur Ollama sur le réseau",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Serveur d'inférence haute performance",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI avec plugin API OpenAI",
     "providerCustom": "Personnalisé",
     "providerCustomDesc": "Tout autre serveur compatible OpenAI",
     "lmStudioEndpoint": "Adresse du serveur",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Super rapide",
     "modeFast": "Rapide",
     "modeBalanced": "Équilibré",
-    "modeQuality": "Qualité"
+    "modeQuality": "Qualité",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "API cloud pour 100+ modèles (clé API requise)"
   },
   "mic": {
     "idle": "Micro – cliquer pour démarrer",

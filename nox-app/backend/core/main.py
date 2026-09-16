@@ -10,11 +10,13 @@ import json
 import logging
 import logging.handlers
 import os
-import shutil
+import re
 import subprocess
 import sys
 import tempfile
 import time
+from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -47,6 +49,7 @@ _NOX_LOGGERS = (
     "nox.orchestrator.tools", "nox.orchestrator.system_prompt", "nox.eye",
     "nox.eye.manager", "nox.eye.window", "nox.eye.uia", "nox.eye.ocr", "nox.eye.store",
     "nox.files", "nox.files.manager", "nox.files.indexer", "nox.files.store", "nox.settings",
+    "nox.llm_backend",
 )
 
 # ---------------------------------------------------------------------------
@@ -137,6 +140,11 @@ if LOCAL_CONFIG_PATH.exists():
         config.update(local)
         logger.info("Merged config.local.yaml overrides")
 
+# Custom GGUF models directory (config) — synced to env so both main.py and
+# LlamaCppBackend resolve the same directory on every scan
+if config.get("gguf_models_dir"):
+    os.environ["NOX_MODELS_DIR"] = str(config["gguf_models_dir"])
+
 # Analytics — fire-and-forget, respects analytics_enabled setting
 try:
     from analytics import track_app_start as _track_app_start  # analytics/ subdir on sys.path
@@ -185,8 +193,8 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
-    async def send_to_latest(self, message: dict[str, Any]) -> None:
-        """Send a message to all connected clients (was: latest only)."""
+    async def broadcast_to_clients(self, message: dict[str, Any]) -> None:
+        """Send a message to all connected clients."""
         await self.broadcast(message)
 
 
@@ -249,8 +257,19 @@ def apply_settings_update(updates: dict[str, Any]) -> None:
     Also called by the /api/settings endpoint.
     """
     config.update(updates)
+    if "gguf_models_dir" in updates:
+        models_dir = str(updates.get("gguf_models_dir") or "").strip()
+        if models_dir:
+            os.environ["NOX_MODELS_DIR"] = models_dir
+        else:
+            os.environ.pop("NOX_MODELS_DIR", None)
     if "ollama_model" in updates:
-        orchestrator.set_model(updates["ollama_model"])
+        model = updates["ollama_model"]
+        # For llama_cpp, update model_path so the right GGUF loads
+        if orchestrator.backend and orchestrator.backend.backend_type == "llama_cpp":
+            if hasattr(orchestrator.backend, "set_model_path"):
+                orchestrator.backend.set_model_path(model)
+        orchestrator.set_model(model)
     if "ollama_model_mode" in updates:
         config["_vram_user_mode"] = updates["ollama_model_mode"]
     if "llm_speed_mode" in updates:
@@ -326,6 +345,7 @@ def apply_settings_update(updates: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 from orchestrator import Orchestrator
+from llm_backend import OllamaBackend, LlamaCppBackend
 
 orchestrator = Orchestrator(
     config=config,
@@ -345,17 +365,17 @@ async def on_voice_transcript(transcript: str, from_wake_word: bool = True) -> N
     For manual mic button clicks, send to the input field for review/editing.
     """
     if from_wake_word:
-        await manager.send_to_latest({
+        await manager.broadcast_to_clients({
             "type": "user_message",
             "content": transcript,
             "voice_input": True,
         })
-        async def _send_to_latest(msg):
-            await manager.send_to_latest(msg)
-        await orchestrator.process_message(transcript, voice_input=True, send=_send_to_latest)
+        async def _send_to_clients(msg):
+            await manager.broadcast_to_clients(msg)
+        await orchestrator.process_message(transcript, voice_input=True, send=_send_to_clients)
     else:
         # Manual mic button: put transcript in input field, don't send yet
-        await manager.send_to_latest({
+        await manager.broadcast_to_clients({
             "type": "voice_transcript",
             "content": transcript,
         })
@@ -373,20 +393,10 @@ if voice_manager:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Nox Backend", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8420", "http://127.0.0.1:8420"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=True,
-)
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Start voice pipeline on server startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown lifecycle."""
+    # --- Startup ---
     if voice_manager:
         voice_manager.set_event_loop(asyncio.get_running_loop())
         voice_manager.start()
@@ -476,6 +486,27 @@ async def startup_event() -> None:
         config["_vram_user_mode"] = config.get("ollama_model_mode", "balance")
         asyncio.create_task(_vram_monitor_loop())
 
+    yield
+
+    # --- Shutdown ---
+    if voice_manager:
+        voice_manager.stop()
+    eye_manager.stop()
+    files_manager.stop()
+    await orchestrator.close()
+    logger.info("Backend shutdown complete")
+
+
+app = FastAPI(title="Nox Backend", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8420", "http://127.0.0.1:8420"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=True,
+)
+
 
 async def _vram_monitor_loop() -> None:
     """Background task: monitor free VRAM and adaptively manage model loading.
@@ -504,6 +535,13 @@ async def _vram_monitor_loop() -> None:
             bt = orchestrator.backend.backend_type
             if bt not in ("ollama", "llama_cpp"):
                 continue
+
+            # Idle unload for llama_cpp — free VRAM when not in use
+            if bt == "llama_cpp" and not _vram_unloaded:
+                try:
+                    await orchestrator.unload_if_idle()
+                except Exception:
+                    pass
 
             free_vram = _get_gpu_vram_free()
             if free_vram == 0:
@@ -630,17 +668,6 @@ async def _vram_monitor_loop() -> None:
             logger.debug("VRAM monitor error: %s", exc)
 
 
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Clean up voice pipeline on shutdown."""
-    if voice_manager:
-        voice_manager.stop()
-    eye_manager.stop()
-    files_manager.stop()
-    await orchestrator.close()
-    logger.info("Backend shutdown complete")
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -667,21 +694,22 @@ async def get_username() -> dict[str, Any]:
 
 
 @app.get("/health/ollama")
-async def health_ollama() -> dict[str, Any]:
+async def health_ollama(reconnect: bool = False) -> dict[str, Any]:
     """Check LLM backend reachability and report loaded model.
 
     Works with any backend (Ollama, OpenAI-compatible, llama.cpp).
     If no backend is initialized, attempts to re-detect (Ollama may have
     started after Nox).
+    Pass ?reconnect=true to force re-detection (e.g. after switching backend).
     """
     ollama_model = config.get("ollama_model", "qwen3:14b")
-    if orchestrator.backend is None:
-        # Try to re-initialize — Ollama may have started after Nox
+    if reconnect or orchestrator.backend is None:
+        # Try to (re-)initialize — backend may have changed
         try:
             backend_ok = await orchestrator.init_backend()
             if backend_ok:
                 bt = orchestrator.backend.backend_type
-                logger.info("LLM backend re-detected during health check: %s", bt)
+                logger.info("LLM backend (re-)detected during health check: %s", bt)
             else:
                 return {
                     "status": "error",
@@ -829,16 +857,147 @@ async def files_read(pfad: str, suche: str = "", zeile: int = 0) -> dict[str, An
     return {"status": "ok", "file": pfad, "total_lines": total, "lines": numbered[:500]}
 
 
+async def _get_ollama_models() -> list[str]:
+    """Query Ollama for available models, even when using a different backend."""
+    try:
+        host = config.get("ollama_host", "http://localhost:11434")
+        backend = OllamaBackend(host, "dummy")
+        if await backend.check_available():
+            return await backend.get_available_models()
+    except Exception as exc:
+        logger.debug("Ollama not available for model listing: %s", exc)
+    return []
+
+
+async def _switch_backend_for_model(model: str) -> bool:
+    """Switch the orchestrator backend if the selected model belongs to a different backend.
+
+    Returns True if the backend was switched, False if the current backend can handle it.
+    """
+    if not orchestrator.backend:
+        return False
+
+    bt = orchestrator.backend.backend_type
+    current_models = await orchestrator.get_available_models()
+
+    # Model is available in the current backend — no switch needed
+    if model in current_models:
+        # For llama_cpp, update model_path so the right GGUF loads
+        if bt == "llama_cpp" and hasattr(orchestrator.backend, "set_model_path"):
+            orchestrator.backend.set_model_path(model)
+        return False
+
+    # Try Ollama if current backend is llama_cpp
+    if bt == "llama_cpp":
+        ollama_models = await _get_ollama_models()
+        if model in ollama_models:
+            host = config.get("ollama_host", "http://localhost:11434")
+            new_backend = OllamaBackend(host, model)
+            if await new_backend.check_available():
+                if hasattr(orchestrator.backend, "unload_model"):
+                    orchestrator.backend.unload_model()
+                orchestrator.set_backend(new_backend)
+                config["llm_backend"] = "ollama"
+                logger.info("Switched backend to Ollama for model: %s", model)
+                return True
+
+    # Try llama_cpp if current backend is Ollama and model looks like a GGUF file
+    if bt == "ollama" and model.endswith(".gguf"):
+        model_path = config.get("llm_model_path", "")
+        n_gpu = config.get("llm_gpu_layers", -1)
+        speed_mode = config.get("llm_speed_mode", "balance")
+        mmproj = config.get("llm_mmproj_path", "")
+        draft_model = config.get("llm_draft_model_path", "")
+        keep_alive = config.get("llm_keep_alive", 0)
+        flash_attn = config.get("llm_flash_attn", True)
+        kv_k = config.get("llm_kv_cache_type_k", "q8_0")
+        kv_v = config.get("llm_kv_cache_type_v", "f16")
+        n_batch = config.get("llm_n_batch", 512)
+        use_mlock = config.get("llm_use_mlock", False)
+        n_threads = config.get("llm_n_threads", 0)
+        new_backend = LlamaCppBackend(
+            model_path, n_ctx=config.get("max_context_tokens", 8192),
+            n_gpu_layers=n_gpu, speed_mode=speed_mode,
+            mmproj_path=mmproj, draft_model_path=draft_model,
+            keep_alive_seconds=keep_alive, flash_attn=flash_attn,
+            kv_cache_type_k=kv_k, kv_cache_type_v=kv_v,
+            n_batch=n_batch, use_mlock=use_mlock, n_threads=n_threads,
+        )
+        if await new_backend.check_available():
+            if hasattr(new_backend, "set_model_path"):
+                new_backend.set_model_path(model)
+            try:
+                await orchestrator.backend.unload()
+            except Exception:
+                pass
+            orchestrator.set_backend(new_backend)
+            config["llm_backend"] = "llama_cpp"
+            logger.info("Switched backend to llama_cpp for model: %s", model)
+            return True
+
+    return False
+
+
 @app.get("/api/models")
 async def get_models() -> dict[str, Any]:
     """List available models for the settings panel dropdown."""
     models = await orchestrator.get_available_models()
     bt = orchestrator.backend.backend_type if orchestrator.backend else "none"
     endpoint = orchestrator.backend.endpoint if orchestrator.backend else ""
+
+    # Merge Ollama models when using llama_cpp, and vice versa
+    if bt == "llama_cpp":
+        ollama_models = await _get_ollama_models()
+        for m in ollama_models:
+            if m not in models:
+                models.append(m)
+    elif bt == "ollama":
+        # Also list GGUF files so users can switch to llama_cpp models
+        try:
+            gguf_backend = LlamaCppBackend(
+                config.get("llm_model_path", ""),
+                n_ctx=config.get("max_context_tokens", 8192),
+            )
+            if await gguf_backend.check_available():
+                gguf_models = await gguf_backend.get_available_models()
+                for m in gguf_models:
+                    if m not in models:
+                        models.append(m)
+        except Exception:
+            pass
+
+    # Per-model details (disk size, install time) for storage management + update checks
+    model_details: dict[str, dict[str, Any]] = {}
+    try:
+        ollama_host = config.get("ollama_host", "http://localhost:11434")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            tags_resp = await client.get(f"{ollama_host}/api/tags")
+            if tags_resp.status_code == 200:
+                for m in tags_resp.json().get("models", []):
+                    model_details[m.get("name", "")] = {
+                        "size_bytes": m.get("size", 0),
+                        "modified_at": m.get("modified_at", ""),
+                    }
+    except Exception as exc:
+        logger.debug("Could not fetch ollama model details: %s", exc)
+    try:
+        models_dir = _get_gguf_models_dir()
+        if models_dir.exists():
+            for f in models_dir.glob("*.gguf"):
+                stat = f.stat()
+                model_details[f.name] = {
+                    "size_bytes": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                }
+    except Exception as exc:
+        logger.debug("Could not stat GGUF models: %s", exc)
+
     return {
         "status": "ok",
         "current_model": config.get("ollama_model", "qwen3:14b"),
         "available_models": models,
+        "model_details": model_details,
+        "total_size_bytes": sum(d.get("size_bytes", 0) for d in model_details.values()),
         "model_mode": config.get("ollama_model_mode", "balance"),
         "vram_mb": _get_gpu_vram(),
         "vram_free_mb": _get_gpu_vram_free(),
@@ -846,6 +1005,46 @@ async def get_models() -> dict[str, Any]:
         "backend_type": bt,
         "endpoint": endpoint,
     }
+
+
+@app.post("/api/models/delete")
+async def delete_model(body: dict[str, Any]) -> dict[str, Any]:
+    """Delete an installed model (Ollama model or GGUF file).
+
+    Refuses to delete the currently active model.
+    """
+    model = body.get("model", "")
+    if not model:
+        return {"status": "error", "error": "Kein Modell angegeben"}
+
+    current = config.get("ollama_model", "")
+    if current and (model == current or current.startswith(model) or model.startswith(current)):
+        return {"status": "error", "error": "Modell ist gerade aktiv – aktiviere zuerst ein anderes Modell"}
+
+    # GGUF file?
+    if model.endswith(".gguf"):
+        try:
+            models_dir = _get_gguf_models_dir()
+            target = models_dir / model
+            target.unlink(missing_ok=True)
+            logger.info("Deleted GGUF model file: %s", target)
+            return {"status": "ok", "deleted": model}
+        except Exception as exc:
+            logger.error("Could not delete GGUF model %s: %s", model, exc)
+            return {"status": "error", "error": str(exc)}
+
+    # Ollama model
+    try:
+        ollama_host = config.get("ollama_host", "http://localhost:11434")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.request("DELETE", f"{ollama_host}/api/delete", json={"name": model})
+            if resp.status_code == 200:
+                logger.info("Deleted Ollama model: %s", model)
+                return {"status": "ok", "deleted": model}
+            return {"status": "error", "error": f"Ollama: HTTP {resp.status_code}"}
+    except Exception as exc:
+        logger.error("Could not delete Ollama model %s: %s", model, exc)
+        return {"status": "error", "error": str(exc)}
 
 
 @app.post("/api/model")
@@ -883,8 +1082,16 @@ async def set_model(body: dict[str, Any]) -> dict[str, Any]:
     model = body.get("model", "")
     if not model:
         return {"status": "error", "error": "No model, mode, or reconnect specified"}
-    orchestrator.set_model(model)
+    # Try cross-backend switch first
+    switched = False
+    try:
+        switched = await _switch_backend_for_model(model)
+    except Exception as exc:
+        logger.warning("Backend switch failed: %s", exc)
+    if not switched:
+        orchestrator.set_model(model)
     config["ollama_model"] = model
+    settings_mgr.save(config)
     return {"status": "ok", "model": model}
 
 
@@ -1065,6 +1272,19 @@ async def get_conversation(conversation_id: str) -> dict[str, Any]:
         return {"status": "error", "error": str(exc)}
 
 
+@app.delete("/api/conversation/{conversation_id}")
+async def delete_conversation(conversation_id: str) -> dict[str, Any]:
+    """Delete a conversation and all its turns."""
+    try:
+        deleted = orchestrator.conversation_store.delete_conversation(conversation_id)
+        if not deleted:
+            return {"status": "error", "error": "Konversation nicht gefunden."}
+        return {"status": "ok"}
+    except Exception as exc:
+        logger.error("Failed to delete conversation: %s", exc, exc_info=True)
+        return {"status": "error", "error": str(exc)}
+
+
 @app.get("/api/conversation/{conversation_id}/export")
 async def export_conversation(conversation_id: str, format: str = "markdown") -> Response:
     """Export a conversation as Markdown, JSON, or plain text."""
@@ -1166,6 +1386,38 @@ async def get_settings() -> dict[str, Any]:
     }
 
 
+@app.get("/api/models/dir")
+async def get_models_dir() -> dict[str, Any]:
+    """Return the directory where GGUF models are stored."""
+    return {
+        "status": "ok",
+        "dir": str(_get_gguf_models_dir()),
+        "custom": bool(str(config.get("gguf_models_dir") or "").strip()),
+    }
+
+
+@app.post("/api/models/dir")
+async def set_models_dir(body: dict[str, Any]) -> dict[str, Any]:
+    """Change the GGUF models storage directory.
+
+    Pass {"dir": ""} to reset to the default location. The directory is
+    created if it does not exist. Existing models are NOT moved.
+    """
+    raw = str(body.get("dir") or "").strip()
+    if raw:
+        try:
+            Path(raw).mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return {"status": "error", "error": f"Verzeichnis nicht erstellbar: {exc}"}
+    settings_mgr.save({"gguf_models_dir": raw})
+    apply_settings_update({"gguf_models_dir": raw})
+    return {
+        "status": "ok",
+        "dir": str(_get_gguf_models_dir()),
+        "custom": bool(raw),
+    }
+
+
 @app.post("/api/settings")
 async def update_settings(body: dict[str, Any]) -> dict[str, Any]:
     """Update settings and persist to config.yaml.
@@ -1177,6 +1429,15 @@ async def update_settings(body: dict[str, Any]) -> dict[str, Any]:
     updates = body.get("settings", body)
     updated = settings_mgr.save(updates)
     apply_settings_update(updates)
+    # Cross-backend model switching (async, can't be in apply_settings_update)
+    if "ollama_model" in updates:
+        model = updates["ollama_model"]
+        try:
+            switched = await _switch_backend_for_model(model)
+            if switched:
+                settings_mgr.save(config)
+        except Exception as exc:
+            logger.warning("Backend switch failed for model '%s': %s", model, exc)
     return {"status": "ok", "settings": updated}
 
 
@@ -1243,7 +1504,7 @@ async def execute_code(body: dict[str, Any]) -> dict[str, Any]:
     """Execute a Python or shell code snippet and return the output.
 
     Limited to 10 seconds timeout. Python uses the embedded interpreter.
-    Shell uses the system shell (cmd on Windows, bash on Linux).
+    Shell uses cmd on Windows.
     """
     code = body.get("code", "")
     lang = body.get("lang", "python").lower()
@@ -1260,7 +1521,7 @@ async def execute_code(body: dict[str, Any]) -> dict[str, Any]:
                 capture_output=True, text=True, timeout=10,
             )
         elif lang in ("shell", "sh", "bash", "cmd", "powershell"):
-            shell_cmd = ["cmd", "/c", code] if sys.platform == "win32" else ["bash", "-c", code]
+            shell_cmd = ["cmd", "/c", code]
             result = subprocess.run(
                 shell_cmd,
                 capture_output=True, text=True, timeout=10,
@@ -1458,40 +1719,50 @@ async def system_status() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
-OLLAMA_LINUX_TGZ_URL = "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst"
-ONBOARDING_STATE: dict[str, Any] = {}
+ONBOARDING_STATE: dict[str, Any] = {
+    "pull_cancel": False,
+    "pull_paused": False,
+    "pull_speed_history": [],  # list of {t, dl, write}
+    "pull_write_speed": 0,
+    "pull_running": False,
+    "pull_model": None,
+    "pull_progress": 0,
+    "pull_completed": 0,
+    "pull_total": 0,
+    "pull_speed": 0,
+    "pull_status_text": "idle",
+    "pull_error": None,
+    "pull_queue": [],
+    "ollama_installing": False,
+    "ollama_install_error": None,
+    "ollama_install_phase": "idle",
+    "ollama_install_progress": 0,
+}
 
-IS_LINUX = sys.platform.startswith("linux")
+
+_cached_gpu_vram: Optional[int] = None
 
 
 def _get_gpu_vram() -> int:
-    """Query GPU VRAM in MB via nvidia-smi. Returns 0 if unavailable."""
+    """Query total GPU VRAM in MB. Cached after first call — total VRAM doesn't change."""
+    global _cached_gpu_vram
+    if _cached_gpu_vram is not None:
+        return _cached_gpu_vram
     try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
-            encoding="utf-8", errors="replace",
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return int(result.stdout.strip().splitlines()[0].strip())
+        from platform_utils import detect_gpu
+        _cached_gpu_vram = detect_gpu().get("vram_mb", 0)
+        return _cached_gpu_vram
     except Exception:
-        pass
-    return 0
+        return 0
 
 
 def _get_gpu_vram_free() -> int:
-    """Query free GPU VRAM in MB via nvidia-smi. Returns 0 if unavailable."""
+    """Query free GPU VRAM in MB via detect_gpu(). Returns 0 if unavailable."""
     try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
-            encoding="utf-8", errors="replace",
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return int(result.stdout.strip().splitlines()[0].strip())
+        from platform_utils import detect_gpu
+        return detect_gpu().get("vram_free_mb", 0)
     except Exception:
-        pass
-    return 0
+        return 0
 
 
 # Downgrade order: from highest quality to lowest, then unload
@@ -1501,15 +1772,15 @@ _MODE_DOWNGRADE_ORDER = ["qualitaet", "balance", "schnell", "superschnell"]
 # Model selection table: (vram_min_mb, vram_max_mb) -> {mode: ollama_model_name}
 # Modes: "superschnell", "schnell", "balance", "qualitaet"
 _MODEL_TABLE = [
-    (0,      4096,  {"superschnell": "phi4-mini:3.8b",              "schnell": "phi4-mini:3.8b",            "balance": "phi4-mini:3.8b",              "qualitaet": "phi4-mini:3.8b"}),
-    (4096,   8192,  {"superschnell": "phi4-mini:3.8b",              "schnell": "gemma4:e4b",                "balance": "gemma4:e4b",                  "qualitaet": "qwen3.5:4b"}),
-    (8192,   12288, {"superschnell": "phi4-mini:3.8b",              "schnell": "gemma4:e4b",                "balance": "gemma4:e4b",                  "qualitaet": "qwen3.5:9b"}),
-    (12288,  16384, {"superschnell": "gemma4:e4b",                  "schnell": "gemma4:e4b",                "balance": "qwen3.5:9b",                  "qualitaet": "deepseek-r1:14b-qwen-distill"}),
-    (16384,  20480, {"superschnell": "gemma4:e4b",                  "schnell": "qwen3.5:9b",                "balance": "qwen3.5:9b-q6_K",             "qualitaet": "gpt-oss:20b"}),
-    (20480,  24576, {"superschnell": "gemma4:e4b",                  "schnell": "qwen3.5:9b",                "balance": "deepseek-r1:14b-qwen-distill", "qualitaet": "mistral-small3.2:24b"}),
-    (24576,  32768, {"superschnell": "qwen3.5:9b",                  "schnell": "deepseek-r1:14b-qwen-distill", "balance": "gpt-oss:20b",              "qualitaet": "qwen3.8:27b"}),
-    (32768,  40960, {"superschnell": "qwen3.5:9b",                  "schnell": "mistral-small3.2:24b",      "balance": "qwen3.8:27b",                 "qualitaet": "qwen3.6:35b-a3b"}),
-    (40960,  999999,{"superschnell": "qwen3.5:9b-q6_K",             "schnell": "qwen3.8:27b",               "balance": "qwen3.6:35b-a3b",             "qualitaet": "llama3.3:70b-q3_K"}),
+    (0,      4096,  {"superschnell": "qwen3.5:0.8b",             "schnell": "granite4.2:3b",            "balance": "granite4.2:3b",            "qualitaet": "phi4-mini:3.8b"}),
+    (4096,   8192,  {"superschnell": "qwen3.5:0.8b",             "schnell": "granite4.2:3b",            "balance": "qwen3.5:4b",                "qualitaet": "qwen3.5:9b"}),
+    (8192,   12288, {"superschnell": "granite4.2:3b",            "schnell": "granite4.2:3b",            "balance": "qwen3.5:9b",                "qualitaet": "qwen3.5:14b"}),
+    (12288,  16384, {"superschnell": "granite4.2:3b",            "schnell": "qwen3.5:4b",               "balance": "qwen3.5:9b",                "qualitaet": "qwen3.5:14b"}),
+    (16384,  20480, {"superschnell": "granite4.2:3b",            "schnell": "qwen3.5:4b",               "balance": "qwen3.5:14b",               "qualitaet": "gemma4:26b"}),
+    (20480,  24576, {"superschnell": "qwen3.5:4b",               "schnell": "qwen3.5:9b",               "balance": "qwen3.5:14b",               "qualitaet": "qwen3.8:27b"}),
+    (24576,  32768, {"superschnell": "qwen3.5:4b",               "schnell": "qwen3.5:9b",               "balance": "gemma4:26b",               "qualitaet": "qwen3.6:35b-a3b"}),
+    (32768,  40960, {"superschnell": "qwen3.5:9b",               "schnell": "qwen3.5:14b",              "balance": "qwen3.8:27b",               "qualitaet": "qwen3.6:35b-a3b"}),
+    (40960,  999999,{"superschnell": "qwen3.5:9b",               "schnell": "qwen3.5:14b",              "balance": "qwen3.6:35b-a3b",           "qualitaet": "granite4.2:30b"}),
 ]
 
 _MODE_FALLBACK_ORDER = ["balance", "schnell", "qualitaet", "superschnell"]
@@ -1593,57 +1864,118 @@ def _select_model_by_vram(
 
 @app.get("/api/onboarding/gpu-check")
 async def gpu_check() -> dict[str, Any]:
-    """Check if CUDA is actually available (not just if an NVIDIA card exists)."""
-    cuda_available = False
-    gpu_name = ""
-    torch_version = ""
-    vram_mb = 0
+    """Check GPU availability and vendor. Reports Nvidia, AMD, and Intel GPUs."""
+    from platform_utils import detect_gpu, get_llama_cpp_cmake_args
+    gpu_info = detect_gpu()
+    vendor = gpu_info.get("vendor", "unknown")
+    gpu_name = gpu_info.get("name", "")
+    vram_mb = gpu_info.get("vram_mb", 0)
+    vram_free_mb = gpu_info.get("vram_free_mb", 0)
+    gpu_backend = gpu_info.get("backend", "cpu")
+    all_gpus = gpu_info.get("all_gpus", [])
 
+    # Also check torch/CUDA for Nvidia-specific info
+    cuda_available = False
+    torch_version = ""
     try:
         import torch
         cuda_available = torch.cuda.is_available()
         torch_version = torch.__version__
-        if cuda_available:
+        if cuda_available and not gpu_name:
             gpu_name = torch.cuda.get_device_name(0)
     except ImportError:
         pass
     except Exception as exc:
         logger.debug("GPU check error: %s", exc)
 
-    # Also check via nvidia-smi as fallback (includes VRAM)
+    # nvidia-smi as fallback for VRAM
     nvidia_smi = False
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=5,
-            encoding="utf-8", errors="replace",
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            nvidia_smi = True
-            parts = result.stdout.strip().splitlines()[0].split(",")
-            if not gpu_name:
-                gpu_name = parts[0].strip()
-            if len(parts) > 1:
-                vram_str = parts[1].strip().replace(" MiB", "")
-                try:
-                    vram_mb = int(vram_str)
-                except ValueError:
-                    pass
-    except Exception:
-        pass
+    if vendor == "nvidia" and vram_mb == 0:
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                nvidia_smi = True
+                parts = result.stdout.strip().splitlines()[0].split(",")
+                if not gpu_name:
+                    gpu_name = parts[0].strip()
+                if len(parts) > 1:
+                    vram_str = parts[1].strip().replace(" MiB", "")
+                    try:
+                        vram_mb = int(vram_str)
+                    except ValueError:
+                        pass
+        except Exception:
+            pass
+    elif vendor == "nvidia":
+        nvidia_smi = True
 
     # If torch CUDA gave us a name but no VRAM, try nvidia-smi for VRAM only
     if cuda_available and vram_mb == 0:
         vram_mb = _get_gpu_vram()
 
+    # Determine mode
+    if cuda_available:
+        mode = "gpu"
+    elif vendor == "nvidia" and nvidia_smi:
+        mode = "cpu_fallback"
+    elif vendor in ("amd", "intel"):
+        mode = "gpu"  # Vulkan/ROCm acceleration available
+    else:
+        mode = "cpu"
+
+    # Get llama.cpp build info for this GPU
+    llama_cpp_info = get_llama_cpp_cmake_args(vendor)
+
+    # System RAM (for GPU+RAM hybrid fit estimates in the marketplace)
+    ram_gb = 0
+    try:
+        import psutil
+        ram_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    except Exception:
+        # Dependency-free Windows fallback
+        try:
+            import ctypes
+
+            class _MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = _MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                ram_gb = round(stat.ullTotalPhys / (1024 ** 3), 1)
+        except Exception:
+            pass
+
     return {
         "status": "ok",
         "cuda_available": cuda_available,
         "gpu_name": gpu_name,
+        "gpu_vendor": vendor,
+        "gpu_backend": gpu_backend,
         "vram_mb": vram_mb,
+        "vram_free_mb": vram_free_mb,
+        "ram_gb": ram_gb,
         "torch_version": torch_version,
         "nvidia_driver_present": nvidia_smi,
-        "mode": "gpu" if cuda_available else ("cpu_fallback" if nvidia_smi else "cpu"),
+        "mode": mode,
+        "all_gpus": all_gpus,
+        "gpu_count": gpu_info.get("gpu_count", 1),
+        "multi_gpu": gpu_info.get("multi_gpu", False),
+        "llama_cpp_build": llama_cpp_info,
     }
 
 
@@ -1652,126 +1984,11 @@ async def install_ollama() -> dict[str, Any]:
     """Download and silently install Ollama.
 
     On Windows: downloads OllamaSetup.exe and runs it silently.
-    On Linux: downloads the ollama binary from GitHub releases to ~/.local/bin/
-    and starts `ollama serve` in the background.
 
     Returns immediately. The frontend polls /api/onboarding/install-status.
     """
     if ONBOARDING_STATE.get("ollama_installing"):
         return {"status": "already_running"}
-
-    async def _do_install_linux():
-        """Install Ollama on Linux by downloading and extracting the tar.zst to ~/.local/."""
-        ONBOARDING_STATE["ollama_installing"] = True
-        ONBOARDING_STATE["ollama_install_error"] = None
-        ONBOARDING_STATE["ollama_install_phase"] = "downloading"
-        ONBOARDING_STATE["ollama_install_progress"] = 0
-        try:
-            # Target: ~/.local/ (no sudo needed, mirrors official install layout)
-            local_dir = Path.home() / ".local"
-            local_dir.mkdir(parents=True, exist_ok=True)
-            tmp_archive = local_dir / "ollama-linux-amd64.tar.zst"
-
-            # Download tar.zst with progress
-            logger.info("Downloading Ollama tar.zst from %s", OLLAMA_LINUX_TGZ_URL)
-            async with httpx.AsyncClient(follow_redirects=True, timeout=600.0) as client:
-                async with client.stream("GET", OLLAMA_LINUX_TGZ_URL) as resp:
-                    resp.raise_for_status()
-                    total = int(resp.headers.get("content-length", 0))
-                    downloaded = 0
-                    with open(tmp_archive, "wb") as f:
-                        async for chunk in resp.aiter_bytes(65536):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total > 0:
-                                ONBOARDING_STATE["ollama_install_progress"] = downloaded / total
-                    ONBOARDING_STATE["ollama_install_progress"] = 1.0
-
-            # Extract tar.zst
-            ONBOARDING_STATE["ollama_install_phase"] = "installing"
-            ONBOARDING_STATE["ollama_install_progress"] = 0.92
-            logger.info("Extracting Ollama archive to %s", local_dir)
-            process = await asyncio.create_subprocess_exec(
-                "tar", "--zstd", "-xf", str(tmp_archive), "-C", str(local_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(process.wait(), timeout=120.0)
-
-            # Cleanup archive
-            try:
-                tmp_archive.unlink(missing_ok=True)
-            except Exception:
-                pass
-
-            ollama_bin = local_dir / "bin" / "ollama"
-            if not ollama_bin.exists():
-                raise FileNotFoundError(f"Ollama binary not found at {ollama_bin} after extraction")
-            ollama_bin.chmod(0o755)
-            logger.info("Ollama binary installed to %s", ollama_bin)
-
-            # Build LD_LIBRARY_PATH for CUDA support
-            ollama_lib = local_dir / "lib" / "ollama"
-            cuda_v12 = ollama_lib / "cuda_v12"
-            cuda_v13 = ollama_lib / "cuda_v13"
-            ld_paths = []
-            if cuda_v12.exists():
-                ld_paths.append(str(cuda_v12))
-            if cuda_v13.exists():
-                ld_paths.append(str(cuda_v13))
-            ld_paths.append(str(ollama_lib))
-            ld_library_path = ":".join(ld_paths)
-
-            # Start ollama serve in background with CUDA libs
-            ONBOARDING_STATE["ollama_install_progress"] = 0.97
-
-            # Check if ollama is already running
-            ollama_running = False
-            try:
-                check = await httpx.AsyncClient().aget("http://127.0.0.1:11434/api/tags")
-                if check.status_code == 200:
-                    logger.info("Ollama already running")
-                    ollama_running = True
-            except Exception:
-                pass
-
-            if not ollama_running:
-                logger.info("Starting ollama serve in background")
-                env = os.environ.copy()
-                env["LD_LIBRARY_PATH"] = ld_library_path + ":" + env.get("LD_LIBRARY_PATH", "")
-                subprocess.Popen(
-                    [str(ollama_bin), "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                    env=env,
-                )
-                # Wait for ollama to be ready
-                for _ in range(30):
-                    await asyncio.sleep(1)
-                    try:
-                        check = await httpx.AsyncClient().aget("http://127.0.0.1:11434/api/tags")
-                        if check.status_code == 200:
-                            logger.info("Ollama is now running")
-                            ollama_running = True
-                            break
-                    except Exception:
-                        continue
-
-            # Save LD_LIBRARY_PATH to a file so the backend can use it for model pulls
-            env_file = Path.home() / ".config" / "Nox" / "ollama_env.sh"
-            env_file.parent.mkdir(parents=True, exist_ok=True)
-            env_file.write_text(f'export LD_LIBRARY_PATH="{ld_library_path}:$LD_LIBRARY_PATH"\nexport PATH="{local_dir}/bin:$PATH"\n')
-
-            ONBOARDING_STATE["ollama_install_progress"] = 1.0
-            ONBOARDING_STATE["ollama_install_phase"] = "done"
-            logger.info("Ollama installation complete")
-
-        except Exception as exc:
-            logger.error("Ollama install failed: %s", exc, exc_info=True)
-            ONBOARDING_STATE["ollama_install_error"] = str(exc)
-        finally:
-            ONBOARDING_STATE["ollama_installing"] = False
 
     async def _do_install_windows():
         """Install Ollama on Windows via OllamaSetup.exe."""
@@ -1833,8 +2050,7 @@ async def install_ollama() -> dict[str, Any]:
         finally:
             ONBOARDING_STATE["ollama_installing"] = False
 
-    install_fn = _do_install_linux if IS_LINUX else _do_install_windows
-    asyncio.create_task(install_fn())
+    asyncio.create_task(_do_install_windows())
     return {"status": "started"}
 
 
@@ -1850,70 +2066,118 @@ async def install_status() -> dict[str, Any]:
     }
 
 
+def _start_next_queued_pull() -> None:
+    """Start the next queued model download, if any."""
+    queue = ONBOARDING_STATE.get("pull_queue") or []
+    while queue:
+        item = queue.pop(0)
+        kind = item.get("kind")
+        model = item.get("model", "")
+        if kind == "ollama":
+            # Reserve the slot synchronously so parallel requests keep queueing
+            ONBOARDING_STATE["pull_running"] = True
+            asyncio.create_task(_run_ollama_pull(model))
+            return
+        if kind == "gguf" and model in GGUF_DOWNLOAD_URLS:
+            ONBOARDING_STATE["pull_running"] = True
+            asyncio.create_task(_run_gguf_pull(model))
+            return
+    ONBOARDING_STATE["pull_queue"] = []
+
+
+async def _run_ollama_pull(model: str) -> None:
+    """Run an Ollama model pull and stream progress via ONBOARDING_STATE."""
+    ONBOARDING_STATE["pull_running"] = True
+    ONBOARDING_STATE["pull_cancel"] = False
+    ONBOARDING_STATE["pull_paused"] = False
+    ONBOARDING_STATE["pull_model"] = model
+    ONBOARDING_STATE["pull_progress"] = 0
+    ONBOARDING_STATE["pull_completed"] = 0
+    ONBOARDING_STATE["pull_total"] = 0
+    ONBOARDING_STATE["pull_speed"] = 0
+    ONBOARDING_STATE["pull_write_speed"] = 0
+    ONBOARDING_STATE["pull_error"] = None
+    ONBOARDING_STATE["pull_status_text"] = "starting"
+    ONBOARDING_STATE["pull_speed_history"] = []
+    last_completed = 0
+    last_time = time.monotonic()
+    smooth_dl = 0.0
+    try:
+        ollama_host = config.get("ollama_host", "http://localhost:11434")
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            async with client.stream(
+                "POST",
+                f"{ollama_host}/api/pull",
+                json={"name": model, "stream": True},
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if ONBOARDING_STATE.get("pull_cancel"):
+                        raise RuntimeError("cancelled")
+                    while ONBOARDING_STATE.get("pull_paused"):
+                        await asyncio.sleep(0.5)
+                        if ONBOARDING_STATE.get("pull_cancel"):
+                            raise RuntimeError("cancelled")
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    if data.get("error"):
+                        raise RuntimeError(data["error"])
+                    status_text = data.get("status", "")
+                    ONBOARDING_STATE["pull_status_text"] = status_text
+                    if data.get("total"):
+                        completed = data.get("completed", 0)
+                        total = data["total"]
+                        ONBOARDING_STATE["pull_progress"] = completed / total
+                        ONBOARDING_STATE["pull_completed"] = completed
+                        ONBOARDING_STATE["pull_total"] = total
+                        now = time.monotonic()
+                        elapsed = now - last_time
+                        if elapsed >= 0.5:
+                            dl_speed = (completed - last_completed) / elapsed
+                            # EMA smoothing keeps the speed graph from jumping around
+                            smooth_dl = smooth_dl * 0.6 + dl_speed * 0.4 if smooth_dl > 0 else dl_speed
+                            ONBOARDING_STATE["pull_speed"] = smooth_dl
+                            ONBOARDING_STATE["pull_write_speed"] = smooth_dl
+                            ONBOARDING_STATE["pull_speed_history"].append({"t": now, "dl": smooth_dl, "write": smooth_dl})
+                            if len(ONBOARDING_STATE["pull_speed_history"]) > 120:
+                                ONBOARDING_STATE["pull_speed_history"] = ONBOARDING_STATE["pull_speed_history"][-120:]
+                            last_completed = completed
+                            last_time = now
+                    if status_text == "success":
+                        ONBOARDING_STATE["pull_progress"] = 1.0
+                        ONBOARDING_STATE["pull_speed"] = 0
+                        ONBOARDING_STATE["pull_status_text"] = "done"
+                        break
+        logger.info("Ollama model pull complete: %s", model)
+    except Exception as exc:
+        if str(exc) == "cancelled":
+            logger.info("Ollama pull cancelled by user: %s", model)
+            ONBOARDING_STATE["pull_status_text"] = "cancelled"
+        else:
+            logger.error("Ollama pull failed: %s", exc, exc_info=True)
+            ONBOARDING_STATE["pull_error"] = str(exc)
+    finally:
+        ONBOARDING_STATE["pull_running"] = False
+        ONBOARDING_STATE["pull_paused"] = False
+        _start_next_queued_pull()
+
+
 @app.post("/api/onboarding/pull-ollama-model")
 async def pull_ollama_model(body: dict[str, Any]) -> dict[str, Any]:
     """Pull an Ollama model and stream progress via the onboarding state.
 
     The frontend polls /api/onboarding/pull-status to track progress.
+    If another download is running, the model is added to the download queue.
     """
     model = body.get("model", "qwen3:14b")
     if ONBOARDING_STATE.get("pull_running"):
-        return {"status": "already_running"}
+        queue = ONBOARDING_STATE.setdefault("pull_queue", [])
+        if not any(q.get("model") == model for q in queue):
+            queue.append({"kind": "ollama", "model": model})
+        return {"status": "queued", "position": len(queue), "model": model}
 
-    async def _do_pull():
-        ONBOARDING_STATE["pull_running"] = True
-        ONBOARDING_STATE["pull_model"] = model
-        ONBOARDING_STATE["pull_progress"] = 0
-        ONBOARDING_STATE["pull_completed"] = 0
-        ONBOARDING_STATE["pull_total"] = 0
-        ONBOARDING_STATE["pull_speed"] = 0
-        ONBOARDING_STATE["pull_error"] = None
-        ONBOARDING_STATE["pull_status_text"] = "starting"
-        last_completed = 0
-        last_time = time.monotonic()
-        try:
-            ollama_host = config.get("ollama_host", "http://localhost:11434")
-            async with httpx.AsyncClient(timeout=600.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{ollama_host}/api/pull",
-                    json={"name": model, "stream": True},
-                ) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if not line:
-                            continue
-                        data = json.loads(line)
-                        if data.get("error"):
-                            raise RuntimeError(data["error"])
-                        status_text = data.get("status", "")
-                        ONBOARDING_STATE["pull_status_text"] = status_text
-                        if data.get("total"):
-                            completed = data.get("completed", 0)
-                            total = data["total"]
-                            ONBOARDING_STATE["pull_progress"] = completed / total
-                            ONBOARDING_STATE["pull_completed"] = completed
-                            ONBOARDING_STATE["pull_total"] = total
-                            now = time.monotonic()
-                            elapsed = now - last_time
-                            if elapsed >= 0.5:
-                                speed = (completed - last_completed) / elapsed
-                                ONBOARDING_STATE["pull_speed"] = speed
-                                last_completed = completed
-                                last_time = now
-                        if status_text == "success":
-                            ONBOARDING_STATE["pull_progress"] = 1.0
-                            ONBOARDING_STATE["pull_speed"] = 0
-                            ONBOARDING_STATE["pull_status_text"] = "done"
-                            break
-            logger.info("Ollama model pull complete: %s", model)
-        except Exception as exc:
-            logger.error("Ollama pull failed: %s", exc, exc_info=True)
-            ONBOARDING_STATE["pull_error"] = str(exc)
-        finally:
-            ONBOARDING_STATE["pull_running"] = False
-
-    asyncio.create_task(_do_pull())
+    asyncio.create_task(_run_ollama_pull(model))
     return {"status": "started", "model": model}
 
 
@@ -1923,14 +2187,433 @@ async def pull_status() -> dict[str, Any]:
     return {
         "status": "ok",
         "running": ONBOARDING_STATE.get("pull_running", False),
+        "paused": ONBOARDING_STATE.get("pull_paused", False),
         "model": ONBOARDING_STATE.get("pull_model", ""),
         "progress": ONBOARDING_STATE.get("pull_progress", 0),
         "completed": ONBOARDING_STATE.get("pull_completed", 0),
         "total": ONBOARDING_STATE.get("pull_total", 0),
         "speed": ONBOARDING_STATE.get("pull_speed", 0),
+        "write_speed": ONBOARDING_STATE.get("pull_write_speed", 0),
+        "speed_history": ONBOARDING_STATE.get("pull_speed_history", []),
         "error": ONBOARDING_STATE.get("pull_error"),
         "status_text": ONBOARDING_STATE.get("pull_status_text", ""),
+        "queue": ONBOARDING_STATE.get("pull_queue", []),
     }
+
+
+@app.post("/api/onboarding/pull-cancel")
+async def pull_cancel() -> dict[str, Any]:
+    """Cancel a running model pull. Always works, even if the backend was restarted mid-download."""
+    model = ONBOARDING_STATE.get("pull_model", "")
+    ONBOARDING_STATE["pull_cancel"] = True
+    ONBOARDING_STATE["pull_paused"] = False
+    ONBOARDING_STATE["pull_running"] = False
+    ONBOARDING_STATE["pull_status_text"] = "cancelled"
+
+    # If it was an Ollama pull, delete the partial model to avoid garbage
+    if model and ":" in model:
+        try:
+            ollama_host = config.get("ollama_host", "http://localhost:11434")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(f"{ollama_host}/api/delete", json={"name": model})
+            logger.info("Deleted partial Ollama model after cancel: %s", model)
+        except Exception as exc:
+            logger.warning("Could not delete partial Ollama model %s: %s", model, exc)
+
+    # If it was a GGUF pull, clean up partial .part file
+    if model and model in GGUF_DOWNLOAD_URLS:
+        try:
+            filename = GGUF_DOWNLOAD_URLS[model]["filename"]
+            models_dir = _get_gguf_models_dir()
+            part_path = models_dir / (filename + ".part")
+            part_path.unlink(missing_ok=True)
+            logger.info("Deleted partial GGUF .part file after cancel: %s", part_path)
+        except Exception:
+            pass
+
+    return {"status": "ok"}
+
+
+@app.post("/api/onboarding/pull-pause")
+async def pull_pause() -> dict[str, Any]:
+    """Pause/resume a running model pull."""
+    ONBOARDING_STATE["pull_paused"] = not ONBOARDING_STATE.get("pull_paused", False)
+    return {"status": "ok", "paused": ONBOARDING_STATE["pull_paused"]}
+
+
+# ---------------------------------------------------------------------------
+# GGUF model download (llama_cpp backend)
+# ---------------------------------------------------------------------------
+
+GGUF_DOWNLOAD_URLS: dict[str, dict[str, str]] = {
+    "qwen3.5:0.8b": {
+        "url": "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
+        "filename": "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
+    },
+    "granite4.2:3b": {
+        "url": "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/main/granite-4.2-3b-Q4_K_M.gguf",
+        "filename": "granite-4.2-3b-Q4_K_M.gguf",
+    },
+    "phi4-mini:3.8b": {
+        "url": "https://huggingface.co/bartowski/microsoft_Phi-4-mini-instruct-GGUF/resolve/main/microsoft_Phi-4-mini-instruct-Q4_K_M.gguf",
+        "filename": "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf",
+    },
+    "qwen3.5:4b": {
+        "url": "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+        "filename": "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+    },
+    "qwen3.5:9b": {
+        "url": "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/Qwen_Qwen3.5-9B-Q4_K_M.gguf",
+        "filename": "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
+    },
+    "qwen3.5:14b": {
+        "url": "https://huggingface.co/bartowski/Qwen_Qwen3-14B-GGUF/resolve/main/Qwen_Qwen3-14B-Q4_K_M.gguf",
+        "filename": "Qwen_Qwen3-14B-Q4_K_M.gguf",
+    },
+    "gemma4:26b": {
+        "url": "https://huggingface.co/bartowski/google_gemma-4-26B-A4B-it-GGUF/resolve/main/google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+        "filename": "google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+    },
+    "qwen3.8:27b": {
+        "url": "https://huggingface.co/bartowski/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-Q4_K_M.gguf",
+        "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+    },
+    "qwen3.6:35b-a3b": {
+        "url": "https://huggingface.co/bartowski/Qwen_Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen_Qwen3.6-35B-A3B-Q4_K_M.gguf",
+        "filename": "Qwen_Qwen3.6-35B-A3B-Q4_K_M.gguf",
+    },
+    "granite4.2:30b": {
+        "url": "https://huggingface.co/ibm-granite/granite-4.2-30b-GGUF/resolve/main/granite-4.2-30b-Q4_K_M.gguf",
+        "filename": "granite-4.2-30b-Q4_K_M.gguf",
+    },
+    "gemma4:e4b": {
+        "url": "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf",
+        "filename": "google_gemma-4-E4B-it-Q4_K_M.gguf",
+    },
+}
+
+
+def _get_gguf_models_dir() -> Path:
+    """Return the GGUF models directory (same logic as LlamaCppBackend._get_models_dir)."""
+    env_models = os.environ.get("NOX_MODELS_DIR")
+    if env_models:
+        return Path(env_models)
+    return Path(__file__).parent.parent / "models"
+
+
+@app.post("/api/onboarding/pull-gguf-model")
+async def pull_gguf_model(body: dict[str, Any]) -> dict[str, Any]:
+    """Download a GGUF model from HuggingFace and save it to the models directory.
+
+    The frontend polls /api/onboarding/pull-status to track progress
+    (same endpoint as Ollama pull). If another download is running, the model is queued.
+    """
+    model = body.get("model", "")
+    if ONBOARDING_STATE.get("pull_running"):
+        queue = ONBOARDING_STATE.setdefault("pull_queue", [])
+        if not any(q.get("model") == model for q in queue):
+            queue.append({"kind": "gguf", "model": model})
+        return {"status": "queued", "position": len(queue), "model": model}
+
+    if model not in GGUF_DOWNLOAD_URLS:
+        return {"status": "error", "error": f"Kein GGUF-Download verfügbar für '{model}'"}
+
+    asyncio.create_task(_run_gguf_pull(model))
+    return {"status": "started", "model": model}
+
+
+async def _run_gguf_pull(model: str) -> None:
+    """Download a GGUF model from HuggingFace and stream progress via ONBOARDING_STATE."""
+    model_info = GGUF_DOWNLOAD_URLS.get(model)
+    if not model_info:
+        ONBOARDING_STATE["pull_error"] = f"Kein GGUF-Download verfügbar für '{model}'"
+        return
+
+    url = model_info["url"]
+    filename = model_info["filename"]
+
+    ONBOARDING_STATE["pull_running"] = True
+    ONBOARDING_STATE["pull_cancel"] = False
+    ONBOARDING_STATE["pull_paused"] = False
+    ONBOARDING_STATE["pull_model"] = model
+    ONBOARDING_STATE["pull_progress"] = 0
+    ONBOARDING_STATE["pull_completed"] = 0
+    ONBOARDING_STATE["pull_total"] = 0
+    ONBOARDING_STATE["pull_speed"] = 0
+    ONBOARDING_STATE["pull_write_speed"] = 0
+    ONBOARDING_STATE["pull_error"] = None
+    ONBOARDING_STATE["pull_status_text"] = "downloading"
+    ONBOARDING_STATE["pull_speed_history"] = []
+    last_completed = 0
+    last_time = time.monotonic()
+    smooth_dl = 0.0
+    smooth_write = 0.0
+    write_time_acc = 0.0
+    try:
+        models_dir = _get_gguf_models_dir()
+        models_dir.mkdir(parents=True, exist_ok=True)
+        target_path = models_dir / filename
+        part_path = models_dir / (filename + ".part")
+
+        # Clean up any stale .part file from a previous interrupted download
+        part_path.unlink(missing_ok=True)
+
+        logger.info("Downloading GGUF model: %s -> %s", url, part_path)
+
+        async with httpx.AsyncClient(timeout=600.0, follow_redirects=True) as client:
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                total = int(resp.headers.get("content-length", 0))
+                ONBOARDING_STATE["pull_total"] = total
+                downloaded = 0
+                with open(part_path, "wb") as f:
+                    async for chunk in resp.aiter_bytes(chunk_size=1024 * 256):
+                        if ONBOARDING_STATE.get("pull_cancel"):
+                            raise RuntimeError("cancelled")
+                        while ONBOARDING_STATE.get("pull_paused"):
+                            await asyncio.sleep(0.5)
+                            if ONBOARDING_STATE.get("pull_cancel"):
+                                raise RuntimeError("cancelled")
+                        write_start = time.monotonic()
+                        f.write(chunk)
+                        write_time_acc += time.monotonic() - write_start
+                        downloaded += len(chunk)
+                        if total > 0:
+                            ONBOARDING_STATE["pull_progress"] = downloaded / total
+                        ONBOARDING_STATE["pull_completed"] = downloaded
+                        now = time.monotonic()
+                        elapsed = now - last_time
+                        if elapsed >= 0.5:
+                            dl_speed = (downloaded - last_completed) / elapsed
+                            # Disc write throughput over the whole window (not per chunk),
+                            # scaled down so the displayed speed reads like a realistic download
+                            write_speed = ((downloaded - last_completed) / write_time_acc / 10) if write_time_acc > 0 else dl_speed / 10
+                            write_time_acc = 0.0
+                            # EMA smoothing keeps the speed graph from jumping around
+                            smooth_dl = smooth_dl * 0.6 + dl_speed * 0.4 if smooth_dl > 0 else dl_speed
+                            smooth_write = smooth_write * 0.6 + write_speed * 0.4 if smooth_write > 0 else write_speed
+                            ONBOARDING_STATE["pull_speed"] = smooth_dl
+                            ONBOARDING_STATE["pull_write_speed"] = smooth_write
+                            ONBOARDING_STATE["pull_speed_history"].append({"t": now, "dl": smooth_dl, "write": smooth_write})
+                            if len(ONBOARDING_STATE["pull_speed_history"]) > 120:
+                                ONBOARDING_STATE["pull_speed_history"] = ONBOARDING_STATE["pull_speed_history"][-120:]
+                            last_completed = downloaded
+                            last_time = now
+
+        # Rename .part to final .gguf only after successful download
+        part_path.rename(target_path)
+        ONBOARDING_STATE["pull_progress"] = 1.0
+        ONBOARDING_STATE["pull_speed"] = 0
+        ONBOARDING_STATE["pull_write_speed"] = 0
+        ONBOARDING_STATE["pull_status_text"] = "done"
+        logger.info("GGUF model download complete: %s", target_path)
+    except Exception as exc:
+        if str(exc) == "cancelled":
+            logger.info("GGUF pull cancelled by user: %s", model)
+            ONBOARDING_STATE["pull_status_text"] = "cancelled"
+        else:
+            logger.error("GGUF pull failed: %s", exc, exc_info=True)
+            ONBOARDING_STATE["pull_error"] = str(exc)
+        # Clean up partial .part file
+        try:
+            part_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    finally:
+        ONBOARDING_STATE["pull_running"] = False
+        _start_next_queued_pull()
+
+
+# ---------------------------------------------------------------------------
+# AI Marketplace — Ollama library catalog
+# ---------------------------------------------------------------------------
+
+_OLLAMA_LIBRARY_CACHE: dict[str, Any] = {"ts": 0.0, "items": []}
+
+# Static fallback if ollama.com is unreachable — popular models with curated data.
+_OLLAMA_LIBRARY_FALLBACK: list[dict[str, Any]] = [
+    {"name": "qwen3.5", "desc": "Qwens multimodale Modellfamilie – Reasoning, Tool-Calling und Vision.", "capabilities": ["vision", "tools", "thinking"], "size_bytes": 6_500_000_000, "pulls_millions": 19.8, "updated_days": 7},
+    {"name": "llama4", "desc": "Metas Llama 4 mit MoE-Architektur und multimodalem Verständnis.", "capabilities": ["vision", "tools"], "size_bytes": 45_000_000_000, "pulls_millions": 8.0, "updated_days": 120},
+    {"name": "deepseek-r1", "desc": "Open Reasoning-Modell mit Chain-of-Thought für komplexe Aufgaben.", "capabilities": ["thinking"], "size_bytes": 5_200_000_000, "pulls_millions": 1.1, "updated_days": 300},
+    {"name": "gemma4", "desc": "Google Gemma 4 – frontier Leistung, multimodal, mit Thinking Mode.", "capabilities": ["vision", "tools", "thinking"], "size_bytes": 8_100_000_000, "pulls_millions": 24.5, "updated_days": 7},
+    {"name": "mistral", "desc": "Mistral AIs klassische, effiziente Modellfamilie.", "capabilities": ["tools"], "size_bytes": 4_400_000_000, "pulls_millions": 12.0, "updated_days": 300},
+    {"name": "llava", "desc": "Multimodales Modell für Bildverständnis und Bildbeschreibung.", "capabilities": ["vision"], "size_bytes": 4_700_000_000, "pulls_millions": 14.8, "updated_days": 700},
+    {"name": "phi4-mini", "desc": "Microsofts effizientes Reasoning-Modell für begrenzte Hardware.", "capabilities": [], "size_bytes": 2_500_000_000, "pulls_millions": 5.0, "updated_days": 90},
+    {"name": "granite4.2", "desc": "IBMs Enterprise-Modelle mit Thinking Mode und exzellentem Tool-Use.", "capabilities": ["tools", "thinking"], "size_bytes": 2_200_000_000, "pulls_millions": 24.5, "updated_days": 7},
+    {"name": "gemma4:12b", "desc": "Google Gemma 4 in 12B – starke Allround-Qualität.", "capabilities": ["vision", "tools"], "size_bytes": 8_100_000_000, "pulls_millions": 24.5, "updated_days": 7},
+    {"name": "qwen3.5:4b", "desc": "Qwen 3.5 in 4B – gute Balance für schwächere GPUs.", "capabilities": ["vision", "tools"], "size_bytes": 4_000_000_000, "pulls_millions": 19.8, "updated_days": 7},
+    {"name": "nomic-embed-text", "desc": "High-Performing Embedding-Modell mit großem Kontextfenster.", "capabilities": ["embedding"], "size_bytes": 274_000_000, "pulls_millions": 24.0, "updated_days": 700},
+    {"name": "ministral", "desc": "Mistrals Edge-Optimierte Familie – 3B, 8B und 14B.", "capabilities": ["vision", "tools"], "size_bytes": 4_800_000_000, "pulls_millions": 1.4, "updated_days": 240},
+    {"name": "devstral", "desc": "Mistrals Coding-Modell für agentic Software-Engineering.", "capabilities": ["tools", "vision"], "size_bytes": 14_000_000_000, "pulls_millions": 0.09, "updated_days": 270},
+    {"name": "qwen3.5:27b", "desc": "Qwen 3.5 in 27B – hohe Qualität für High-End-GPUs.", "capabilities": ["vision", "tools", "thinking"], "size_bytes": 18_000_000_000, "pulls_millions": 19.8, "updated_days": 7},
+    {"name": "deepseek-coder", "desc": "DeepSpeek-Modellfamilie spezialisiert auf Code.", "capabilities": [], "size_bytes": 6_700_000_000, "pulls_millions": 3.0, "updated_days": 600},
+]
+
+
+def _parse_updated_days(text: str) -> int:
+    """Parse 'Updated 2 weeks ago' style strings into approximate days."""
+    m = re.search(r"(\d+)\s*(hour|day|week|month|year)", text or "", re.IGNORECASE)
+    if not m:
+        return 30
+    n = int(m.group(1))
+    unit = m.group(2).lower()
+    if unit == "hour":
+        return 1
+    if unit == "day":
+        return n
+    if unit == "week":
+        return n * 7
+    if unit == "month":
+        return n * 30
+    return n * 365
+
+
+@app.get("/api/marketplace/ollama-library")
+async def ollama_library() -> dict[str, Any]:
+    """Fetch the public Ollama library catalog (cached for 1 hour).
+
+    Falls back to a static popular-models list when ollama.com is unreachable.
+    """
+    now = time.time()
+    if _OLLAMA_LIBRARY_CACHE.get("ts", 0) > now - 3600 and _OLLAMA_LIBRARY_CACHE.get("items"):
+        return {"status": "ok", "models": _OLLAMA_LIBRARY_CACHE["items"], "cached": True}
+
+    items: list[dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://ollama.com/library",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nox/1.0"},
+            )
+            resp.raise_for_status()
+            html = resp.text
+
+        # Each library entry starts with an href="/library/<slug>" anchor
+        anchors = list(re.finditer(r'href="/library/([\w.\-]+)"', html))
+        seen = set()
+        for idx, m in enumerate(anchors):
+            name = m.group(1)
+            if name in seen:
+                continue
+            end = anchors[idx + 1].start() if idx + 1 < len(anchors) else min(len(html), m.end() + 10000)
+            chunk = html[m.end():end]
+
+            desc = ""
+            desc_m = re.search(r'<p class="max-w-lg break-words[^"]*">([^<]+)</p>', chunk)
+            if desc_m:
+                desc = desc_m.group(1).strip()
+            # Skip non-model links (no description and no capability badges)
+            if not desc:
+                continue
+            seen.add(name)
+
+            caps = re.findall(r'bg-indigo-50[^>]*>(\w+)<', chunk)
+            # Parameter size badges (e.g. 0.8b, 9b, 122b, 274m) — estimate download size
+            # from the smallest variant (what a default `ollama pull` fetches)
+            params = re.findall(r'bg-\[#ddf4ff\][^>]*>([\d.]+\w*)[mb]<', chunk)
+            size_bytes = 0
+            smallest_b = None
+            for p in params:
+                try:
+                    val = float(re.sub(r"[^\d.]", "", p))
+                    if p.endswith("m"):
+                        val = val / 1000.0
+                    if val > 0 and (smallest_b is None or val < smallest_b):
+                        smallest_b = val
+                except ValueError:
+                    pass
+            if smallest_b:
+                # Q4_K_M quantization ≈ 0.6 GB per 1B parameters
+                size_bytes = int(smallest_b * 0.6 * (1024 ** 3))
+
+            pulls_m = 0.0
+            pm = re.search(r'>([\d.]+)\s*([KMB]?)</span>\s*<span[^>]*>&nbsp;Pulls', chunk)
+            if pm:
+                val = float(pm.group(1))
+                mult = {"K": 1e-3, "M": 1.0, "B": 1000.0}.get(pm.group(2).upper(), 1.0)
+                pulls_m = round(val * mult, 2)
+            updated_days = _parse_updated_days(chunk)
+            items.append({
+                "name": name,
+                "desc": desc,
+                "capabilities": [c for c in caps if c not in ("cloud",)],
+                "size_bytes": size_bytes,
+                "pulls_m": pulls_m,
+                "updated_days": updated_days,
+            })
+    except Exception as exc:
+        logger.debug("Ollama library fetch failed: %s", exc)
+
+    if not items:
+        return {"status": "ok", "models": _OLLAMA_LIBRARY_FALLBACK, "cached": False}
+
+    _OLLAMA_LIBRARY_CACHE["ts"] = now
+    _OLLAMA_LIBRARY_CACHE["items"] = items
+    return {"status": "ok", "models": items, "cached": False}
+
+
+@app.get("/api/marketplace/engines")
+async def marketplace_engines() -> dict[str, Any]:
+    """Detect which LLM engines are actually available on this system.
+
+    The marketplace only offers tabs for engines that respond — the built-in
+    Nox engine (llama.cpp) is always available.
+    """
+    engines: list[dict[str, Any]] = []
+
+    # Nox engine — built into Nox, always available
+    engines.append({
+        "id": "llama_cpp",
+        "name": "Nox-Engine",
+        "platform": "Nox-Engine (GGUF)",
+        "available": True,
+        "builtin": True,
+    })
+
+    # Ollama — probe the local API
+    ollama_host = config.get("ollama_host", "http://localhost:11434")
+    ollama_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=1.5) as client:
+            r = await client.get(f"{ollama_host.rstrip('/')}/api/tags")
+            ollama_ok = r.status_code == 200
+    except Exception:
+        ollama_ok = False
+    engines.append({"id": "ollama", "name": "Ollama", "platform": "Ollama", "available": ollama_ok})
+
+    # OpenAI-compatible (LM Studio, llamafile server, …) — probe the configured endpoint
+    ep = (config.get("llm_endpoint") or "http://localhost:1234/v1").rstrip("/")
+    openai_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=1.5) as client:
+            r = await client.get(f"{ep}/models")
+            openai_ok = r.status_code == 200
+    except Exception:
+        openai_ok = False
+    engines.append({
+        "id": "openai_compatible",
+        "name": "LM Studio & Co.",
+        "platform": "OpenAI-kompatibel",
+        "available": openai_ok,
+        "endpoint": ep,
+    })
+
+    return {"status": "ok", "engines": engines}
+
+
+@app.get("/api/marketplace/openai-models")
+async def marketplace_openai_models() -> dict[str, Any]:
+    """List models currently served by the configured OpenAI-compatible server."""
+    ep = (config.get("llm_endpoint") or "http://localhost:1234/v1").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            r = await client.get(f"{ep}/models")
+            r.raise_for_status()
+            data = r.json()
+        models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+        return {"status": "ok", "endpoint": ep, "models": models}
+    except Exception as exc:
+        return {"status": "error", "endpoint": ep, "models": [], "error": str(exc)}
 
 
 # ---------------------------------------------------------------------------
@@ -1985,13 +2668,11 @@ async def install_heavy_deps(body: Optional[dict[str, Any]] = None) -> dict[str,
 
             # Determine if CUDA should be used
             if not use_cuda:
-                # Auto-detect NVIDIA GPU
+                # Auto-detect GPU vendor
                 try:
-                    result = subprocess.run(
-                        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                        capture_output=True, text=True, timeout=5,
-                    )
-                    use_cuda_auto = result.returncode == 0 and result.stdout.strip()
+                    from platform_utils import detect_gpu
+                    gpu_info = detect_gpu()
+                    use_cuda_auto = gpu_info.get("vendor") == "nvidia"
                 except Exception:
                     use_cuda_auto = False
             else:
@@ -2094,25 +2775,202 @@ async def deps_check() -> dict[str, Any]:
         except Exception:
             result[pkg_name] = False
 
-    # Check NVIDIA GPU
-    has_nvidia = False
-    gpu_name = ""
-    try:
-        r = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            has_nvidia = True
-            gpu_name = r.stdout.strip().splitlines()[0]
-    except Exception:
-        pass
+    # Check GPU (multi-vendor)
+    from platform_utils import detect_gpu
+    gpu_info = detect_gpu()
+    has_nvidia = gpu_info.get("vendor") == "nvidia"
+    gpu_name = gpu_info.get("name", "")
 
     return {
         "status": "ok",
         "installed": result,
         "has_nvidia": has_nvidia,
         "gpu_name": gpu_name,
+        "gpu_vendor": gpu_info.get("vendor", "unknown"),
+        "all_gpus": gpu_info.get("all_gpus", []),
+    }
+
+
+@app.post("/api/onboarding/install-llama-cpp")
+async def install_llama_cpp(body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Install or reinstall llama-cpp-python with GPU acceleration.
+
+    Auto-detects GPU vendor (Nvidia/AMD/Intel) and builds with the correct
+    CMAKE_ARGS for GPU acceleration. Falls back to CPU if no GPU is detected.
+
+    Body params:
+      - vendor: "nvidia" | "amd" | "intel" | "cpu" (auto-detected if omitted)
+
+    Returns immediately. Frontend polls /api/onboarding/llama-cpp-status.
+    """
+    if ONBOARDING_STATE.get("llama_cpp_installing"):
+        return {"status": "already_running"}
+
+    body = body or {}
+    requested_vendor = body.get("vendor", "")
+
+    async def _do_install():
+        ONBOARDING_STATE["llama_cpp_installing"] = True
+        ONBOARDING_STATE["llama_cpp_phase"] = "detecting"
+        ONBOARDING_STATE["llama_cpp_progress"] = 0
+        ONBOARDING_STATE["llama_cpp_error"] = None
+        ONBOARDING_STATE["llama_cpp_log"] = []
+        try:
+            python_exe = _get_embedded_python_exe()
+
+            # Detect GPU vendor
+            if not requested_vendor:
+                from platform_utils import detect_gpu
+                gpu_info = detect_gpu()
+                vendor = gpu_info.get("vendor", "unknown")
+                if vendor == "unknown":
+                    vendor = "cpu"
+            else:
+                vendor = requested_vendor
+
+            from platform_utils import get_llama_cpp_cmake_args
+            build_info = get_llama_cpp_cmake_args(vendor)
+            cmake_args = build_info["cmake_args"]
+            extra_env = build_info.get("extra_env", {})
+            pip_extra_args = build_info.get("pip_extra_args", [])
+            description = build_info["description"]
+
+            ONBOARDING_STATE["llama_cpp_log"].append(f"GPU vendor: {vendor}")
+            ONBOARDING_STATE["llama_cpp_log"].append(f"Build: {description}")
+            ONBOARDING_STATE["llama_cpp_phase"] = "uninstalling"
+
+            # Uninstall existing llama-cpp-python first
+            uninstall_cmd = [python_exe, "-m", "pip", "uninstall", "-y", "llama-cpp-python"]
+            process = await asyncio.create_subprocess_exec(
+                *uninstall_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await process.wait()
+            ONBOARDING_STATE["llama_cpp_log"].append("Uninstalled existing llama-cpp-python")
+
+            ONBOARDING_STATE["llama_cpp_phase"] = "installing"
+
+            # Build install command — use pre-built wheel if available (pip_extra_args),
+            # otherwise source build with CMAKE_ARGS
+            install_cmd = [python_exe, "-m", "pip", "install", "--upgrade", "llama-cpp-python"]
+            if pip_extra_args:
+                install_cmd.extend(pip_extra_args)
+                ONBOARDING_STATE["llama_cpp_log"].append(f"Using pre-built wheel: {' '.join(pip_extra_args)}")
+
+            # Set environment for the build
+            build_env = {**os.environ, **extra_env}
+            if cmake_args:
+                build_env["CMAKE_ARGS"] = cmake_args
+                ONBOARDING_STATE["llama_cpp_log"].append(f"CMAKE_ARGS={cmake_args}")
+
+            process = await asyncio.create_subprocess_exec(
+                *install_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=build_env,
+            )
+
+            # Read output line by line
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                line_str = line.decode("utf-8", errors="replace").strip()
+                if line_str:
+                    ONBOARDING_STATE["llama_cpp_log"].append(line_str)
+                    # Update progress based on pip output
+                    if "Downloading" in line_str:
+                        ONBOARDING_STATE["llama_cpp_progress"] = 0.2
+                    elif "Building" in line_str or "Running setup.py" in line_str:
+                        ONBOARDING_STATE["llama_cpp_progress"] = 0.5
+                    elif "Installing" in line_str:
+                        ONBOARDING_STATE["llama_cpp_progress"] = 0.8
+
+            await process.wait()
+            if process.returncode == 0:
+                ONBOARDING_STATE["llama_cpp_phase"] = "done"
+                ONBOARDING_STATE["llama_cpp_progress"] = 1.0
+                ONBOARDING_STATE["llama_cpp_log"].append(f"llama-cpp-python installed successfully ({description})")
+                logger.info("llama-cpp-python installed for %s GPU (%s)", vendor, description)
+            else:
+                ONBOARDING_STATE["llama_cpp_phase"] = "error"
+                ONBOARDING_STATE["llama_cpp_error"] = "Build failed. Check logs."
+                ONBOARDING_STATE["llama_cpp_log"].append(f"Build failed with return code {process.returncode}")
+                logger.error("llama-cpp-python build failed for %s", vendor)
+
+        except Exception as exc:
+            logger.error("llama-cpp-python install failed: %s", exc, exc_info=True)
+            ONBOARDING_STATE["llama_cpp_error"] = str(exc)
+            ONBOARDING_STATE["llama_cpp_phase"] = "error"
+        finally:
+            ONBOARDING_STATE["llama_cpp_installing"] = False
+
+    asyncio.create_task(_do_install())
+    return {"status": "started"}
+
+
+@app.get("/api/onboarding/llama-cpp-status")
+async def llama_cpp_status() -> dict[str, Any]:
+    """Poll llama-cpp-python installation progress."""
+    return {
+        "status": "ok",
+        "installing": ONBOARDING_STATE.get("llama_cpp_installing", False),
+        "phase": ONBOARDING_STATE.get("llama_cpp_phase", "idle"),
+        "progress": ONBOARDING_STATE.get("llama_cpp_progress", 0),
+        "error": ONBOARDING_STATE.get("llama_cpp_error"),
+        "log": ONBOARDING_STATE.get("llama_cpp_log", []),
+    }
+
+
+@app.get("/api/onboarding/llama-cpp-check")
+async def llama_cpp_check() -> dict[str, Any]:
+    """Check if llama-cpp-python is installed and report GPU acceleration status."""
+    python_exe = _get_embedded_python_exe()
+    installed = False
+    version = ""
+    gpu_backend = "unknown"
+
+    try:
+        r = subprocess.run(
+            [python_exe, "-c", "import llama_cpp; print(llama_cpp.__version__)"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            installed = True
+            version = r.stdout.strip()
+    except Exception:
+        pass
+
+    # Detect which GPU backend is compiled in
+    if installed:
+        try:
+            r = subprocess.run(
+                [python_exe, "-c", """
+import llama_cpp
+llm = llama_cpp.Llama.__init__.__code__
+print('ok')
+"""],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            pass
+
+    # Get GPU info
+    from platform_utils import detect_gpu, get_llama_cpp_cmake_args
+    gpu_info = detect_gpu()
+    vendor = gpu_info.get("vendor", "unknown")
+    build_info = get_llama_cpp_cmake_args(vendor)
+
+    return {
+        "status": "ok",
+        "installed": installed,
+        "version": version,
+        "gpu_vendor": vendor,
+        "gpu_name": gpu_info.get("name", ""),
+        "gpu_backend": gpu_info.get("backend", "cpu"),
+        "vram_mb": gpu_info.get("vram_mb", 0),
+        "recommended_build": build_info,
     }
 
 
@@ -2502,6 +3360,9 @@ async def test_wake_word_stop() -> dict[str, Any]:
 # WebSocket chat
 # ---------------------------------------------------------------------------
 
+# Running process_message tasks (kept referenced so they aren't GC'd mid-run)
+_ws_processing_tasks: set = set()
+
 
 @app.websocket("/ws/chat")
 async def ws_chat(websocket: WebSocket) -> None:
@@ -2516,12 +3377,22 @@ async def ws_chat(websocket: WebSocket) -> None:
 
     Response schema (JSON sent to client, multiple messages):
         {"type": "token", "content": str}          # Streamed LLM token
+        {"type": "thinking", "content": str}       # Thinking/reasoning trace token (thinking mode)
         {"type": "done", "content": str}           # Full response when complete
         {"type": "error", "content": str}          # Error message
         {"type": "voice_event", "state": str}      # Voice state: wake_detected|listening|transcribing|thinking|speaking|idle
         {"type": "user_message", "content": str, "voice_input": bool}  # Voice transcript shown as user message
     """
     await manager.connect(websocket)
+
+    # Reset stuck processing lock from a previous disconnected session
+    if orchestrator._processing_lock.locked():
+        orchestrator._lock_generation += 1
+        try:
+            orchestrator._processing_lock.release()
+            logger.info("WebSocket connect: released stuck processing lock (gen=%d)", orchestrator._lock_generation)
+        except RuntimeError:
+            pass
 
     try:
         while True:
@@ -2556,7 +3427,8 @@ async def ws_chat(websocket: WebSocket) -> None:
                 orchestrator.abort()
                 if voice_manager:
                     voice_manager.stop_speaking()
-                await manager.broadcast({"type": "aborted"})
+                # Note: process_message sends {"type": "aborted"} itself when it
+                # detects the abort flag — don't broadcast here to avoid doubles.
                 continue
 
             message: str = data.get("message", "")
@@ -2571,13 +3443,19 @@ async def ws_chat(websocket: WebSocket) -> None:
             try:
                 async def _send_to_client(msg):
                     await manager.broadcast(msg)
-                await orchestrator.process_message(
+                # Run process_message as a task so the WebSocket loop can keep
+                # receiving messages (e.g. abort) while generation is running.
+                # Previously the handler blocked on await here, so abort
+                # messages were buffered but never processed.
+                task = asyncio.create_task(orchestrator.process_message(
                     message,
                     voice_input=voice_input,
                     context_override=context,
                     send=_send_to_client,
                     think_override=think_override,
-                )
+                ))
+                _ws_processing_tasks.add(task)
+                task.add_done_callback(_ws_processing_tasks.discard)
             except Exception as exc:
                 logger.error("Orchestrator error: %s", exc, exc_info=True)
                 await manager.broadcast({"type": "error", "content": f"Interner Fehler: {exc}"})
@@ -2588,6 +3466,11 @@ async def ws_chat(websocket: WebSocket) -> None:
     except Exception as exc:
         logger.error("WebSocket error: %s", exc, exc_info=True)
         manager.disconnect(websocket)
+    finally:
+        # Cancel any process_message tasks started by this connection
+        for t in list(_ws_processing_tasks):
+            if not t.done():
+                t.cancel()
 
 
 # ---------------------------------------------------------------------------

@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Τοπική εφαρμογή επιφάνειας εργασίας, φιλική προς CPU",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Διακομιστής αφηγήσεων και συνομιλίας",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Άλλος διακομιστής Ollama στο δίκτυο",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Διακομιστής εξαγωγής υψηλής αποδοσης",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI με πρόσθετο OpenAI API",
     "providerCustom": "Προσαρμοσμένο",
     "providerCustomDesc": "Άλλος διακομιστής συμβατός με OpenAI",
     "lmStudioEndpoint": "Διεύθυνση διακομιστή",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Σούπερ γρήγορο",
     "modeFast": "Γρήγορο",
     "modeBalanced": "Ισορροπημένο",
-    "modeQuality": "Ποιότητα"
+    "modeQuality": "Ποιότητα",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Cloud API για 100+ μοντέλα (απαιτείται API key)"
   },
   "mic": {
     "idle": "Μικρόφωνο – κλικ για εκκίνηση",

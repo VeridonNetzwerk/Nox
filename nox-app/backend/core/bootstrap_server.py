@@ -61,11 +61,8 @@ def get_backend_dir():
 
 
 def get_python_exe():
-    """Get the Python executable — system python3 on Linux, embedded on Windows."""
+    """Get the Python executable — embedded Python on Windows."""
     base = Path(__file__).parent
-    if sys.platform.startswith("linux"):
-        return sys.executable
-    # Windows: embedded Python
     candidates = [
         base / "python" / "python.exe",
         base / ".." / "python" / "python.exe",

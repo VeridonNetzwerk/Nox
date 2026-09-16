@@ -7,12 +7,12 @@ Stores conversation turns per session and provides:
 """
 
 import logging
-import os
 import sqlite3
 import threading
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Optional
+
+from platform_utils import get_data_dir
 
 logger = logging.getLogger("nox.orchestrator.conversation")
 
@@ -52,7 +52,7 @@ class ConversationStore:
         if db_path:
             self.db_path = db_path
         else:
-            data_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "data"
+            data_dir = get_data_dir()
             data_dir.mkdir(parents=True, exist_ok=True)
             self.db_path = str(data_dir / "nox.db")
 
@@ -66,6 +66,12 @@ class ConversationStore:
     def _init_db(self) -> None:
         with self._lock:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            # WAL mode: allows concurrent reads while writing, better performance
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            # Normal sync is safe and faster than FULL for desktop use
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            # 20MB cache (default is 2MB) — reduces disk I/O for conversation history
+            self._conn.execute("PRAGMA cache_size=-20000")
             self._conn.executescript(SCHEMA_SQL)
             # Migration: add stats column if missing (existing DBs)
             try:
@@ -105,6 +111,27 @@ class ConversationStore:
                 return row[0] if row else None
             except Exception:
                 return None
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete all turns and the title for a conversation. Returns True if any rows were deleted."""
+        with self._lock:
+            try:
+                cursor = self._conn.execute(
+                    "DELETE FROM conversations WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+                deleted = cursor.rowcount
+                self._conn.execute(
+                    "DELETE FROM conversation_titles WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+                self._conn.commit()
+                if deleted > 0:
+                    logger.info("Deleted conversation %s (%d turns)", conversation_id, deleted)
+                return deleted > 0
+            except Exception as exc:
+                logger.error("Failed to delete conversation %s: %s", conversation_id, exc, exc_info=True)
+                return False
 
     def add_turn(
         self,
@@ -198,9 +225,9 @@ class ConversationStore:
         if len(turns) < 6:
             return None
 
-        # Keep last 4 turns, summarize the rest
-        to_summarize = turns[:-4]
-        recent = turns[-4:]
+        # Keep last 6 turns for better context continuity, summarize the rest
+        to_summarize = turns[:-6]
+        recent = turns[-6:]
 
         if not to_summarize:
             return None
@@ -234,8 +261,8 @@ class ConversationStore:
                         "ORDER BY id DESC LIMIT 50",
                         (conversation_id,),
                     ).fetchall()
-                    # Keep last 4, delete the rest
-                    ids_to_delete = [r[0] for r in old_ids[4:]]
+                    # Keep last 6, delete the rest
+                    ids_to_delete = [r[0] for r in old_ids[6:]]
                     if ids_to_delete:
                         placeholders = ",".join("?" * len(ids_to_delete))
                         self._conn.execute(
@@ -266,8 +293,12 @@ class ConversationStore:
         Structure:
         1. System prompt (persona + context)
         2. Summary (if available)
-        3. Recent conversation turns
+        3. Recent conversation turns (token-budgeted)
         4. New user message
+
+        Token budgeting: estimates ~4 chars per token and ensures the total
+        conversation history (excluding system prompt) fits within 60% of
+        max_context_tokens, leaving room for the model's response.
         """
         messages: list[dict[str, str]] = []
 
@@ -282,8 +313,28 @@ class ConversationStore:
         if summary:
             messages.append({"role": "system", "content": f"Zusammenfassung früherer Gespräche: {summary}"})
 
-        # Recent turns
+        # Recent turns — token-budgeted selection
         turns = self.get_recent_turns(conversation_id, n=max_turns)
+
+        # Estimate system prompt + summary token cost
+        system_tokens = sum(len(m["content"]) // 4 for m in messages)
+        new_msg_tokens = len(new_message) // 4
+        # Reserve 40% of context for the model's response, use 60% for history
+        budget_tokens = int(self.max_context_tokens * 0.6) - system_tokens - new_msg_tokens
+
+        if budget_tokens > 0:
+            selected_turns: list[dict[str, Any]] = []
+            used_tokens = 0
+            # Add turns from most recent backwards, until budget is exhausted
+            for turn in reversed(turns):
+                turn_tokens = len(turn["content"]) // 4 + 20  # +20 for role overhead
+                if used_tokens + turn_tokens > budget_tokens and selected_turns:
+                    break
+                selected_turns.append(turn)
+                used_tokens += turn_tokens
+            selected_turns.reverse()
+            turns = selected_turns
+
         for turn in turns:
             messages.append({"role": turn["role"], "content": turn["content"]})
 

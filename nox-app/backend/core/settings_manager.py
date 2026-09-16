@@ -60,13 +60,13 @@ class SettingsManager:
             if BUNDLED_CONFIG.exists():
                 with open(BUNDLED_CONFIG, "r", encoding="utf-8") as bf:
                     bundled = yaml.safe_load(bf) or {}
-                merged = False
+                merged_count = 0
                 for key, value in bundled.items():
                     if key not in self._config:
                         self._config[key] = value
-                        merged = True
-                if merged:
-                    logger.info("Merged %d missing keys from bundled config", len([k for k in bundled if k not in self._config]))
+                        merged_count += 1
+                if merged_count:
+                    logger.info("Merged %d missing keys from bundled config", merged_count)
                     self.save(self._config)
 
             # Apply forced overrides for corrected defaults.

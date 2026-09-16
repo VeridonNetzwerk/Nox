@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Paikallinen työpöytäsovellus, CPU-yhteensopiva",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Tarinointi- ja chat-palvelin",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Muu Ollama-palvelin verkossa",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Suorituskykyinen päättelypalvelin",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI OpenAI API-liitännäisellä",
     "providerCustom": "Mukautettu",
     "providerCustomDesc": "Muu OpenAI-yhteensopiva palvelin",
     "lmStudioEndpoint": "Palvelimen osoite",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Supernopea",
     "modeFast": "Nopea",
     "modeBalanced": "Tasapaino",
-    "modeQuality": "Laatu"
+    "modeQuality": "Laatu",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Pilvi-API yli 100 mallille (vaatii API-avaimen)"
   },
   "mic": {
     "idle": "Mikrofoni – klikkaa aloittaaksesi",

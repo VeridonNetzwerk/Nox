@@ -177,9 +177,9 @@ class _Florence2Model:
                 input_ids=inputs["input_ids"],
                 pixel_values=inputs["pixel_values"],
                 max_new_tokens=1024,
-                num_beams=3,
+                num_beams=1,
                 do_sample=False,
-                use_cache=False,
+                use_cache=True,
             )
 
         generated_text = self._processor.batch_decode(
@@ -555,7 +555,6 @@ class VisionAnalyzer:
                 data = resp.json()
                 content = data.get("message", {}).get("content", "")
                 if content and content.strip():
-                    self._local_model_loaded = time.time()
                     return content.strip()
         except httpx.ConnectError:
             logger.debug("Local Ollama not reachable for vision analysis")

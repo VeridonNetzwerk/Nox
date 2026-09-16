@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Lokální desktopová aplikace, CPU přítelná",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Server pro vyprávění a chat",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Další Ollama server v síti",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Výkonný inferenční server",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI s OpenAI API pluginem",
     "providerCustom": "Vlastní",
     "providerCustomDesc": "Jakýkoliv jiný OpenAI kompatibilní server",
     "lmStudioEndpoint": "Adresa serveru",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Super rychlý",
     "modeFast": "Rychlý",
     "modeBalanced": "Vyvážený",
-    "modeQuality": "Kvalita"
+    "modeQuality": "Kvalita",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Cloudové API pro 100+ modelů (vyžaduje API klíč)"
   },
   "mic": {
     "idle": "Mikrofon – klikněte pro start",

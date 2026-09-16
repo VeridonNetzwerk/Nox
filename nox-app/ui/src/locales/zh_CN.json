@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "本地桌面应用，CPU友好",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "故事与聊天服务器",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "网络上的其他Ollama服务器",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "高性能推理服务器",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "带OpenAI API插件的WebUI",
     "providerCustom": "自定义",
     "providerCustomDesc": "任意OpenAI兼容服务器",
     "lmStudioEndpoint": "服务器地址",
@@ -209,7 +205,9 @@
     "modeSuperFast": "超快",
     "modeFast": "快速",
     "modeBalanced": "均衡",
-    "modeQuality": "质量"
+    "modeQuality": "质量",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "100+ 模型的云端 API（需要 API 密钥）"
   },
   "mic": {
     "idle": "麦克风–点击开始",

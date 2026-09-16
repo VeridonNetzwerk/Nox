@@ -52,7 +52,7 @@ export default function WeatherCard({ data }) {
   const windText = windDirToText(c.wind_dir);
 
   return (
-    <div className="max-w-md rounded-2xl border border-nox-border bg-nox-surface overflow-hidden animate-bubble-in shadow-xl shadow-nox-shadow">
+    <div className="max-w-md rounded-2xl border border-nox-border bg-nox-surface/50 backdrop-blur-sm overflow-hidden animate-bubble-in shadow-xl shadow-nox-shadow">
       {/* Header with gradient based on weather */}
       <div className={`relative bg-gradient-to-br ${meta.gradient} px-5 py-4`}>
         <div>

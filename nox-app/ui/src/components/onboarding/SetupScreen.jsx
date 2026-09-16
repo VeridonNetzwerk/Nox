@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import noxLogoGlowing from "../../assets/nox-logo-glowing.png";
+import NoxAvatar from "../common/NoxAvatar.jsx";
 
 const BOOTSTRAP_URL = "http://127.0.0.1:8421";
 
@@ -132,12 +132,7 @@ export default function SetupScreen({ onComplete }) {
   return (
     <div className="flex flex-col h-full items-center justify-center gap-6 px-6 py-8 text-center">
       {/* Logo */}
-      <img
-        src={noxLogoGlowing}
-        alt="Nox"
-        className="w-32 h-auto"
-        style={{ filter: "drop-shadow(0 0 20px rgba(99, 102, 241, 0.3))" }}
-      />
+      <NoxAvatar size={128} glowing />
 
       {/* Title */}
       <div className="space-y-1.5">
@@ -181,7 +176,8 @@ export default function SetupScreen({ onComplete }) {
                 className="h-full transition-all duration-500 rounded-full"
                 style={{
                   width: `${pct}%`,
-                  background: "linear-gradient(90deg, var(--nox-accent), var(--nox-violet))",
+                  background: "linear-gradient(90deg, #e930f0, #8b2df5, #2b6cf0, #1fe0e0)",
+                  boxShadow: "0 0 12px rgba(139, 45, 245, 0.4)",
                 }}
               />
             </div>

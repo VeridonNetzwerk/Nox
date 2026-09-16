@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Helyi asztali alkalmazás, CPU-barát",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Mesélő és chat szerver",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Más Ollama szerver a hálózaton",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Nagy teljesítményű inferencia szerver",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI OpenAI API pluginnal",
     "providerCustom": "Egyedi",
     "providerCustomDesc": "Bármilyen más OpenAI-kompatibilis szerver",
     "lmStudioEndpoint": "Szerver cím",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Szuper gyors",
     "modeFast": "Gyors",
     "modeBalanced": "Kiegyensúlyozott",
-    "modeQuality": "Minőség"
+    "modeQuality": "Minőség",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Felhő API 100+ modellhez (API kulcs szükséges)"
   },
   "mic": {
     "idle": "Mikrofon – kattints a kezdéshez",

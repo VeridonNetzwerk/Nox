@@ -1,20 +1,17 @@
 """Clipboard monitor – tracks text changes in the system clipboard.
 
 Windows: Uses win32clipboard API.
-Linux:   Uses pyperclip (which uses xclip/xsel/wl-copy under the hood),
-         with direct wl-paste fallback for COSMIC/Wayland.
 
 Runs in a daemon thread, polling the clipboard at a short interval.
 Only text content is captured (no images or file paths).
 """
 
 import logging
-import subprocess
 import threading
 import time
 from typing import Callable, Optional
 
-from platform_utils import IS_WINDOWS, IS_LINUX, is_command_available, is_wayland
+from platform_utils import IS_WINDOWS
 
 logger = logging.getLogger("nox.eye.clipboard")
 
@@ -24,13 +21,6 @@ try:
     _WINCLIP_AVAILABLE = True
 except ImportError:
     _WINCLIP_AVAILABLE = False
-
-# Conditional imports — Linux (pyperclip)
-try:
-    import pyperclip
-    _PYPERCLIP_AVAILABLE = True
-except ImportError:
-    _PYPERCLIP_AVAILABLE = False
 
 
 class ClipboardMonitor:
@@ -47,19 +37,7 @@ class ClipboardMonitor:
 
     @property
     def is_available(self) -> bool:
-        if IS_WINDOWS:
-            return _WINCLIP_AVAILABLE
-        elif IS_LINUX:
-            if _PYPERCLIP_AVAILABLE:
-                return True
-            # Fallback: wl-paste on Wayland
-            if is_wayland() and is_command_available("wl-paste"):
-                return True
-            # Fallback: xclip on X11
-            if is_command_available("xclip") or is_command_available("xsel"):
-                return True
-            return False
-        return False
+        return IS_WINDOWS and _WINCLIP_AVAILABLE
 
     def start(self) -> None:
         if not self.is_available:
@@ -90,16 +68,6 @@ class ClipboardMonitor:
         """Read text from clipboard, return None if not text or error."""
         if IS_WINDOWS and _WINCLIP_AVAILABLE:
             return self._get_clipboard_win32()
-        elif IS_LINUX:
-            if _PYPERCLIP_AVAILABLE:
-                text = self._get_clipboard_pyperclip()
-                if text is not None:
-                    return text
-                # pyperclip failed — try wl-paste on Wayland
-            if is_wayland() and is_command_available("wl-paste"):
-                return self._get_clipboard_wl_paste()
-            if is_command_available("xclip"):
-                return self._get_clipboard_xclip()
         return None
 
     def _get_clipboard_win32(self) -> Optional[str]:
@@ -114,39 +82,6 @@ class ClipboardMonitor:
         except Exception:
             return None
         return None
-
-    def _get_clipboard_pyperclip(self) -> Optional[str]:
-        """Read text from clipboard via pyperclip (Linux/macOS)."""
-        try:
-            return pyperclip.paste()
-        except Exception:
-            return None
-
-    def _get_clipboard_wl_paste(self) -> Optional[str]:
-        """Read text from Wayland clipboard via wl-paste (COSMIC/Sway/Hyprland)."""
-        try:
-            result = subprocess.run(
-                ["wl-paste", "--no-newline"],
-                capture_output=True, text=True, timeout=2
-            )
-            if result.returncode == 0:
-                return result.stdout
-            return None
-        except Exception:
-            return None
-
-    def _get_clipboard_xclip(self) -> Optional[str]:
-        """Read text from X11 clipboard via xclip."""
-        try:
-            result = subprocess.run(
-                ["xclip", "-selection", "clipboard", "-o"],
-                capture_output=True, text=True, timeout=2
-            )
-            if result.returncode == 0:
-                return result.stdout
-            return None
-        except Exception:
-            return None
 
     def _run(self) -> None:
         while self._running:

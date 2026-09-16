@@ -24,7 +24,7 @@ export default function ImageCard({ data, onClose, addToast }) {
   };
 
   return (
-    <div className="max-w-md rounded-xl border border-nox-border bg-nox-surface overflow-hidden animate-bubble-in">
+    <div className="max-w-md rounded-xl border border-nox-border bg-nox-surface/50 backdrop-blur-sm overflow-hidden animate-bubble-in">
       <div className="px-3 py-2 border-b border-nox-border bg-nox-surface-hover/30 flex items-center justify-between">
         <span className="text-xs text-nox-textDim font-medium">Generiertes Bild</span>
         <button onClick={onClose} className="text-nox-textDim hover:text-nox-text text-xs">✕</button>

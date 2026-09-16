@@ -8,12 +8,12 @@ Stores indexed file contents in a SQLite database with:
 """
 
 import logging
-import os
 import sqlite3
 import threading
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Optional
+
+from platform_utils import get_data_dir
 
 logger = logging.getLogger("nox.files.store")
 
@@ -23,7 +23,12 @@ try:
 except ImportError:
     _ST_AVAILABLE = False
 
-import numpy as np
+try:
+    import numpy as np
+    _NP_AVAILABLE = True
+except ImportError:
+    _NP_AVAILABLE = False
+    np = None
 
 
 SCHEMA_SQL = """
@@ -83,7 +88,7 @@ class FileStore:
         if db_path:
             self.db_path = db_path
         else:
-            data_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "data"
+            data_dir = get_data_dir()
             data_dir.mkdir(parents=True, exist_ok=True)
             self.db_path = str(data_dir / "nox_files.db")
 
@@ -107,9 +112,9 @@ class FileStore:
         if not _ST_AVAILABLE:
             logger.warning("sentence-transformers not installed – semantic search disabled")
             return
-        logger.info("Loading embedding model: %s", self.embedding_model_name)
-        self._embedder = SentenceTransformer(self.embedding_model_name)
-        logger.info("Embedding model loaded")
+        logger.info("Loading embedding model (CPU): %s", self.embedding_model_name)
+        self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
+        logger.info("Embedding model loaded on CPU")
 
     def upsert_file(
         self,

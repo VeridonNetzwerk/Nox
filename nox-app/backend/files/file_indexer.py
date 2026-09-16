@@ -65,9 +65,13 @@ DEFAULT_EXCLUDED_DIRS = {
     ".ssh", ".gnupg", "Cookies", "cookie", "Local Storage",
     "Session Storage", "Browser Data", "Wallets", "wallet",
     "node_modules", ".git", "__pycache__", ".venv", "venv",
-    "AppData", "$Recycle.Bin", "System Volume Information",
+    "AppData", "$Recycle.Bin", "$RECYCLE.BIN", "#recycle",
+    "#recycle.bin", ".Trash", ".trash", "Trash", "System Volume Information",
     "Windows", "Program Files", "Program Files (x86)",
 }
+
+# Lowercase lookup sets for case-insensitive directory exclusion
+_DEFAULT_EXCLUDED_DIRS_LOWER = {d.lower() for d in DEFAULT_EXCLUDED_DIRS}
 
 # Max file size for indexing (50MB — larger files likely binary or huge logs)
 MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -85,8 +89,14 @@ class FileIndexer:
         gpu_ocr: bool = True,
     ):
         self.excluded_dirs = excluded_dirs or DEFAULT_EXCLUDED_DIRS
+        self._excluded_dirs_lower = {d.lower() for d in self.excluded_dirs}
         self.gpu_ocr = gpu_ocr
         self._ocr_reader = None
+
+    def set_excluded_dirs(self, dirs: Set[str]) -> None:
+        """Replace the excluded-dir set at runtime (keeps the lowercase lookup in sync)."""
+        self.excluded_dirs = excluded_dirs or DEFAULT_EXCLUDED_DIRS
+        self._excluded_dirs_lower = {d.lower() for d in self.excluded_dirs}
 
     def should_skip_file(self, path: Path) -> bool:
         """Check if a file should be skipped (sensitive, binary, too large)."""
@@ -115,15 +125,15 @@ class FileIndexer:
     def should_skip_dir(self, path: Path) -> bool:
         """Check if a directory should be skipped."""
         name = path.name
+        name_lower = name.lower()
 
-        # Check excluded dirs
-        if name in self.excluded_dirs:
+        # Check excluded dirs (case-insensitive — Windows paths are case-insensitive)
+        if name_lower in self._excluded_dirs_lower:
             return True
-        if name in DEFAULT_EXCLUDED_DIRS:
+        if name_lower in _DEFAULT_EXCLUDED_DIRS_LOWER:
             return True
 
         # Check sensitive patterns in directory name
-        name_lower = name.lower()
         for pattern in SENSITIVE_PATTERNS:
             if pattern in name_lower:
                 return True

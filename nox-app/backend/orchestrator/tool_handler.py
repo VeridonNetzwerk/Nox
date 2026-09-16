@@ -4,10 +4,15 @@ Supports two modes:
 1. Native tool-calling via Ollama's /api/chat with tools parameter
 2. Prompt-based fallback parsing ([TOOL: name] params) for models without native support
 
-Registered tools:
-- kontext_suche: search nox_eye context
-- notiz_speichern: save a note
-- aktuelle_uhrzeit: get current time
+Registered tools (26):
+- bildschirm_suchen, bildschirm_ansehen, screenshot_historie — screen context
+- notiz_speichern, erinnerung_speichern, timer_stellen — notes & time
+- aktuelle_uhrzeit, wetter_abfragen, search_web, website_oeffnen — info & web
+- dateien_suchen, datei_lesen — local files
+- einstellungen_lesen, einstellung_aendern, profil_speichern — settings & profile
+- musik_erkennen, bild_generieren, uebersetzen, einheit_rechnen — media & conversion
+- app_oeffnen, fenster_fokus, fenster_schliessen, nox_beenden — apps & windows
+- system_steuerung, lautstaerke, zwischenablage — system control
 """
 
 import asyncio
@@ -18,7 +23,7 @@ import subprocess
 from datetime import datetime
 from typing import Any, Callable, Optional
 
-from platform_utils import IS_WINDOWS, IS_LINUX, is_command_available  # core/ subdir on sys.path
+from platform_utils import IS_WINDOWS  # core/ subdir on sys.path
 from user_profile import UserProfile  # core/ subdir on sys.path
 
 logger = logging.getLogger("nox.orchestrator.tools")
@@ -52,7 +57,6 @@ _RE_ISO_DATE = re.compile(r'(\d{4})-(\d{2})-(\d{2})$')
 _RE_TIME_ONLY = re.compile(r'(\d{1,2}):(\d{2})(?::(\d{2}))?$')
 _RE_RELATIVE = re.compile(r'in\s+(\d+)\s+(stunde|stunden|minuten|minute|tag|tagen|tagen|woche|wochen|stunden|h|min)', re.IGNORECASE)
 _RE_TIME_SEARCH = re.compile(r'(\d{1,2}):(\d{2})')
-_RE_PERCENT = re.compile(r'(\d+)%')
 
 
 class Tool:
@@ -1309,10 +1313,7 @@ class ToolHandler:
         # If it's a URL, open in browser
         if name_lower.startswith(("http://", "https://")):
             try:
-                if IS_WINDOWS:
-                    os.startfile(name)
-                else:
-                    subprocess.Popen(["xdg-open", name])
+                os.startfile(name)
                 return f"Geöffnet: {name}"
             except Exception as exc:
                 return f"Konnte URL nicht öffnen: {exc}"
@@ -1363,16 +1364,19 @@ class ToolHandler:
                 except Exception as exc:
                     return f"Konnte '{name}' nicht starten: {exc}"
 
-        # Last resort: try 'start' (Windows) or 'xdg-open' (Linux)
-        try:
-            if IS_WINDOWS:
-                subprocess.Popen(f"start {name}", shell=True)
-            else:
-                # On Linux, try xdg-open or the command directly
-                subprocess.Popen(["xdg-open", name])
-            return f"App gestartet: {name}"
-        except Exception as exc:
-            return f"Konnte '{name}' nicht finden oder starten: {exc}"
+        # Last resort: Windows registered app-execution aliases (WindowsApps).
+        # NOTE: 'start' always exits 0 even for unknown apps — verify first so we
+        # never report a false "App gestartet".
+        apps_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WindowsApps")
+        alias_path = os.path.join(apps_dir, f"{name_lower}.exe")
+        if os.path.isfile(alias_path):
+            try:
+                subprocess.Popen([alias_path])
+                return f"App gestartet: {name}"
+            except Exception as exc:
+                return f"Konnte '{name}' nicht starten: {exc}"
+        return (f"App '{name}' wurde nicht gefunden. Versuche den genauen Programmnamen "
+                f"oder einen vollständigen Pfad zur .exe-Datei.")
 
     # System control action aliases
     _SYSTEM_ACTION_ALIASES = {
@@ -1421,10 +1425,7 @@ class ToolHandler:
 
         if aktion == "sperren":
             try:
-                if IS_WINDOWS:
-                    ctypes.windll.user32.LockWorkStation()
-                else:
-                    subprocess.Popen(["loginctl", "lock-session"])
+                ctypes.windll.user32.LockWorkStation()
                 return "PC wird gesperrt."
             except Exception as exc:
                 logger.error("system_steuerung sperren failed: %s", exc)
@@ -1432,10 +1433,7 @@ class ToolHandler:
 
         elif aktion == "herunterfahren":
             try:
-                if IS_WINDOWS:
-                    subprocess.Popen(["shutdown", "/s", "/t", "0"])
-                else:
-                    subprocess.Popen(["shutdown", "-h", "now"])
+                subprocess.Popen(["shutdown", "/s", "/t", "0"])
                 return "PC wird heruntergefahren. Bis bald!"
             except Exception as exc:
                 logger.error("system_steuerung herunterfahren failed: %s", exc)
@@ -1443,10 +1441,7 @@ class ToolHandler:
 
         elif aktion == "neustart":
             try:
-                if IS_WINDOWS:
-                    subprocess.Popen(["shutdown", "/r", "/t", "0"])
-                else:
-                    subprocess.Popen(["shutdown", "-r", "now"])
+                subprocess.Popen(["shutdown", "/r", "/t", "0"])
                 return "PC wird neu gestartet. Bis gleich!"
             except Exception as exc:
                 logger.error("system_steuerung neustart failed: %s", exc)
@@ -1454,10 +1449,7 @@ class ToolHandler:
 
         elif aktion == "ruhezustand":
             try:
-                if IS_WINDOWS:
-                    subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
-                else:
-                    subprocess.Popen(["systemctl", "suspend"])
+                subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
                 return "PC geht in den Ruhezustand."
             except Exception as exc:
                 logger.error("system_steuerung ruhezustand failed: %s", exc)
@@ -1572,19 +1564,29 @@ class ToolHandler:
         """Set mute state in VoiceMeeter."""
         return self._vmr_set_param(dll, param_name, 1.0 if muted else 0.0)
 
+    def _get_endpoint_volume(self):
+        """Get the IAudioEndpointVolume COM pointer (thread-safe, pycaw-version-agnostic).
+
+        Newer pycaw versions return an AudioDevice wrapper from GetSpeakers();
+        older ones return the raw IMMDevice. Unwrap when needed.
+        """
+        import pythoncom
+        pythoncom.CoInitialize()
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        from ctypes import cast, POINTER
+        from comtypes import CLSCTX_ALL
+        device = AudioUtilities.GetSpeakers()
+        if hasattr(device, "_dev"):
+            device = device._dev
+        interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        return cast(interface, POINTER(IAudioEndpointVolume))
+
     def _get_windows_volume(self) -> tuple[Optional[float], Optional[bool]]:
         """Get Windows master volume (0.0-1.0) and mute state via pycaw."""
         if not IS_WINDOWS:
             return None, None
         try:
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-            )
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume = self._get_endpoint_volume()
             level = volume.GetMasterVolumeLevelScalar()
             muted = bool(volume.GetMute())
             return level, muted
@@ -1600,14 +1602,7 @@ class ToolHandler:
         if not IS_WINDOWS:
             return False
         try:
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-            )
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume = self._get_endpoint_volume()
             volume.SetMasterVolumeLevelScalar(max(0.0, min(1.0, level)), None)
             return True
         except Exception as exc:
@@ -1619,81 +1614,11 @@ class ToolHandler:
         if not IS_WINDOWS:
             return False
         try:
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-            )
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            volume = self._get_endpoint_volume()
             volume.SetMute(1 if muted else 0, None)
             return True
         except Exception as exc:
             logger.warning("Failed to set Windows mute: %s", exc)
-            return False
-
-    # --- Linux volume control via pactl (PulseAudio/PipeWire) ---
-
-    def _get_linux_volume(self) -> tuple[Optional[float], Optional[bool]]:
-        """Get Linux master volume (0.0-1.0) and mute state via pactl."""
-        if not IS_LINUX or not is_command_available("pactl"):
-            return None, None
-        try:
-            result = subprocess.run(
-                ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode != 0:
-                return None, None
-            # Parse output: "Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: ..."
-            output = result.stdout
-            # Extract first percentage
-            pct_match = _RE_PERCENT.search(output)
-            if pct_match:
-                level = int(pct_match.group(1)) / 100.0
-            else:
-                return None, None
-
-            # Check mute state
-            result_mute = subprocess.run(
-                ["pactl", "get-sink-mute", "@DEFAULT_SINK@"],
-                capture_output=True, text=True, timeout=5
-            )
-            muted = "yes" in result_mute.stdout.lower() if result_mute.returncode == 0 else False
-            return level, muted
-        except Exception as exc:
-            logger.warning("Failed to get Linux volume: %s", exc)
-            return None, None
-
-    def _set_linux_volume(self, level: float) -> bool:
-        """Set Linux master volume (0.0-1.0) via pactl."""
-        if not IS_LINUX or not is_command_available("pactl"):
-            return False
-        try:
-            pct = int(max(0.0, min(1.0, level)) * 100)
-            result = subprocess.run(
-                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"],
-                capture_output=True, text=True, timeout=5
-            )
-            return result.returncode == 0
-        except Exception as exc:
-            logger.warning("Failed to set Linux volume: %s", exc)
-            return False
-
-    def _set_linux_mute(self, muted: bool) -> bool:
-        """Set Linux master mute via pactl."""
-        if not IS_LINUX or not is_command_available("pactl"):
-            return False
-        try:
-            state = "1" if muted else "0"
-            result = subprocess.run(
-                ["pactl", "set-sink-mute", "@DEFAULT_SINK@", state],
-                capture_output=True, text=True, timeout=5
-            )
-            return result.returncode == 0
-        except Exception as exc:
-            logger.warning("Failed to set Linux mute: %s", exc)
             return False
 
     def _apply_volume_action(
@@ -1705,7 +1630,7 @@ class ToolHandler:
         set_volume: Callable[[float], bool],
         set_mute: Callable[[bool], bool],
     ) -> str:
-        """Shared volume action logic for both Windows and Linux backends."""
+        """Shared volume action logic for the Windows backends."""
         if aktion == "restore":
             if self._saved_volume is None:
                 return "Keine gespeicherte Lautstärke zum Wiederherstellen."
@@ -1754,22 +1679,12 @@ class ToolHandler:
             return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
 
     def _tool_volume_control(self, args: dict[str, Any]) -> str:
-        """Control system volume — VoiceMeeter/pycaw (Windows) or pactl (Linux)."""
+        """Control system volume — VoiceMeeter/pycaw (Windows)."""
         aktion = args.get("aktion", "").strip().lower()
         wert = args.get("wert")
 
         if not aktion:
             return "Keine Aktion angegeben. Verfügbare Aktionen: lauter, leiser, mute, unmute, setzen, restore."
-
-        # Linux path: use pactl directly (no VoiceMeeter/pycaw)
-        if IS_LINUX:
-            current_level, current_mute = self._get_linux_volume()
-            if current_level is None:
-                return "Lautstärke-Steuerung nicht verfügbar. pactl nicht gefunden oder kein Audio-Gerät."
-            return self._apply_volume_action(
-                aktion, wert, int(current_level * 100), current_mute,
-                self._set_linux_volume, self._set_linux_mute,
-            )
 
         # Windows path: VoiceMeeter if running, else pycaw
         vm_running = self._is_voicemeeter_running()
@@ -1824,14 +1739,15 @@ class ToolHandler:
         count = max(1, min(10, count))
 
         try:
+            import time
             import requests
-            from html.parser import HTMLParser
-            import re
             import urllib.parse
 
             self._emit_progress("search_web", "searching", query=query, source="DuckDuckGo")
 
-            # DuckDuckGo HTML endpoint — no API key needed
+            # DuckDuckGo HTML endpoint — no API key needed.
+            # The /html/ endpoint sometimes resets connections (anti-bot) — retry
+            # once, then fall through to the Instant Answer API below.
             url = "https://html.duckduckgo.com/html/"
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -1840,9 +1756,19 @@ class ToolHandler:
             }
             data = {"q": query}
 
-            resp = requests.post(url, headers=headers, data=data, timeout=10)
-            resp.raise_for_status()
-            html = resp.text
+            html = ""
+            for attempt in range(2):
+                try:
+                    resp = requests.post(url, headers=headers, data=data, timeout=10)
+                    resp.raise_for_status()
+                    html = resp.text
+                    break
+                except requests.exceptions.ConnectionError as exc:
+                    if attempt == 0:
+                        logger.warning("DuckDuckGo HTML connection reset, retrying: %s", exc)
+                        time.sleep(1.0)
+                    else:
+                        logger.warning("DuckDuckGo HTML unreachable after retry: %s — trying Instant Answers", exc)
 
             # Parse results from DuckDuckGo HTML
             results = []
@@ -2006,10 +1932,6 @@ class ToolHandler:
         if not name:
             return "Kein Fenster-Name angegeben."
 
-        # Linux: use wmctrl + xdotool
-        if IS_LINUX:
-            return self._window_fokus_linux(aktion, name)
-
         # Windows: try pygetwindow first, fall back to win32gui
         try:
             import pygetwindow as gw
@@ -2102,167 +2024,6 @@ class ToolHandler:
         except Exception as exc:
             logger.error("fenster_fokus action '%s' failed for '%s': %s", aktion, win.title, exc)
             return f"Konnte Aktion '{aktion}' nicht ausführen auf '{win.title}': {exc}"
-
-    def _window_fokus_linux(self, aktion: str, name: str) -> str:
-        """Window management on Linux via cosmic-ext-window-helper (COSMIC) or wmctrl+xdotool (X11)."""
-        from platform_utils import is_cosmic, is_wayland
-
-        # COSMIC Wayland: use cosmic-ext-window-helper
-        if is_cosmic() and is_wayland() and is_command_available("cosmic-ext-window-helper"):
-            return self._window_fokus_cosmic(aktion, name)
-
-        if not is_command_available("wmctrl") and not is_command_available("xdotool"):
-            return "Fenster-Steuerung nicht verfügbar. Weder wmctrl/xdotool (X11) noch cosmic-ext-window-helper (COSMIC) sind installiert."
-
-        name_lower = name.lower()
-
-        # Get window list via wmctrl or xdotool
-        window_id = None
-        window_title = None
-
-        if is_command_available("wmctrl"):
-            try:
-                result = subprocess.run(
-                    ["wmctrl", "-l"],
-                    capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    for line in result.stdout.strip().split("\n"):
-                        parts = line.split(None, 3)
-                        if len(parts) >= 4:
-                            wid = parts[0]
-                            title = parts[3]
-                            if name_lower in title.lower():
-                                window_id = wid
-                                window_title = title
-                                break
-            except Exception as exc:
-                logger.warning("wmctrl list failed: %s", exc)
-
-        if not window_id and is_command_available("xdotool"):
-            try:
-                result = subprocess.run(
-                    ["xdotool", "search", "--name", name],
-                    capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    window_id = result.stdout.strip().split("\n")[0]
-                    window_title = name
-            except Exception as exc:
-                logger.warning("xdotool search failed: %s", exc)
-
-        if not window_id:
-            return f"Kein Fenster gefunden für '{name}'."
-
-        try:
-            if aktion == "fokus":
-                subprocess.run(["wmctrl", "-i", "-a", window_id], capture_output=True, timeout=5)
-                return f"Fokus auf '{window_title}' gesetzt."
-
-            elif aktion == "minimieren":
-                subprocess.run(["xdotool", "windowminimize", window_id], capture_output=True, timeout=5)
-                return f"'{window_title}' minimiert."
-
-            elif aktion == "maximieren":
-                subprocess.run(["wmctrl", "-i", "-r", window_id, "-b", "add,maximized_vert,maximized_horz"], capture_output=True, timeout=5)
-                return f"'{window_title}' maximiert."
-
-            elif aktion == "wiederherstellen":
-                subprocess.run(["wmctrl", "-i", "-r", window_id, "-b", "remove,maximized_vert,maximized_horz"], capture_output=True, timeout=5)
-                return f"'{window_title}' wiederhergestellt."
-
-            elif aktion == "schliessen":
-                subprocess.run(["wmctrl", "-i", "-c", window_id], capture_output=True, timeout=5)
-                return f"'{window_title}' geschlossen."
-
-            else:
-                return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
-
-        except Exception as exc:
-            logger.error("fenster_fokus Linux action '%s' failed: %s", aktion, exc)
-            return f"Konnte Aktion '{aktion}' nicht ausführen auf '{window_title}': {exc}"
-
-    def _window_fokus_cosmic(self, aktion: str, name: str) -> str:
-        """Window management on COSMIC via cosmic-ext-window-helper."""
-        name_lower = name.lower()
-
-        try:
-            # Use 'state' command to get JSON list of all windows
-            result = subprocess.run(
-                ["cosmic-ext-window-helper", "state"],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode != 0:
-                return f"Konnte Fensterliste nicht abrufen: {result.stderr}"
-
-            import json
-            windows = json.loads(result.stdout.strip())
-
-            # Find matching window by app_id or title
-            matched_app_id = ""
-            matched_title = ""
-            for win in windows:
-                app_id = win.get("app_id", "").lower()
-                title = win.get("title", "").lower()
-                if name_lower in app_id or name_lower in title:
-                    matched_app_id = win.get("app_id", "")
-                    matched_title = win.get("title", "")
-                    break
-
-            if not matched_app_id and not matched_title:
-                return f"Kein Fenster gefunden für '{name}'."
-
-            # Build query — use app_id if available, otherwise title regex
-            if matched_app_id:
-                query = f"app_id = '{matched_app_id}'"
-            else:
-                query = f"title ~= '{name}'i"
-
-            if aktion == "fokus":
-                subprocess.run(
-                    ["cosmic-ext-window-helper", "activate", query],
-                    capture_output=True, timeout=5
-                )
-                return f"Fokus auf '{matched_title or matched_app_id}' gesetzt."
-
-            elif aktion == "minimieren":
-                subprocess.run(
-                    ["cosmic-ext-window-helper", "minimize", "true", query],
-                    capture_output=True, timeout=5
-                )
-                return f"'{matched_title or matched_app_id}' minimiert."
-
-            elif aktion == "maximieren":
-                subprocess.run(
-                    ["cosmic-ext-window-helper", "maximize", "true", query],
-                    capture_output=True, timeout=5
-                )
-                return f"'{matched_title or matched_app_id}' maximiert."
-
-            elif aktion == "wiederherstellen":
-                subprocess.run(
-                    ["cosmic-ext-window-helper", "maximize", "false", query],
-                    capture_output=True, timeout=5
-                )
-                subprocess.run(
-                    ["cosmic-ext-window-helper", "minimize", "false", query],
-                    capture_output=True, timeout=5
-                )
-                return f"'{matched_title or matched_app_id}' wiederhergestellt."
-
-            elif aktion == "schliessen":
-                subprocess.run(
-                    ["cosmic-ext-window-helper", "close", query],
-                    capture_output=True, timeout=5
-                )
-                return f"'{matched_title or matched_app_id}' geschlossen."
-
-            else:
-                return f"Unbekannte Aktion '{aktion}'. Verfügbare Aktionen: fokus, minimieren, maximieren, wiederherstellen, schliessen."
-
-        except Exception as exc:
-            logger.error("fenster_fokus COSMIC action '%s' failed: %s", aktion, exc)
-            return f"Konnte Aktion '{aktion}' nicht ausführen: {exc}"
 
     def _window_fallback_win32(self, aktion: str, name: str) -> str:
         """Fallback window management using win32gui (no pygetwindow needed)."""
@@ -2528,9 +2289,8 @@ class ToolHandler:
         """Get path to persistent reminders JSON file."""
         if self._REMINDERS_FILE is not None:
             return self._REMINDERS_FILE
-        import os
-        from pathlib import Path
-        data_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "data"
+        from platform_utils import get_data_dir
+        data_dir = get_data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
         self._REMINDERS_FILE = str(data_dir / "reminders.json")
         return self._REMINDERS_FILE

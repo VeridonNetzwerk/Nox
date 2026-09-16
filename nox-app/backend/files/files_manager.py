@@ -21,8 +21,8 @@ from .file_store import FileStore
 
 logger = logging.getLogger("nox.files.manager")
 
-# Default scan interval (re-scan every 30 minutes)
-SCAN_INTERVAL = 600  # re-scan every 10 minutes
+# Default scan interval (re-scan every 10 minutes)
+SCAN_INTERVAL = 600  # 600 seconds = 10 minutes
 
 # Default user folders to index
 DEFAULT_FOLDERS = [
@@ -415,7 +415,7 @@ class FilesManager:
 
         if "nox_files_excluded_dirs" in updates:
             self._excluded_dirs = set(updates["nox_files_excluded_dirs"])
-            self.indexer.excluded_dirs = self._excluded_dirs
+            self.indexer.set_excluded_dirs(self._excluded_dirs)
 
     def health(self) -> dict[str, Any]:
         """Return health status."""

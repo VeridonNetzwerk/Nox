@@ -11,15 +11,13 @@ Threading:
 
 import io
 import logging
-import subprocess
 import threading
 import time
 from collections import deque
 from datetime import datetime
 from typing import Optional
 
-from platform_utils import IS_WINDOWS, IS_LINUX, can_screenshot_mss, can_screenshot_portal, capture_screenshot_portal, is_cosmic
-import atspi_compat
+from platform_utils import IS_WINDOWS
 
 logger = logging.getLogger("nox.eye.screenshot")
 
@@ -29,27 +27,19 @@ try:
 except ImportError:
     _PIL_AVAILABLE = False
 
-try:
-    import numpy as np
-    _NP_AVAILABLE = True
-except ImportError:
-    _NP_AVAILABLE = False
-
 # Windows-specific imports
 try:
     import win32gui
     import win32process
-    import psutil
     _WIN32_AVAILABLE = True
 except ImportError:
     _WIN32_AVAILABLE = False
 
-# Linux: mss for screenshots (cross-platform, works on X11 and Wayland)
 try:
-    import mss
-    _MSS_AVAILABLE = True
+    import psutil
+    _PSUTIL_AVAILABLE = True
 except ImportError:
-    _MSS_AVAILABLE = False
+    _PSUTIL_AVAILABLE = False
 
 try:
     import pytesseract
@@ -95,17 +85,7 @@ class ScreenshotHistory:
 
     @property
     def is_available(self) -> bool:
-        if IS_WINDOWS:
-            return _PIL_AVAILABLE
-        elif IS_LINUX:
-            # mss works on X11 and wlroots Wayland, but NOT on COSMIC/GNOME Wayland
-            # For COSMIC/GNOME, we need xdg-desktop-portal
-            if can_screenshot_mss():
-                return _MSS_AVAILABLE or _PIL_AVAILABLE
-            elif can_screenshot_portal():
-                return _PIL_AVAILABLE  # PIL needed to process the portal screenshot
-            return _PIL_AVAILABLE
-        return _PIL_AVAILABLE
+        return IS_WINDOWS and _PIL_AVAILABLE
 
     def start(self) -> None:
         if not self.is_available:
@@ -149,8 +129,6 @@ class ScreenshotHistory:
         """Get active window app name and title."""
         if IS_WINDOWS and _WIN32_AVAILABLE:
             return self._get_active_window_info_win32()
-        elif IS_LINUX:
-            return self._get_active_window_info_linux()
         return "", ""
 
     def _get_active_window_info_win32(self) -> tuple[str, str]:
@@ -171,121 +149,9 @@ class ScreenshotHistory:
         except Exception:
             return "", ""
 
-    def _get_active_window_info_linux(self) -> tuple[str, str]:
-        """Get active window info on Linux via xdotool/kdotool/cosmic-ext-window-helper/AT-SPI2."""
-        from platform_utils import is_command_available, get_display_server, is_cosmic
-        try:
-            ds = get_display_server()
-            if ds == "x11" and is_command_available("xdotool"):
-                result = subprocess.run(
-                    ["xdotool", "getactivewindow", "getwindowname"],
-                    capture_output=True, text=True, timeout=2
-                )
-                title = result.stdout.strip() if result.returncode == 0 else ""
-                result = subprocess.run(
-                    ["xdotool", "getactivewindow", "getwindowpid"],
-                    capture_output=True, text=True, timeout=2
-                )
-                pid = int(result.stdout.strip()) if result.returncode == 0 else 0
-                app_name = ""
-                if pid:
-                    try:
-                        import psutil
-                        proc = psutil.Process(pid)
-                        app_name = proc.name()
-                    except Exception:
-                        pass
-                return app_name, title
-            elif ds == "wayland":
-                # COSMIC: try cosmic-ext-window-helper first
-                if is_cosmic() and is_command_available("cosmic-ext-window-helper"):
-                    try:
-                        result = subprocess.run(
-                            ["cosmic-ext-window-helper", "state"],
-                            capture_output=True, text=True, timeout=2
-                        )
-                        if result.returncode == 0 and result.stdout.strip():
-                            import json
-                            windows = json.loads(result.stdout.strip())
-                            for win in windows:
-                                if win.get("is_active"):
-                                    app_name = win.get("app_id", "")
-                                    title = win.get("title", "")
-                                    if app_name or title:
-                                        return app_name, title
-                    except Exception:
-                        pass
-                # KDE Wayland: kdotool
-                if is_command_available("kdotool"):
-                    result = subprocess.run(
-                        ["kdotool", "getactivewindow", "getwindowname"],
-                        capture_output=True, text=True, timeout=2
-                    )
-                    title = result.stdout.strip() if result.returncode == 0 else ""
-                    result = subprocess.run(
-                        ["kdotool", "getactivewindow", "getwindowpid"],
-                        capture_output=True, text=True, timeout=2
-                    )
-                    pid = int(result.stdout.strip()) if result.returncode == 0 else 0
-                    app_name = ""
-                    if pid:
-                        try:
-                            import psutil
-                            proc = psutil.Process(pid)
-                            app_name = proc.name()
-                        except Exception:
-                            pass
-                    return app_name, title
-                # AT-SPI2 fallback for COSMIC/GNOME Wayland
-                try:
-                    desktop = atspi_compat.get_desktop(0)
-                    if desktop is None:
-                        return app_name, title
-                    for i in range(atspi_compat.get_child_count(desktop)):
-                        app = atspi_compat.get_child_at_index(desktop, i)
-                        if app is None:
-                            continue
-                        try:
-                            state_set = atspi_compat.get_state_set(app)
-                            if atspi_compat.state_contains(state_set, atspi_compat.STATE_ACTIVE):
-                                app_name = atspi_compat.get_name(app)
-                                title = ""
-                                for j in range(atspi_compat.get_child_count(app)):
-                                    child = atspi_compat.get_child_at_index(app, j)
-                                    if child is None:
-                                        continue
-                                    try:
-                                        child_state = atspi_compat.get_state_set(child)
-                                        if atspi_compat.state_contains(child_state, atspi_compat.STATE_ACTIVE):
-                                            title = atspi_compat.get_name(child)
-                                            break
-                                    except Exception:
-                                        continue
-                                return app_name, title
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return "", ""
-
     def _capture_all_monitors(self) -> Optional[bytes]:
         """Capture a screenshot of all monitors and return JPEG-compressed bytes."""
-        if IS_LINUX:
-            # On COSMIC/GNOME Wayland, mss doesn't work — use xdg-desktop-portal
-            if not can_screenshot_mss() and can_screenshot_portal():
-                return self._capture_portal()
-            # On X11 or wlroots Wayland, use mss
-            if _MSS_AVAILABLE and can_screenshot_mss():
-                return self._capture_mss()
-            # Fallback to PIL (works on X11)
-            if _PIL_AVAILABLE:
-                return self._capture_pil()
-            # Last resort: try portal even if mss was expected
-            if can_screenshot_portal():
-                return self._capture_portal()
-        elif _PIL_AVAILABLE:
+        if _PIL_AVAILABLE:
             return self._capture_pil()
         return None
 
@@ -301,46 +167,6 @@ class ScreenshotHistory:
             return buf.getvalue()
         except Exception as exc:
             logger.debug("Screenshot capture (PIL) failed: %s", exc)
-            return None
-
-    def _capture_portal(self) -> Optional[bytes]:
-        """Capture via xdg-desktop-portal D-Bus (COSMIC/GNOME Wayland)."""
-        try:
-            return capture_screenshot_portal()
-        except Exception as exc:
-            logger.debug("Screenshot capture (portal) failed: %s", exc)
-            return None
-
-    def _capture_mss(self) -> Optional[bytes]:
-        """Capture via mss (Linux X11 and wlroots Wayland)."""
-        try:
-            with mss.mss() as sct:
-                # Capture all monitors combined
-                monitors = sct.monitors
-                if not monitors or len(monitors) <= 1:
-                    # monitors[0] is the combined virtual screen on most systems
-                    monitor = monitors[0] if monitors else {"left": 0, "top": 0, "width": 1920, "height": 1080}
-                else:
-                    monitor = monitors[0]
-
-                raw = sct.grab(monitor)
-                # Convert BGRA to RGB
-                if _NP_AVAILABLE:
-                    arr = np.frombuffer(raw.rgb, dtype=np.uint8)
-                    arr = arr.reshape(raw.height, raw.width, 3)
-                    img = Image.fromarray(arr, "RGB")
-                else:
-                    # Fallback without numpy
-                    img = Image.frombytes("RGB", (raw.width, raw.height), raw.rgb)
-
-                if img.width > 1920:
-                    ratio = 1920 / img.width
-                    img = img.resize((1920, int(img.height * ratio)), Image.LANCZOS)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=70)
-                return buf.getvalue()
-        except Exception as exc:
-            logger.debug("Screenshot capture (mss) failed: %s", exc)
             return None
 
     def _capture_loop(self) -> None:
@@ -366,6 +192,7 @@ class ScreenshotHistory:
                 )
 
                 if should_capture:
+                    trigger = "change" if window_key != last_window_key else "timeout"
                     img_bytes = self._capture_all_monitors()
                     if img_bytes is not None:
                         entry = ScreenshotEntry(
@@ -380,12 +207,12 @@ class ScreenshotHistory:
                                 self._buffer.popleft()
                         last_window_key = window_key
                         last_capture_time = now
-                        logger.debug("Screenshot captured (buffer=%d, trigger=%s)", len(self._buffer), "change" if window_key != last_window_key else "timeout")
+                        logger.debug("Screenshot captured (buffer=%d, trigger=%s)", len(self._buffer), trigger)
             except Exception as exc:
                 logger.debug("Screenshot capture error: %s", exc)
 
-            # Poll window changes at 2s interval (lightweight), not the full capture interval
-            time.sleep(2)
+            # Poll window changes at 3s interval (lightweight), not the full capture interval
+            time.sleep(3)
 
     def capture_now(self) -> Optional[ScreenshotEntry]:
         """Take an immediate screenshot and return it."""

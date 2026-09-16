@@ -33,7 +33,7 @@ def _get_preferred_hostapi_indices() -> set[int]:
     if IS_WINDOWS:
         preferred = set()
         for idx, api in enumerate(hostapis):
-            if api["name"] == "WASAPI":
+            if "WASAPI" in api["name"]:
                 preferred.add(idx)
         # Fallback: if WASAPI not found, include all
         if not preferred:
@@ -43,12 +43,39 @@ def _get_preferred_hostapi_indices() -> set[int]:
         return set(range(len(hostapis)))
 
 
+# Virtual / phantom device name patterns to filter out (case-insensitive substring match)
+_VIRTUAL_DEVICE_PATTERNS = [
+    "soundmapper",
+    "primärer sound",
+    "primary sound",
+    "directsound",
+    "wave mapper",
+    "s/w synth",
+    "sw synth",
+    "stereo mix",
+    "stereomix",
+    "windows direct",
+    "primary audio",
+    "primäres audio",
+    "loopback",
+    "wave out",
+    "midi",
+    "sonicstudio",
+    "sonic studio",
+    "bthhfenum",
+    "system32",
+    "hands-free",
+    "hands free",
+]
+
+
 def _is_device_usable(dev: dict) -> bool:
     """Check if a device is likely real and usable.
 
     Filters out phantom/disabled devices that PortAudio sometimes lists:
     - Devices with 0 default samplerate
     - Devices with extremely high latency (indicates virtual/disabled)
+    - Known virtual device name patterns (SoundMapper, DirectSound, etc.)
     """
     try:
         sr = dev.get("default_samplerate", 0)
@@ -56,6 +83,21 @@ def _is_device_usable(dev: dict) -> bool:
             return False
     except Exception:
         return False
+
+    # Filter out known virtual/phantom device names
+    name = dev.get("name", "").strip()
+    name_lower = name.lower()
+    for pattern in _VIRTUAL_DEVICE_PATTERNS:
+        if pattern in name_lower:
+            return False
+
+    # Filter out empty names or names with empty parentheses
+    if not name or name.endswith("()") or name.endswith("()"):
+        return False
+    import re
+    if re.search(r'\(\s*\)', name):
+        return False
+
     return True
 
 
@@ -93,12 +135,14 @@ def list_devices() -> dict[str, list[dict[str, Any]]]:
 
             name = dev["name"].strip()
 
-            # Skip duplicate device names (same physical device listed multiple times)
-            if name in seen_names:
+            # Dedup by full name (case-insensitive) — same device can appear
+            # from multiple host APIs, but with WASAPI filter this is rare
+            dedup_key = name.lower()
+            if not dedup_key or dedup_key in seen_names:
                 continue
 
             if dev["max_input_channels"] > 0:
-                seen_names.add(name)
+                seen_names.add(dedup_key)
                 input_devices.append({
                     "index": i,
                     "name": name,
@@ -107,7 +151,7 @@ def list_devices() -> dict[str, list[dict[str, Any]]]:
                 })
 
             if dev["max_output_channels"] > 0:
-                seen_names.add(name)
+                seen_names.add(dedup_key)
                 output_devices.append({
                     "index": i,
                     "name": name,

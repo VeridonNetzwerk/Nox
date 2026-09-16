@@ -7,6 +7,8 @@ Excellent quality neural voices in 50+ languages. Requires internet connection.
 import asyncio
 import logging
 import io
+import threading
+import time
 import wave
 from typing import Optional
 
@@ -17,6 +19,40 @@ try:
     _EDGE_AVAILABLE = True
 except ImportError:
     _EDGE_AVAILABLE = False
+
+try:
+    import miniaudio
+    _MINIAUDIO_AVAILABLE = True
+except ImportError:
+    _MINIAUDIO_AVAILABLE = False
+
+
+class _MP3StreamSource(miniaudio.StreamableSource if _MINIAUDIO_AVAILABLE else object):
+    """StreamableSource that gets fed MP3 chunks from edge-tts for streaming decode."""
+
+    def __init__(self):
+        self._buffer = bytearray()
+        self._done = False
+        self._lock = threading.Lock()
+
+    def read(self, num_bytes: int):
+        while True:
+            with self._lock:
+                if len(self._buffer) >= num_bytes:
+                    data = bytes(self._buffer[:num_bytes])
+                    del self._buffer[:num_bytes]
+                    return data
+                if self._done and len(self._buffer) == 0:
+                    return b''
+            time.sleep(0.005)
+
+    def feed(self, data: bytes) -> None:
+        with self._lock:
+            self._buffer.extend(data)
+
+    def done(self) -> None:
+        with self._lock:
+            self._done = True
 
 # Popular German voices
 EDGE_GERMAN_VOICES = [
@@ -158,12 +194,13 @@ def get_edge_voices_for_lang(lang_code: str) -> list:
     return EDGE_VOICES_BY_LANG.get(lang_code, [])
 
 
-async def edge_tts_to_wav(voice_id: str, text: str) -> Optional[bytes]:
+async def edge_tts_to_wav(voice_id: str, text: str, rate: str = "+0%") -> Optional[bytes]:
     """Synthesize text using Edge TTS and return WAV bytes.
 
     Args:
         voice_id: e.g. "de-DE-KatjaNeural"
         text: Text to synthesize
+        rate: Speech rate adjustment, e.g. "+20%" for 20% faster
 
     Returns:
         WAV bytes or None on error.
@@ -173,8 +210,8 @@ async def edge_tts_to_wav(voice_id: str, text: str) -> Optional[bytes]:
         return None
 
     try:
-        logger.info("Edge TTS: starting synthesis with voice '%s', %d chars", voice_id, len(text))
-        communicate = edge_tts.Communicate(text, voice_id)
+        logger.info("Edge TTS: starting synthesis with voice '%s', rate='%s', %d chars", voice_id, rate, len(text))
+        communicate = edge_tts.Communicate(text, voice_id, rate=rate)
         mp3_buf = io.BytesIO()
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
@@ -225,3 +262,87 @@ async def edge_tts_to_wav(voice_id: str, text: str) -> Optional[bytes]:
     except Exception as exc:
         logger.error("Edge TTS: error for voice '%s': %s", voice_id, exc, exc_info=True)
         return None
+
+
+def edge_tts_stream_play(voice_id: str, text: str, rate: str = "+0%",
+                         device_index: Optional[int] = None) -> bool:
+    """Stream Edge TTS audio with minimal latency using miniaudio for MP3 decode.
+
+    MP3 chunks from edge-tts are decoded and played as they arrive,
+    so audio starts within ~500ms instead of waiting for full synthesis.
+
+    Args:
+        voice_id: e.g. "de-DE-SeraphinaMultilingualNeural"
+        text: Text to synthesize
+        rate: Speech rate, e.g. "+20%" for 20% faster
+        device_index: sounddevice output device index, or None for default
+
+    Returns:
+        True on success, False on error.
+    """
+    if not _EDGE_AVAILABLE:
+        logger.warning("Edge TTS: edge-tts not available")
+        return False
+
+    if not _MINIAUDIO_AVAILABLE:
+        logger.warning("Edge TTS: miniaudio not available, cannot stream")
+        return False
+
+    source = _MP3StreamSource()
+
+    # Thread: feed MP3 chunks from edge-tts into the StreamableSource
+    async def _async_feed():
+        communicate = edge_tts.Communicate(text, voice_id, rate=rate)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                source.feed(chunk["data"])
+
+    def _feeder():
+        try:
+            asyncio.run(_async_feed())
+        except Exception as exc:
+            logger.error("Edge TTS feeder error: %s", exc, exc_info=True)
+        finally:
+            source.done()
+
+    feeder_thread = threading.Thread(target=_feeder, daemon=True, name="edge-tts-feed")
+    feeder_thread.start()
+
+    # Main thread: decode MP3 stream via miniaudio and play via sounddevice
+    import sounddevice as sd
+    stream = None
+    try:
+        decoded_gen = miniaudio.stream_any(
+            source,
+            source_format=miniaudio.FileFormat.MP3,
+            output_format=miniaudio.SampleFormat.FLOAT32,
+            nchannels=1,
+            sample_rate=24000,
+        )
+
+        for chunk in decoded_gen:
+            if stream is None:
+                stream = sd.RawOutputStream(
+                    samplerate=24000,
+                    channels=1,
+                    dtype='float32',
+                    device=device_index,
+                )
+                stream.start()
+            stream.write(chunk.tobytes())
+
+        if stream is not None:
+            stream.stop()
+            stream.close()
+        feeder_thread.join(timeout=2.0)
+        return True
+
+    except Exception as exc:
+        logger.error("Edge TTS stream play error: %s", exc, exc_info=True)
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                pass
+        return False

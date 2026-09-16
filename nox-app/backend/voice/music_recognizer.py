@@ -1,8 +1,7 @@
 """Music recognition via PC audio capture + Shazam (shazamio).
 
-Captures system audio output (what the user hears) using:
-- Windows: sounddevice with WASAPI virtual input devices (Voicemeeter, VB-Cable)
-- Linux:   parec (PulseAudio) or pw-record (PipeWire) subprocess for monitor source
+Captures system audio output (what the user hears) on Windows using
+sounddevice with WASAPI virtual input devices (Voicemeeter, VB-Cable).
 
 Then sends a short clip to Shazam's reverse-engineered API (via shazamio)
 to identify the currently playing song.
@@ -12,13 +11,12 @@ Shazam is free and unlimited — no API token required.
 
 import io
 import logging
-import subprocess
 import tempfile
 import os
 import wave
 from typing import Any, Optional
 
-from platform_utils import IS_WINDOWS, IS_LINUX, is_command_available
+from platform_utils import IS_WINDOWS
 
 logger = logging.getLogger("nox.voice.music")
 
@@ -119,8 +117,6 @@ def _capture_audio(duration_seconds: float = RECORD_SECONDS,
     """
     if IS_WINDOWS:
         return _capture_audio_windows(duration_seconds, output_device)
-    elif IS_LINUX:
-        return _capture_audio_linux(duration_seconds, output_device)
     return None
 
 
@@ -180,96 +176,6 @@ def _capture_audio_windows(duration_seconds: float = RECORD_SECONDS,
         return None
 
 
-def _find_linux_monitor_source() -> Optional[str]:
-    """Find a PulseAudio/PipeWire monitor source for system audio capture."""
-    # Try pactl first (works with both PulseAudio and PipeWire-Pulse)
-    if is_command_available("pactl"):
-        try:
-            result = subprocess.run(
-                ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split("\n"):
-                    parts = line.split("\t")
-                    if len(parts) >= 2 and ".monitor" in parts[1]:
-                        logger.info("Found monitor source: %s", parts[1])
-                        return parts[1]
-        except Exception as exc:
-            logger.debug("pactl source detection failed: %s", exc)
-    return None
-
-
-def _capture_audio_linux(duration_seconds: float = RECORD_SECONDS,
-                         output_device: Optional[str] = None) -> Optional[bytes]:
-    """Capture system audio on Linux via parec (PulseAudio) or pw-record (PipeWire)."""
-    monitor_source = _find_linux_monitor_source()
-    if not monitor_source:
-        logger.error("No PulseAudio/PipeWire monitor source found for audio capture")
-        return None
-
-    tmp_path = None
-    try:
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        tmp.close()
-        tmp_path = tmp.name
-
-        # Use parec to capture from monitor source
-        if is_command_available("parec"):
-            cmd = [
-                "parec",
-                "--format=s16le",
-                "--rate=48000",
-                "--channels=1",
-                f"--device={monitor_source}",
-                "--file-format=wav",
-                tmp_path,
-            ]
-        elif is_command_available("pw-record"):
-            cmd = [
-                "pw-record",
-                "--rate=48000",
-                "--channels=1",
-                "--format=s16",
-                f"--target={monitor_source}",
-                tmp_path,
-            ]
-        else:
-            logger.error("Neither parec nor pw-record available for audio capture")
-            return None
-
-        logger.info("Recording %ss of audio from: %s", duration_seconds, monitor_source)
-        proc = subprocess.run(cmd, timeout=duration_seconds + 5, capture_output=True)
-
-        if proc.returncode != 0 and not os.path.exists(tmp_path):
-            logger.error("Audio capture command failed: %s", proc.stderr.decode() if proc.stderr else "unknown")
-            return None
-
-        # Read the WAV file
-        with open(tmp_path, "rb") as f:
-            wav_bytes = f.read()
-
-        if len(wav_bytes) < 100:
-            logger.error("Captured audio file is too small")
-            return None
-
-        logger.info("Captured %d bytes of WAV audio", len(wav_bytes))
-        return wav_bytes
-
-    except subprocess.TimeoutExpired:
-        logger.error("Audio capture timed out")
-        return None
-    except Exception as exc:
-        logger.error("Linux audio capture failed: %s", exc, exc_info=True)
-        return None
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-
 def recognize_song(output_device: Optional[str] = None,
                    duration: float = RECORD_SECONDS) -> dict[str, Any]:
     """Recognize the currently playing song from system audio.
@@ -288,9 +194,6 @@ def recognize_song(output_device: Optional[str] = None,
         return {"error": "Konnte kein System-Audio aufnehmen. Ist ein Audio-Ausgabegerät aktiv?"}
 
     # Write WAV to a temp file (shazamio needs a file path)
-    import tempfile
-    import os
-
     tmp_path = None
     try:
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)

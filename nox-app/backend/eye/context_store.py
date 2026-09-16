@@ -8,13 +8,12 @@ Stores context entries in a SQLite database with:
 """
 
 import logging
-import os
 import sqlite3
 import threading
-import time
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Optional
+
+from platform_utils import get_data_dir
 
 logger = logging.getLogger("nox.eye.store")
 
@@ -25,7 +24,12 @@ try:
 except ImportError:
     _ST_AVAILABLE = False
 
-import numpy as np
+try:
+    import numpy as np
+    _NP_AVAILABLE = True
+except ImportError:
+    _NP_AVAILABLE = False
+    np = None
 
 
 SCHEMA_SQL = """
@@ -81,7 +85,7 @@ class ContextStore:
         if db_path:
             self.db_path = db_path
         else:
-            data_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Nox" / "data"
+            data_dir = get_data_dir()
             data_dir.mkdir(parents=True, exist_ok=True)
             self.db_path = str(data_dir / "nox.db")
 
@@ -109,7 +113,6 @@ class ContextStore:
             logger.warning("sentence-transformers not installed – semantic search disabled")
             return
         logger.info("Loading embedding model (CPU): %s", self.embedding_model_name)
-        import torch
         self._embedder = SentenceTransformer(
             self.embedding_model_name,
             device="cpu",  # Force CPU to save VRAM for the LLM

@@ -9,6 +9,7 @@ const {
   ipcMain,
   net,
   shell,
+  dialog,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -368,6 +369,7 @@ function toggleWindow() {
 // ---------------------------------------------------------------------------
 
 let themePreference = "system"; // "system" | "dark" | "light"
+let skinPreference = "aurora"; // "aurora" | "ocean" | "sunset" | "forest" | "mono"
 
 function applyThemePreference(pref) {
   themePreference = pref || "system";
@@ -381,11 +383,18 @@ function applyThemePreference(pref) {
   sendTheme();
 }
 
+function applySkinPreference(pref) {
+  skinPreference = pref || "aurora";
+  sendTheme();
+}
+
 function sendTheme() {
   const isDark = themePreference === "dark" || (themePreference === "system" && nativeTheme.shouldUseDarkColors);
   const theme = isDark ? "dark" : "light";
   if (mainWindow) mainWindow.webContents.send("theme-changed", theme);
   if (overlayWindow) overlayWindow.webContents.send("theme-changed", theme);
+  if (mainWindow) mainWindow.webContents.send("skin-changed", skinPreference);
+  if (overlayWindow) overlayWindow.webContents.send("skin-changed", skinPreference);
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +500,7 @@ function spawnDevBackend() {
     "--host", "127.0.0.1",
     "--port", "8420",
     "--app-dir", backendDir,
+    "--reload",
   ], {
     cwd: backendDir,
     stdio: ["ignore", "pipe", "pipe"],
@@ -522,26 +532,8 @@ function spawnDevBackend() {
 function spawnBackend() {
   // Production: use embedded Python backend from extraResources
   const backendDir = path.join(process.resourcesPath, "backend");
-  const isWin = process.platform === "win32";
-  const isLinux = process.platform === "linux";
-  // Linux: check venv first, then embedded, then system python3
-  // Windows: embedded Python
-  let pythonExe;
-  if (isLinux) {
-    const venvPython = path.join(backendDir, ".venv", "bin", "python3");
-    const optVenvPython = "/opt/Nox/backend/.venv/bin/python3";
-    if (fs.existsSync(venvPython)) {
-      pythonExe = venvPython;
-    } else if (fs.existsSync(optVenvPython)) {
-      pythonExe = optVenvPython;
-    } else {
-      pythonExe = path.join(backendDir, "python", "bin", "python3");
-    }
-  } else {
-    pythonExe = path.join(backendDir, "python", "python.exe");
-  }
+  const pythonExe = path.join(backendDir, "python", "python.exe");
   const launcherBat = path.join(backendDir, "nox-backend.bat");
-  const launcherSh = path.join(backendDir, "nox-backend.sh");
   const appDir = path.join(backendDir, "app");
 
   console.log(`Starting backend (attempt ${backendRestartCount + 1}) from:`, backendDir);
@@ -572,45 +564,12 @@ function spawnBackend() {
       windowsHide: true,
       env,
     });
-  } else if (isWin && fs.existsSync(launcherBat)) {
+  } else if (fs.existsSync(launcherBat)) {
     // Fallback: launcher.bat (Windows)
     backendProcess = spawn("cmd.exe", ["/c", launcherBat], {
       cwd: backendDir,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-    });
-  } else if (isLinux && fs.existsSync(launcherSh)) {
-    // Fallback: launcher.sh (Linux)
-    backendProcess = spawn("bash", [launcherSh], {
-      cwd: backendDir,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } else if (isLinux) {
-    // Linux fallback — check venv first, then system python3
-    const sysBackendDir = fs.existsSync("/opt/Nox/backend") ? "/opt/Nox/backend" : backendDir;
-    const sysAppDir = sysBackendDir;
-    const sysModelsDir = path.join(sysBackendDir, "..", "models");
-    const venvPython = path.join(sysBackendDir, ".venv", "bin", "python3");
-    const sysPython = fs.existsSync(venvPython) ? venvPython : "python3";
-    const env = {
-      ...process.env,
-      PYTHONPATH: sysAppDir,
-      NOX_MODELS_DIR: sysModelsDir,
-      APPUSERMODELID: "com.nox.assistant",
-    };
-    console.log("Trying python from:", sysBackendDir, "exe:", sysPython);
-    const isDevLinux = !app.isPackaged;
-    const uvicornArgsLinux = [
-      "-m", "uvicorn", "main:app",
-      "--host", "127.0.0.1",
-      "--port", "8420",
-      "--app-dir", sysAppDir,
-    ];
-    if (isDevLinux) uvicornArgsLinux.push("--reload");
-    backendProcess = spawn(sysPython, uvicornArgsLinux, {
-      cwd: sysAppDir,
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
     });
   } else {
     console.error("No backend found at", backendDir);
@@ -659,14 +618,10 @@ function stopBackend() {
     console.log("Stopping backend process...");
     // On Windows, kill the process tree (child processes of python.exe)
     try {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", backendProcess.pid, "/f", "/t"], {
-          windowsHide: true,
-          stdio: "ignore",
-        });
-      } else {
-        backendProcess.kill();
-      }
+      spawn("taskkill", ["/pid", backendProcess.pid, "/f", "/t"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
     } catch (err) {
       console.error("Failed to kill backend:", err);
       try { backendProcess.kill(); } catch {}
@@ -799,46 +754,23 @@ function checkDepsInstalled() {
 function startBootstrapServer() {
   if (!app.isPackaged) return;
   const backendDir = path.join(process.resourcesPath, "backend");
-  const isWin = process.platform === "win32";
-  const isLinux = process.platform === "linux";
-  const pythonExe = isWin
-    ? path.join(backendDir, "python", "python.exe")
-    : path.join(backendDir, "python", "bin", "python3");
+  const pythonExe = path.join(backendDir, "python", "python.exe");
   const appDir = path.join(backendDir, "app");
   const bootstrapScript = path.join(appDir, "bootstrap_server.py");
 
-  // On Linux, try system python3 if embedded Python not found
-  let usePython = pythonExe;
-  let useAppDir = appDir;
-  let useCwd = appDir;
-
-  if (isLinux && !fs.existsSync(pythonExe)) {
-    // Try /opt/Nox/backend (deb install) or backendDir directly
-    if (fs.existsSync("/opt/Nox/backend/bootstrap_server.py")) {
-      usePython = "python3";
-      useAppDir = "/opt/Nox/backend";
-      useCwd = "/opt/Nox/backend";
-    } else if (fs.existsSync(path.join(backendDir, "bootstrap_server.py"))) {
-      usePython = "python3";
-      useAppDir = backendDir;
-      useCwd = backendDir;
-    } else {
-      console.error("Bootstrap: bootstrap_server.py not found");
-      return;
-    }
-  } else if (!fs.existsSync(pythonExe) || !fs.existsSync(bootstrapScript)) {
+  if (!fs.existsSync(pythonExe) || !fs.existsSync(bootstrapScript)) {
     console.error("Bootstrap: python or bootstrap_server.py not found", pythonExe);
     return;
   }
 
   console.log("Starting bootstrap server for dependency installation...");
-  bootstrapProcess = spawn(usePython, [path.join(useAppDir, "bootstrap_server.py")], {
-    cwd: useCwd,
+  bootstrapProcess = spawn(pythonExe, [bootstrapScript], {
+    cwd: appDir,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     env: {
       ...process.env,
-      PYTHONPATH: useAppDir,
+      PYTHONPATH: appDir,
       APPUSERMODELID: "com.nox.assistant",
     },
   });
@@ -855,13 +787,9 @@ function stopBootstrapServer() {
   if (bootstrapProcess) {
     console.log("Stopping bootstrap server...");
     try {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", bootstrapProcess.pid, "/f", "/t"], {
-          windowsHide: true, stdio: "ignore",
-        });
-      } else {
-        bootstrapProcess.kill();
-      }
+      spawn("taskkill", ["/pid", bootstrapProcess.pid, "/f", "/t"], {
+        windowsHide: true, stdio: "ignore",
+      });
     } catch {}
     bootstrapProcess = null;
   }
@@ -909,6 +837,9 @@ app.whenReady().then(async () => {
     const data = await res.json();
     if (data.ui_theme) {
       applyThemePreference(data.ui_theme);
+    }
+    if (data.ui_skin) {
+      applySkinPreference(data.ui_skin);
     }
   } catch (err) {
     // Backend might not be ready yet — default to system
@@ -1004,6 +935,10 @@ app.whenReady().then(async () => {
     console.log("Theme preference:", pref);
     applyThemePreference(pref);
   });
+  ipcMain.on("set-skin-preference", (_e, pref) => {
+    console.log("Skin preference:", pref);
+    applySkinPreference(pref);
+  });
   ipcMain.on("update-hotkey", (_, newHotkey) => {
     if (!newHotkey) return;
     globalShortcut.unregisterAll();
@@ -1018,6 +953,16 @@ app.whenReady().then(async () => {
   // --- Update IPC handlers ---
   ipcMain.handle("update:check", async () => {
     return await checkForUpdates();
+  });
+
+  // --- Folder picker ---
+  ipcMain.handle("dialog:select-folder", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Speicherort für KI-Modelle wählen",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    return result.filePaths[0];
   });
 
   ipcMain.handle("update:download-and-install", async (event) => {

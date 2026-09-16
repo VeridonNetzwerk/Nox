@@ -26,7 +26,7 @@ from .vad import VADRecorder
 from .stt import STTEngine
 from .tts import TTSEngine
 from .sound_effects import play_wake_sound, play_end_sound
-from .tts_edge import _EDGE_AVAILABLE, edge_tts_to_wav, EDGE_VOICES_BY_LANG
+from .tts_edge import _EDGE_AVAILABLE, _MINIAUDIO_AVAILABLE, edge_tts_to_wav, edge_tts_stream_play, EDGE_VOICES_BY_LANG
 from .tts_kokoro import is_kokoro_available, kokoro_to_wav, get_kokoro_lang_code, KOKORO_VOICES
 from .voice_catalog import get_default_voice, get_default_male_voice
 
@@ -129,6 +129,7 @@ class VoiceManager:
         # Multi-engine TTS settings
         self.tts_engine = config.get("tts_engine", "piper")
         self.tts_voice_id = config.get("tts_voice_id", "")
+        self.tts_edge_rate = config.get("tts_edge_rate", "+20%")
         # If tts_engine is edge/kokoro, tts_model holds the voice_id for that engine
         if self.tts_engine in ("edge", "kokoro") and config.get("tts_model"):
             self.tts_voice_id = config["tts_model"]
@@ -618,16 +619,29 @@ class VoiceManager:
         # No default for detected language — keep current
         return engine, voice_id
 
-    def _speak_edge(self, text: str, voice_id: str = None) -> None:
-        """Synthesize via Edge TTS and play via sounddevice."""
+    def _speak_edge(self, text: str, voice_id: Optional[str] = None) -> None:
+        """Synthesize via Edge TTS and play via sounddevice.
+
+        Uses streaming playback (miniaudio) when available for minimal latency.
+        Falls back to batch WAV generation otherwise.
+        """
         if not _EDGE_AVAILABLE or not text.strip():
             return
         vid = voice_id or self.tts_voice_id
         with self.tts._lock:
+            self.tts._resolve_device()
+            device_index = self.tts._device_index
+            if _MINIAUDIO_AVAILABLE:
+                ok = edge_tts_stream_play(vid, text, rate=self.tts_edge_rate,
+                                          device_index=device_index)
+                if ok:
+                    return
+                logger.warning("Edge TTS streaming failed, falling back to batch mode")
             try:
                 loop = asyncio.new_event_loop()
                 try:
-                    wav_bytes = loop.run_until_complete(edge_tts_to_wav(vid, text))
+                    wav_bytes = loop.run_until_complete(
+                        edge_tts_to_wav(vid, text, rate=self.tts_edge_rate))
                 finally:
                     loop.close()
                 if wav_bytes:
@@ -635,7 +649,7 @@ class VoiceManager:
             except Exception as exc:
                 logger.error("Edge TTS speak error: %s", exc, exc_info=True)
 
-    def _speak_kokoro(self, text: str, voice_id: str = None) -> None:
+    def _speak_kokoro(self, text: str, voice_id: Optional[str] = None) -> None:
         """Synthesize via Kokoro TTS and play via sounddevice."""
         if not is_kokoro_available() or not text.strip():
             return

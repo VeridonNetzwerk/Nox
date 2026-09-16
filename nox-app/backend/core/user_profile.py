@@ -131,7 +131,10 @@ class UserProfile:
         # 2. Language from system locale
         try:
             import locale
-            lang = locale.getdefaultlocale()[0] or ""
+            try:
+                lang = locale.getlocale()[0] or ""
+            except Exception:
+                lang = locale.getdefaultlocale()[0] or ""
             if lang and not self.get("language"):
                 detected["language"] = lang.split("_")[0].lower()
         except Exception:

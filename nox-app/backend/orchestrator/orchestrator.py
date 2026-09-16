@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from typing import Any, AsyncIterator, Callable, Optional
 
@@ -43,10 +44,14 @@ class SentenceBuffer:
         while True:
             # Find next sentence-ending punctuation followed by whitespace
             idx = -1
-            for i, ch in enumerate(buf):
-                if ch in self._SENTENCE_ENDS and i + 1 < len(buf) and buf[i + 1].isspace():
-                    idx = i + 2  # include the whitespace
-                    break
+            for ch in self._SENTENCE_ENDS:
+                pos = buf.find(ch)
+                while pos != -1:
+                    if pos + 1 < len(buf) and buf[pos + 1].isspace():
+                        if idx == -1 or pos < idx:
+                            idx = pos + 2  # include the whitespace
+                        break
+                    pos = buf.find(ch, pos + 1)
             if idx == -1:
                 break
             sentence = buf[:idx].strip()
@@ -261,6 +266,8 @@ class Orchestrator:
 
         # LLM backend (set later via set_backend)
         self.backend: Optional[LLMBackend] = None
+        self._backend_healthy = True
+        self._last_health_check = 0.0
 
         # Conversation store (shared nox.db)
         self.conversation_store = ConversationStore(
@@ -297,6 +304,18 @@ class Orchestrator:
 
         # Lock to ensure only one process_message runs at a time per orchestrator
         self._processing_lock = asyncio.Lock()
+        # Generation counter: incremented when lock is force-released (abort or
+        # preemption). The task that acquired the lock captures the generation
+        # and only releases the lock in its finally block if the generation
+        # hasn't changed — otherwise the lock belongs to a newer task.
+        self._lock_generation = 0
+
+        # Retry config for transient LLM errors
+        self._max_retries = 3
+        self._retry_base_delay = 1.0  # seconds
+
+        # Idle unload config — unload model from VRAM after this many seconds idle
+        self._idle_unload_seconds = config.get("llm_idle_unload_seconds", 300)  # 5 min default
 
     @property
     def conversation_id(self) -> str:
@@ -366,7 +385,16 @@ class Orchestrator:
     def abort(self) -> None:
         """Abort the current process_message if one is running."""
         self._aborted = True
-        logger.info("Orchestrator: abort requested")
+        # Force-release the lock so the user can send a new message immediately.
+        # Increment generation so the old task's finally block won't release
+        # the new task's lock.
+        self._lock_generation += 1
+        if self._processing_lock.locked():
+            try:
+                self._processing_lock.release()
+            except RuntimeError:
+                pass
+        logger.info("Orchestrator: abort requested — lock force-released (gen=%d)", self._lock_generation)
 
     async def process_message(
         self,
@@ -385,16 +413,36 @@ class Orchestrator:
         5. Persist turns
         """
         # Acquire lock — only one message at a time per conversation
+        my_lock_gen = self._lock_generation
         try:
             await asyncio.wait_for(self._processing_lock.acquire(), timeout=0)
         except asyncio.TimeoutError:
-            logger.warning("process_message called while another is running — rejecting")
-            if send:
-                await send({"type": "error", "content": "Es läuft bereits eine Anfrage. Bitte warte, bis sie fertig ist, oder stoppe sie."})
-                await send({"type": "done"})
-            return
+            # The lock is held by a previous request. With the Nox engine (llama_cpp),
+            # model loading can take minutes with no visible feedback, so the user
+            # thinks nothing is running. Force-release the lock and abort the old
+            # request so the new message can proceed.
+            logger.warning("process_message: lock held — force-releasing (previous request likely stuck in model loading)")
+            self._aborted = True
+            self._lock_generation += 1
+            my_lock_gen = self._lock_generation
+            if self._processing_lock.locked():
+                try:
+                    self._processing_lock.release()
+                except RuntimeError:
+                    pass
+            # Re-acquire the lock for this new request
+            await self._processing_lock.acquire()
 
         try:
+            # Pre-flight: check backend health and try to recover if needed
+            if self.backend is not None and not self._backend_healthy:
+                recovered = await self.check_backend_health()
+                if not recovered:
+                    if send:
+                        await send({"type": "error", "content": "Das KI-Backend ist nicht erreichbar. Versuche es erneut in ein paar Sekunden."})
+                        await send({"type": "done"})
+                    return
+
             # Proactive context: inject active window title + screen content
             context = context_override or ""
             screen_content_read = False  # Track if we proactively read screen content
@@ -507,6 +555,9 @@ class Orchestrator:
             # (the user is watching something, not asking about music)
             self._screen_context_active = screen_content_read
 
+            # Check tool support early — needed for system prompt construction
+            use_native_tools = await self._check_tools_support()
+
             # 2. Build system prompt
             voice_personality = None
             if voice_input and self.voice_manager:
@@ -514,14 +565,19 @@ class Orchestrator:
                     voice_personality = self.voice_manager.get_voice_personality()
                 except Exception:
                     pass
+            # When screen content was read, don't put it in the system prompt —
+            # it's injected as a separate system message before the user message
+            # (lines below) for better small-model attention. Putting it in both
+            # places doubles the token cost.
             system_prompt = build_system_prompt(
                 voice_mode=voice_input,
                 tools_enabled=True,
-                context=context or "",
+                context=context or "" if not screen_content_read else "",
                 voice_personality=voice_personality,
+                native_tools=use_native_tools,
             )
             if screen_content_read:
-                logger.info("System prompt context (screen read): %s", context[:500])
+                logger.info("Screen context will be injected as separate message: %s", context[:500])
 
             # 3. Build messages (system + summary + history + new message)
             messages = self.conversation_store.build_messages(
@@ -569,8 +625,13 @@ class Orchestrator:
             tool_executed = False
             response_stats = None
             card_only_tool = False  # If set, suppress text message and send card_text in done
+            stream_started = time.monotonic()
+            stream_token_count = 0
 
-            use_native_tools = await self._check_tools_support()
+            # Notify UI if the backend needs to load a model (llama_cpp can take 30-60+ seconds)
+            if self.backend is not None and self.backend.backend_type == "llama_cpp":
+                if not hasattr(self.backend, '_llm') or self.backend._llm is None:
+                    await _send({"type": "status", "content": "Modell wird geladen…"})
 
             try:
                 async for item in self._stream_llm(messages, use_tools=use_native_tools, think_override=think_override):
@@ -628,12 +689,17 @@ class Orchestrator:
 
                     token = item
                     full_response += token
+                    stream_token_count += 1
 
                     if self._aborted:
                         break
 
                     # Check for tool calls in fallback mode (text-based)
-                    tool_match = self.tool_handler.parse_fallback(full_response)
+                    # Fast string check before expensive regex — only run regex when [TOOL marker is present
+                    if "[TOOL" in full_response and not tool_executed:
+                        tool_match = self.tool_handler.parse_fallback(full_response)
+                    else:
+                        tool_match = None
                     if tool_match and not tool_executed:
                         tool_name, tool_params = tool_match
                         if self.tool_handler.has_tool(tool_name):
@@ -695,6 +761,19 @@ class Orchestrator:
                 # Strip tool markers from final response for storage
                 clean_response = self.tool_handler.strip_tool_marker(full_response) if tool_executed else full_response
 
+                # Fallback stats: synthesize from measured timing if backend sent none
+                # (many OpenAI-compatible servers omit usage without stream_options)
+                if response_stats is None:
+                    elapsed_ns = int((time.monotonic() - stream_started) * 1e9)
+                    response_stats = {
+                        "prompt_eval_count": 0,
+                        "eval_count": stream_token_count,
+                        "total_duration_ns": elapsed_ns,
+                        "prompt_eval_duration_ns": 0,
+                        "eval_duration_ns": elapsed_ns,
+                        "load_duration_ns": 0,
+                    }
+
                 # 6. Persist assistant turn
                 stats_json = json.dumps(response_stats) if response_stats else ""
                 self.conversation_store.add_turn(
@@ -725,14 +804,15 @@ class Orchestrator:
                     logger.info("Response complete: len=%d", len(clean_response))
 
             except httpx.ConnectError:
-                logger.error("LLM backend not reachable")
+                logger.error("LLM backend not reachable after retries")
+                self._backend_healthy = False
                 await _send({
                     "type": "error",
-                    "content": f"Das KI-Backend ist nicht erreichbar. Bitte starte Ollama, LM Studio oder einen anderen OpenAI-kompatiblen Server.",
+                    "content": "Das KI-Backend ist nicht erreichbar. Bitte starte Ollama, LM Studio oder einen anderen OpenAI-kompatiblen Server und versuche es erneut.",
                 })
                 await _send({"type": "done"})
             except httpx.ReadTimeout:
-                logger.error("LLM backend read timeout — model may be loading or stuck")
+                logger.error("LLM backend read timeout after retries — model may be loading or stuck")
                 await _send({
                     "type": "error",
                     "content": "Die KI hat zu lange gebraucht um zu antworten. Möglicherweise wird das Modell gerade geladen. Bitte erneut versuchen.",
@@ -740,6 +820,9 @@ class Orchestrator:
                 await _send({"type": "done"})
             except httpx.HTTPStatusError as exc:
                 logger.error("LLM backend HTTP error: %s", exc)
+                # Mark unhealthy on 5xx errors
+                if exc.response and exc.response.status_code >= 500:
+                    self._backend_healthy = False
                 user_msg = self._format_backend_error(exc)
                 await _send({"type": "error", "content": user_msg})
                 await _send({"type": "done"})
@@ -748,7 +831,11 @@ class Orchestrator:
                 await _send({"type": "error", "content": f"Fehler: {exc}"})
                 await _send({"type": "done"})
         finally:
-            self._processing_lock.release()
+            if self._lock_generation == my_lock_gen:
+                try:
+                    self._processing_lock.release()
+                except RuntimeError:
+                    pass  # Lock already released by abort()
 
     def _format_backend_error(self, exc: httpx.HTTPStatusError) -> str:
         """Format an LLM backend HTTP error into a user-friendly German message."""
@@ -796,31 +883,145 @@ class Orchestrator:
         think_override: Optional[bool] = None,
         response_format: Optional[dict[str, Any]] = None,
     ) -> AsyncIterator[Any]:
-        """Stream tokens from the LLM backend.
+        """Stream tokens from the LLM backend with retry and context reduction.
 
         Yields str tokens, or dicts with 'tool_calls', 'thinking', or 'stats' keys.
+
+        Retry logic:
+        - Transient errors (connection, timeout): exponential backoff retry
+        - Context-too-long: automatically reduce context and retry
+        - Permanent errors: raise immediately
         """
         if self.backend is None:
             raise httpx.ConnectError("No LLM backend available")
+
         tools = self.tool_handler.get_tools() if use_tools else None
-        # If we proactively read screen content, remove musik_erkennen and bildschirm_ansehen
-        # from the tool list — the user is watching something, not asking about music,
-        # and we already have the screen content
         if tools and self._screen_context_active:
             tools = [t for t in tools if t.get("function", {}).get("name") not in ("musik_erkennen", "bildschirm_ansehen")]
             logger.info("Screen context active — filtered tools: %d remaining", len(tools))
+
         think = self.config.get("ollama_think", False) if think_override is None else think_override
-        # Keep model loaded in VRAM (auto mode manages unloading via VRAM monitor)
         keep_alive = -1 if self.config.get("ollama_vram_mode", "auto") == "auto" else None
-        async for item in self.backend.stream_chat(
-            messages=messages,
-            tools=tools,
-            think=think,
-            num_ctx=self.max_context_tokens,
-            keep_alive=keep_alive,
-            response_format=response_format,
-        ):
-            yield item
+
+        current_messages = messages
+        current_ctx = self.max_context_tokens
+        last_error = None
+
+        for attempt in range(self._max_retries):
+            try:
+                async for item in self.backend.stream_chat(
+                    messages=current_messages,
+                    tools=tools,
+                    think=think,
+                    num_ctx=current_ctx,
+                    keep_alive=keep_alive,
+                    response_format=response_format,
+                ):
+                    yield item
+                # Success — mark healthy and return
+                self._backend_healthy = True
+                return
+
+            except httpx.ConnectError as exc:
+                last_error = exc
+                self._backend_healthy = False
+                logger.warning("LLM connect error (attempt %d/%d): %s", attempt + 1, self._max_retries, exc)
+                if attempt < self._max_retries - 1:
+                    delay = self._retry_base_delay * (2 ** attempt)
+                    logger.info("Retrying in %.1fs...", delay)
+                    await asyncio.sleep(delay)
+                    # Try to re-init backend on connection failure
+                    if attempt == 1:
+                        logger.info("Attempting backend re-initialization...")
+                        try:
+                            new_backend = await create_backend(self.config)
+                            if new_backend:
+                                self.set_backend(new_backend)
+                                logger.info("Backend re-initialized successfully")
+                        except Exception as re_exc:
+                            logger.warning("Backend re-init failed: %s", re_exc)
+                continue
+
+            except httpx.ReadTimeout as exc:
+                last_error = exc
+                logger.warning("LLM read timeout (attempt %d/%d): %s", attempt + 1, self._max_retries, exc)
+                if attempt < self._max_retries - 1:
+                    delay = self._retry_base_delay * (2 ** attempt)
+                    logger.info("Retrying in %.1fs...", delay)
+                    await asyncio.sleep(delay)
+                continue
+
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response else 0
+                err_body = ""
+                if exc.response:
+                    try:
+                        err_body = exc.response.json().get("error", "")
+                    except Exception:
+                        err_body = str(exc.response.content[:200])
+
+                # Context too long — reduce context and retry
+                err_lower = err_body.lower()
+                if status in (400, 413) or "context" in err_lower or "too long" in err_lower or "maximum" in err_lower:
+                    if len(current_messages) > 3:
+                        logger.warning("Context too long (attempt %d) — reducing from %d messages", attempt + 1, len(current_messages))
+                        # Drop oldest conversation turns (keep system + last 2 turns)
+                        system_msgs = [m for m in current_messages if m.get("role") == "system"]
+                        non_system = [m for m in current_messages if m.get("role") != "system"]
+                        if len(non_system) > 2:
+                            non_system = non_system[-2:]
+                        current_messages = system_msgs + non_system
+                        current_ctx = max(2048, current_ctx // 2)
+                        logger.info("Reduced to %d messages, ctx=%d", len(current_messages), current_ctx)
+                        continue
+                    # Already minimal — reduce ctx further
+                    if current_ctx > 1024:
+                        current_ctx = current_ctx // 2
+                        logger.info("Reduced ctx to %d", current_ctx)
+                        continue
+
+                # VRAM/OOM — try to unload and retry with smaller context
+                if status == 500 and ("memory" in err_lower or "vram" in err_lower or "ram" in err_lower):
+                    logger.warning("VRAM/OOM error — attempting recovery")
+                    if hasattr(self.backend, "unload_model"):
+                        try:
+                            self.backend.unload_model()
+                        except Exception:
+                            pass
+                    if current_ctx > 2048:
+                        current_ctx = current_ctx // 2
+                        logger.info("Reduced ctx to %d after OOM", current_ctx)
+                        await asyncio.sleep(2.0)
+                        continue
+
+                # Other HTTP errors — raise immediately
+                raise
+
+            except (ValueError, RuntimeError) as exc:
+                # llama-cpp-python raises ValueError for context-too-long:
+                # "Requested tokens (N) exceed context window of M"
+                err_str = str(exc).lower()
+                if "context" in err_str or "exceed" in err_str or "too long" in err_str:
+                    logger.warning("Context too long (llama_cpp, attempt %d): %s", attempt + 1, exc)
+                    if len(current_messages) > 3:
+                        system_msgs = [m for m in current_messages if m.get("role") == "system"]
+                        non_system = [m for m in current_messages if m.get("role") != "system"]
+                        if len(non_system) > 2:
+                            non_system = non_system[-2:]
+                        current_messages = system_msgs + non_system
+                        current_ctx = max(2048, current_ctx // 2)
+                        logger.info("Reduced to %d messages, ctx=%d", len(current_messages), current_ctx)
+                        continue
+                    if current_ctx > 1024:
+                        current_ctx = current_ctx // 2
+                        logger.info("Reduced ctx to %d", current_ctx)
+                        continue
+                # Re-raise non-context errors
+                raise
+
+        # All retries exhausted
+        if last_error:
+            raise last_error
 
     async def get_available_models(self) -> list[str]:
         """Fetch available models from the current backend."""
@@ -855,3 +1056,69 @@ class Orchestrator:
                 if client is not None and not client.is_closed:
                     await client.aclose()
         logger.info("Orchestrator closed")
+
+    async def check_backend_health(self) -> bool:
+        """Check if the LLM backend is healthy and try to recover if not.
+
+        Returns True if backend is healthy (or was recovered), False if not.
+        """
+        if self.backend is None:
+            return False
+
+        # Throttle health checks to once per 30s
+        import time as _time
+        now = _time.monotonic()
+        if now - self._last_health_check < 30.0 and self._backend_healthy:
+            return True
+        self._last_health_check = now
+
+        try:
+            if hasattr(self.backend, 'check_available'):
+                healthy = await self.backend.check_available()
+            else:
+                healthy = self.backend.available
+            self._backend_healthy = healthy
+
+            if not healthy:
+                logger.warning("Backend health check failed — attempting re-init")
+                try:
+                    new_backend = await create_backend(self.config)
+                    if new_backend:
+                        self.set_backend(new_backend)
+                        self._backend_healthy = True
+                        logger.info("Backend recovered via re-init")
+                        return True
+                except Exception as exc:
+                    logger.error("Backend re-init failed: %s", exc)
+            return self._backend_healthy
+        except Exception as exc:
+            logger.error("Health check error: %s", exc)
+            self._backend_healthy = False
+            return False
+
+    async def unload_if_idle(self) -> bool:
+        """Unload the model from VRAM if it's been idle longer than the threshold.
+
+        Returns True if model was unloaded, False otherwise.
+        """
+        if self.backend is None:
+            return False
+
+        # Only unload for llama_cpp backend (Ollama manages its own VRAM)
+        if self.backend.backend_type != "llama_cpp":
+            return False
+
+        if not hasattr(self.backend, '_last_activity') or not hasattr(self.backend, 'unload_model'):
+            return False
+
+        import time as _time
+        idle_time = _time.monotonic() - self.backend._last_activity
+
+        if idle_time > self._idle_unload_seconds and self.backend._llm is not None:
+            logger.info("Unloading model after %.0fs idle (threshold: %ds)", idle_time, self._idle_unload_seconds)
+            try:
+                self.backend.unload_model()
+                return True
+            except Exception as exc:
+                logger.warning("Idle unload failed: %s", exc)
+        return False

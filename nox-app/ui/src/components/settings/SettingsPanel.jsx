@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import noxLogo from "../../assets/nox-logo.png";
+import NoxAvatar from "../common/NoxAvatar.jsx";
 import { useToast } from "../common/Toast.jsx";
 import VoiceSelection from "./VoiceSelection.jsx";
+import ModelCatalog from "./ModelCatalog.jsx";
 import { API_BASE, FlagIcon, LanguageDropdown } from "../../shared/constants.jsx";
 import { IconGear, IconRobot, IconMicrophone, IconEye, IconFolder, IconInfo, IconWarning, IconCheck, IconX, IconSearch, IconPlus, IconArrowRight, IconArrowLeft, IconSpeaker, IconSpinner } from "../../shared/Icon.jsx";
-import { prettyModelName, prettyVoiceName } from "../../shared/prettyNames.jsx";
+import { prettyModelName, parseModelBadge, prettyVoiceName } from "../../shared/prettyNames.jsx";
 
 function Toggle({ checked, onChange, disabled }) {
   return (
@@ -26,9 +27,9 @@ function Toggle({ checked, onChange, disabled }) {
 
 function Section({ icon, label, children }) {
   return (
-    <div className="rounded-xl border border-nox-border bg-nox-surface/20 p-4">
+    <div className="rounded-xl border border-nox-border bg-nox-surface/30 backdrop-blur-sm p-4">
       <div className="flex items-center gap-2.5 mb-3">
-        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-nox-accent/10 text-nox-accent">
+        <div className="flex items-center justify-center w-7 h-7 rounded-lg text-nox-accent" style={{ background: 'color-mix(in srgb, var(--nox-accent) 10%, transparent)' }}>
           {icon}
         </div>
         <h3 className="text-xs font-semibold text-nox-text uppercase tracking-wide">{label}</h3>
@@ -152,6 +153,8 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
   const so = locale.onboarding || {};
   const [settings, setSettings] = useState({});
   const [models, setModels] = useState([]);
+  const [modelsBackendType, setModelsBackendType] = useState("");
+  const [modelsDir, setModelsDir] = useState({ dir: "", custom: false });
   const [autostart, setAutostart] = useState(false);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -197,8 +200,14 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
         if (settingsData.settings.ui_theme && window.nox?.setThemePreference) {
           window.nox.setThemePreference(settingsData.settings.ui_theme);
         }
+        if (settingsData.settings.ui_skin && window.nox?.setSkinPreference) {
+          window.nox.setSkinPreference(settingsData.settings.ui_skin);
+        }
       }
-      if (modelsData.status === "ok") setModels(modelsData.available_models || []);
+      if (modelsData.status === "ok") {
+        setModels(modelsData.available_models || []);
+        setModelsBackendType(modelsData.backend_type || "");
+      }
       setAutostart(autostartData.enabled || false);
       if (audioData.status === "ok") setAudioDevices({ input: audioData.input || [], output: audioData.output || [] });
       setFilesHealth(filesData);
@@ -211,6 +220,57 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
+
+  // Fetch the GGUF models storage directory
+  const fetchModelsDir = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/models/dir`);
+      const data = await res.json();
+      if (data.status === "ok") setModelsDir({ dir: data.dir || "", custom: !!data.custom });
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchModelsDir();
+  }, [fetchModelsDir]);
+
+  const changeModelsDir = async () => {
+    try {
+      const dir = await window.nox?.selectFolder?.();
+      if (!dir) return;
+      const res = await fetch(`${API_BASE}/api/models/dir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dir }),
+      });
+      const data = await res.json();
+      if (data.status === "ok") {
+        setModelsDir({ dir: data.dir || "", custom: !!data.custom });
+        addToast({ type: "success", title: "Speicherort", message: `KI-Modelle werden jetzt in ${data.dir} gespeichert` });
+        refreshModels();
+      } else {
+        addToast({ type: "error", title: "Speicherort", message: data.error || "Speicherort konnte nicht geändert werden" });
+      }
+    } catch (err) {
+      addToast({ type: "error", title: "Speicherort", message: "Speicherort konnte nicht geändert werden", detail: String(err) });
+    }
+  };
+
+  const resetModelsDir = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/models/dir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dir: "" }),
+      });
+      const data = await res.json();
+      if (data.status === "ok") {
+        setModelsDir({ dir: data.dir || "", custom: false });
+        addToast({ type: "success", title: "Speicherort", message: "Standard-Speicherort wiederhergestellt" });
+        refreshModels();
+      }
+    } catch {}
+  };
 
   // Fetch voice catalogs + system language
   useEffect(() => {
@@ -252,6 +312,9 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
       }
       if (key === "ui_theme" && window.nox?.setThemePreference) {
         window.nox.setThemePreference(value);
+      }
+      if (key === "ui_skin" && window.nox?.setSkinPreference) {
+        window.nox.setSkinPreference(value);
       }
     } catch (err) {
       addToast({ type: "error", title: "Einstellungen", message: "Einstellung konnte nicht gespeichert werden", detail: String(err), reportable: true });
@@ -501,7 +564,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
   const inputClass = selectClass;
 
   const categories = [
-    { id: "general", icon: <IconGear size={18} />, label: s.general, desc: "Tastenkombination, Design, Autostart", keywords: ["hotkey", "theme", "autostart", "tastenkombination", "design", "start", "analytics", "größe", "size", "ui_scale"] },
+    { id: "general", icon: <IconGear size={18} />, label: s.general, desc: "Tastenkombination, Design, Autostart", keywords: ["hotkey", "theme", "skin", "autostart", "tastenkombination", "design", "start", "analytics", "größe", "size", "ui_scale", "ui_skin"] },
     { id: "ai", icon: <IconRobot size={18} />, label: s.aiModel, desc: "Modell, Host, Thinking-Modus", keywords: ["ollama", "model", "host", "preload", "vram", "ram", "ki", "künstliche intelligenz"] },
     { id: "voice", icon: <IconMicrophone size={18} />, label: s.voice, desc: "Wake Word, Audio, Stimme", keywords: ["wake", "audio", "input", "output", "tts", "stimme", "sprache", "mikrofon", "lautsprecher", "silence"] },
     { id: "context", icon: <IconEye size={18} />, label: s.context, desc: "Screenshots, Speicherung, Apps", keywords: ["eye", "ttl", "excluded", "apps", "kontext", "erfassung", "ausschließen"] },
@@ -535,6 +598,36 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
           <option value="dark">{s.themeDark}</option>
           <option value="light">{s.themeLight}</option>
         </select>
+      </Row>
+      <Row label="Skin" hint="Farbschema der flüssigen Oberfläche">
+        <div className="flex gap-2 flex-wrap">
+          {[
+            { id: "aurora", label: "Aurora", colors: ["#e930f0", "#8b2df5", "#2b6cf0", "#1fe0e0"] },
+            { id: "ocean", label: "Ocean", colors: ["#00d4ff", "#2b8cf0", "#1f6fd4", "#1fe0e0"] },
+            { id: "sunset", label: "Sunset", colors: ["#ff5252", "#ff6b35", "#ffc107", "#e0508a"] },
+            { id: "forest", label: "Forest", colors: ["#84cc16", "#22c55e", "#14b8a6", "#4ade80"] },
+            { id: "mono", label: "Mono", colors: ["#c0c0c8", "#909098", "#707078", "#a0a0a8"] },
+          ].map((sk) => (
+            <button
+              key={sk.id}
+              onClick={() => updateSetting("ui_skin", sk.id)}
+              className={`relative px-3 py-2 rounded-xl text-xs font-medium transition-all border backdrop-blur-sm ${
+                (settings.ui_skin || "aurora") === sk.id
+                  ? "border-nox-accent bg-nox-accent/10 shadow-sm shadow-nox-shadow-accent"
+                  : "border-nox-border bg-nox-surface/50 hover:border-nox-border-hover hover:bg-nox-surface-hover/50"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex gap-0.5">
+                  {sk.colors.map((c, i) => (
+                    <span key={i} className="w-2 h-2 rounded-full" style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+                <span>{sk.label}</span>
+              </div>
+            </button>
+          ))}
+        </div>
       </Row>
       <Row label={s.autostart} hint="Nox beim Systemstart öffnen">
         <Toggle checked={autostart} onChange={toggleAutostart} />
@@ -592,70 +685,208 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
     </>
   );
 
-  const renderAISettings = () => (
+  const refreshModels = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/models`);
+      const data = await res.json();
+      if (data.status === "ok") {
+        setModels(data.available_models || []);
+        setModelsBackendType(data.backend_type || "");
+      }
+    } catch {}
+  }, []);
+
+  const changeLlmBackend = async (backend) => {
+    await updateSetting("llm_backend", backend);
+    // Re-detect the LLM backend and refresh the model list for the new engine
+    try {
+      await fetch(`${API_BASE}/api/model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reconnect: true }),
+      });
+    } catch {}
+    await refreshModels();
+  };
+
+  const renderAISettings = () => {
+    // Strict backend separation: only offer models that run on the configured engine
+    const configuredBackend = settings.llm_backend || modelsBackendType || "";
+    const visibleModels = models.filter((m) => {
+      if (configuredBackend === "llama_cpp") return m.endsWith(".gguf");
+      if (configuredBackend === "ollama") return !m.endsWith(".gguf");
+      return true; // auto / openai_compatible: show all
+    });
+    const currentModel = settings.ollama_model || "";
+    const currentVisible = currentModel && visibleModels.includes(currentModel);
+    return (
     <>
-      <Row label={s.ollamaHost} hint="z.B. http://localhost:11434">
-        <input
-          type="text"
-          className={inputClass + " w-44 text-right"}
-          value={settings.ollama_host || ""}
-          onChange={(e) => updateSetting("ollama_host", e.target.value)}
-          placeholder="http://localhost:11434"
-        />
+      <Row label={s.engine || "Engine"} hint="Welche Engine Nox für die KI verwendet">
+        <select
+          className={selectClass}
+          value={settings.llm_backend || "auto"}
+          onChange={(e) => changeLlmBackend(e.target.value)}
+        >
+          <option value="ollama">Ollama (Lokal)</option>
+          <option value="llama_cpp">Nox-Engine (lokal)</option>
+          <option value="openai_compatible">OpenAI-kompatibel (lokal/Cloud)</option>
+          <option value="auto">Auto-Erkennung</option>
+        </select>
       </Row>
+      {(settings.llm_backend || "auto") === "ollama" && (
+        <Row label={s.ollamaHost} hint="z.B. http://localhost:11434">
+          <input
+            type="text"
+            className={inputClass + " w-44 text-right"}
+            value={settings.ollama_host || ""}
+            onChange={(e) => updateSetting("ollama_host", e.target.value)}
+            placeholder="http://localhost:11434"
+          />
+        </Row>
+      )}
+      {settings.llm_backend === "openai_compatible" && (
+        <Row label="Server-Endpoint" hint="z.B. http://localhost:1234/v1 oder https://api.kimi.com/coding/v1">
+          <input
+            type="text"
+            className={inputClass + " w-44 text-right"}
+            value={settings.llm_endpoint || ""}
+            onChange={(e) => updateSetting("llm_endpoint", e.target.value)}
+            placeholder="http://localhost:1234/v1"
+          />
+        </Row>
+      )}
+      {settings.llm_backend === "openai_compatible" && (
+        <Row label="API-Key" hint="Nur für Cloud-Anbieter (z.B. Kimi, OpenRouter)">
+          <input
+            type="password"
+            className={inputClass + " w-44 text-right"}
+            value={settings.llm_api_key || ""}
+            onChange={(e) => updateSetting("llm_api_key", e.target.value)}
+            placeholder="sk-…"
+          />
+        </Row>
+      )}
       <Row label={s.model}>
         <select
           className={selectClass}
-          value={settings.ollama_model || ""}
+          value={currentModel}
           onChange={(e) => updateSetting("ollama_model", e.target.value)}
         >
-          {models.length > 0 ? (
-            models.map((m) => (
-              <option key={m} value={m}>{prettyModelName(m)}</option>
-            ))
+          {visibleModels.length > 0 ? (
+            <>
+              {!currentVisible && currentModel && (
+                <option key={currentModel} value={currentModel}>{prettyModelName(currentModel)}</option>
+              )}
+              {visibleModels.map((m) => {
+                const { name, tag } = parseModelBadge(m);
+                return <option key={m} value={m}>{tag ? `${name} — ${tag}` : name}</option>;
+              })}
+            </>
           ) : (
             <option value="">{s.noModels}</option>
           )}
         </select>
       </Row>
-      <Row label={"Modell vorab laden"} hint="Modell im Speicher halten für schnelleren Start">
-        <Toggle
-          checked={settings.ollama_preload || false}
-          onChange={(v) => updateSetting("ollama_preload", v)}
-        />
-      </Row>
+      {settings.llm_backend === "llama_cpp" && (
+        <Row label="Geschwindigkeit" hint="Mehr Geschwindigkeit = weniger Qualität">
+          <select
+            className={selectClass}
+            value={settings.llm_speed_mode || "balance"}
+            onChange={(e) => updateSetting("llm_speed_mode", e.target.value)}
+          >
+            <option value="superschnell">Superschnell</option>
+            <option value="schnell">Schnell</option>
+            <option value="balance">Balance</option>
+            <option value="qualitaet">Qualität</option>
+          </select>
+        </Row>
+      )}
+      {settings.llm_backend !== "openai_compatible" && (
+        <>
+          <Row label={"Modell vorab laden"} hint="Modell im Speicher halten für schnelleren Start">
+            <Toggle
+              checked={settings.ollama_preload || false}
+              onChange={(v) => updateSetting("ollama_preload", v)}
+            />
+          </Row>
+          {settings.ollama_preload && (
+            <>
+              <Row label={"Preload-Modus"}>
+                <select
+                  className={selectClass}
+                  value={settings.ollama_preload_mode || "vram"}
+                  onChange={(e) => updateSetting("ollama_preload_mode", e.target.value)}
+                >
+                  <option value="vram">VRAM (GPU)</option>
+                  <option value="ram">RAM (CPU, schneller Wechsel)</option>
+                </select>
+              </Row>
+              <div className="px-3 py-2.5 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
+                <div className="flex items-start gap-2">
+                  <span className="text-yellow-500/80 text-sm flex-shrink-0"><IconWarning size={14} /></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-yellow-600/90 dark:text-yellow-400/90 break-words">
+                      <strong>Warnung:</strong> Das Vorabladen des Modells verbraucht erheblich RAM bzw. VRAM und hält diese Ressourcen dauerhaft reserviert. Bei großen Modellen kann das System verlangsmt werden oder andere Anwendungen können abstürzen. Nur aktivieren, wenn genügend Arbeitsspeicher verfügbar ist!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
       <Row label={"Thinking-Modus"} hint="KI zeigt ihren Gedankengang vor der Antwort">
         <Toggle
           checked={settings.ollama_think || false}
           onChange={(v) => updateSetting("ollama_think", v)}
         />
       </Row>
-      {settings.ollama_preload && (
-        <>
-          <Row label={"Preload-Modus"}>
-            <select
-              className={selectClass}
-              value={settings.ollama_preload_mode || "vram"}
-              onChange={(e) => updateSetting("ollama_preload_mode", e.target.value)}
-            >
-              <option value="vram">VRAM (GPU)</option>
-              <option value="ram">RAM (CPU, schneller Wechsel)</option>
-            </select>
-          </Row>
-          <div className="px-3 py-2.5 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
-            <div className="flex items-start gap-2">
-              <span className="text-yellow-500/80 text-sm flex-shrink-0"><IconWarning size={14} /></span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-yellow-600/90 dark:text-yellow-400/90 break-words">
-                  <strong>Warnung:</strong> Das Vorabladen des Modells verbraucht erheblich RAM bzw. VRAM und hält diese Ressourcen dauerhaft reserviert. Bei großen Modellen kann das System verlangsmt werden oder andere Anwendungen können abstürzen. Nur aktivieren, wenn genügend Arbeitsspeicher verfügbar ist!
-                </p>
+      {/* GGUF models storage location */}
+      {configuredBackend === "llama_cpp" && modelsDir.dir && (
+        <div className="mt-4 rounded-xl border border-nox-border bg-nox-surface/40 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium text-nox-text">Speicherort für KI-Modelle</p>
+                {modelsDir.custom && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-nox-accent/10 text-nox-accent font-medium">Eigener Pfad</span>
+                )}
               </div>
+              <p className="text-[11px] text-nox-textDim truncate mt-0.5 font-mono" title={modelsDir.dir}>{modelsDir.dir}</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {modelsDir.custom && (
+                <button
+                  onClick={resetModelsDir}
+                  className="px-2.5 py-1.5 rounded-lg text-xs text-nox-textDim hover:text-nox-text hover:bg-nox-surface-hover border border-nox-border transition-colors"
+                >
+                  Standard
+                </button>
+              )}
+              <button
+                onClick={changeModelsDir}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium nox-btn-secondary"
+              >
+                Ändern
+              </button>
             </div>
           </div>
-        </>
+          <p className="text-[10px] text-nox-textDim/70 mt-1.5">
+            Gilt für neue Downloads der Nox-Engine. Vorhandene Modelle werden nicht verschoben.
+          </p>
+        </div>
       )}
+      <ModelCatalog
+        engine={configuredBackend}
+        installedModels={visibleModels}
+        currentModel={currentModel}
+        onSelectModel={(m) => updateSetting("ollama_model", m)}
+        onModelsChanged={refreshModels}
+        addToast={addToast}
+      />
     </>
-  );
+    );
+  };
 
   const renderVoiceSettings = () => (
     <>
@@ -1026,7 +1257,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
     <div className="flex flex-col h-full">
       {/* Header — only when not embedded */}
       {!embedded && (
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-nox-border">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-nox-border bg-nox-surface/30 backdrop-blur-xl">
           <div className="flex items-center gap-2.5">
             {activeCat ? (
               <button
@@ -1036,7 +1267,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
                 <IconArrowLeft size={16} />
               </button>
             ) : (
-              <img src={noxLogo} alt="Nox" className="h-5 w-5 rounded-full" />
+              <NoxAvatar size={20} />
             )}
             <span className="text-base font-semibold text-nox-text">
               {activeCat ? activeCat.label : s.title}
@@ -1054,7 +1285,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
 
       {/* Sub-page header when embedded — show back button + category name */}
       {embedded && activeCat && (
-        <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-nox-border">
+        <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-nox-border bg-nox-surface/30 backdrop-blur-xl">
           <button
             onClick={() => setActiveCategory(null)}
             className="flex items-center justify-center w-7 h-7 text-nox-textDim hover:text-nox-text transition-all"
@@ -1075,7 +1306,7 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Einstellungen durchsuchen..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg bg-nox-bgSolid text-nox-text text-sm border border-nox-border focus:outline-none focus:border-nox-accent transition-colors"
+              className="w-full pl-9 pr-3 py-2 rounded-xl bg-nox-bgSolid text-nox-text text-sm border border-nox-border focus:outline-none focus:border-nox-accent transition-colors backdrop-blur-sm"
             />
             {searchQuery && (
               <button
@@ -1093,9 +1324,9 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 max-w-3xl w-full mx-auto">
         {activeCategory && activeCat ? (
           /* Sub-page: show selected category settings */
-          <div className="rounded-xl border border-nox-border bg-nox-surface/20 p-4">
+          <div className="rounded-xl border border-nox-border bg-nox-surface/30 backdrop-blur-sm p-4">
             <div className="flex items-center gap-2.5 mb-3">
-              <div className="flex items-center justify-center w-7 h-7 bg-nox-accent/10 text-nox-accent text-sm rounded-lg">
+              <div className="flex items-center justify-center w-7 h-7 text-nox-accent text-sm rounded-lg" style={{ background: 'color-mix(in srgb, var(--nox-accent) 10%, transparent)' }}>
                 {activeCat.icon}
               </div>
               <h3 className="text-xs font-semibold text-nox-text uppercase tracking-wide">{activeCat.label}</h3>
@@ -1111,9 +1342,9 @@ function SettingsPanel({ locale, onClose, onLocaleChange, onUiScaleChange, embed
               <button
                 key={cat.id}
                 onClick={() => { setActiveCategory(cat.id); setSearchQuery(""); }}
-                className="w-full p-3.5 flex items-center gap-3 text-left rounded-xl border border-nox-border bg-nox-surface/20 hover:bg-nox-surface-hover hover:border-nox-accent/30 transition-all"
+                className="w-full p-3.5 flex items-center gap-3 text-left rounded-xl border border-nox-border bg-nox-surface/30 hover:bg-nox-surface-hover hover:border-nox-accent/30 transition-all backdrop-blur-sm"
               >
-                <div className="flex items-center justify-center w-9 h-9 bg-nox-accent/10 text-nox-accent text-base flex-shrink-0 rounded-lg">
+                <div className="flex items-center justify-center w-9 h-9 text-nox-accent text-base flex-shrink-0 rounded-lg" style={{ background: 'color-mix(in srgb, var(--nox-accent) 10%, transparent)' }}>
                   {cat.icon}
                 </div>
                 <div className="flex-1 min-w-0">

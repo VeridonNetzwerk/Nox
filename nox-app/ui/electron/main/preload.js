@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld("nox", {
     ipcRenderer.on("theme-changed", (_, theme) => callback(theme)),
   setThemePreference: (pref) => ipcRenderer.send("set-theme-preference", pref),
 
+  // Skin (visual theme variant)
+  onSkinChanged: (callback) =>
+    ipcRenderer.on("skin-changed", (_, skin) => callback(skin)),
+  setSkinPreference: (pref) => ipcRenderer.send("set-skin-preference", pref),
+
   // Window visibility events
   onWindowShow: (callback) =>
     ipcRenderer.on("window-show", () => callback()),
@@ -40,6 +45,7 @@ contextBridge.exposeInMainWorld("nox", {
   setVoiceState: (active) => ipcRenderer.send("voice-state", active),
   resizeWindow: (scale) => ipcRenderer.send("resize-window", scale),
   openPath: (path) => ipcRenderer.send("open-path", path),
+  selectFolder: () => ipcRenderer.invoke("dialog:select-folder"),
 
   // Logging — forward renderer logs to main process file logger
   log: (msg) => ipcRenderer.send("renderer-log", msg),

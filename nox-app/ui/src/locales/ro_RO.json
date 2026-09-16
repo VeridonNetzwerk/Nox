@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Aplicație desktop locală, compatibilă CPU",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Server pentru povestiri și chat",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Alt server Ollama în rețea",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Server de inferență de înaltă performanță",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI cu plugin OpenAI API",
     "providerCustom": "Personalizat",
     "providerCustomDesc": "Orice alt server compatibil OpenAI",
     "lmStudioEndpoint": "Adresa serverului",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Super rapid",
     "modeFast": "Rapid",
     "modeBalanced": "Echilibrat",
-    "modeQuality": "Calitate"
+    "modeQuality": "Calitate",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "API cloud pentru 100+ modele (necesită cheie API)"
   },
   "mic": {
     "idle": "Microfon – click pentru start",

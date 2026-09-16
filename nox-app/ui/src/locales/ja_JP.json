@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "ローカルデスクトップアプリ、CPU対応",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "ストーリー・チャットサーバー",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "ネットワーク上の他のOllamaサーバー",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "高性能推論サーバー",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "OpenAI APIプラグイン付きWebUI",
     "providerCustom": "カスタム",
     "providerCustomDesc": "任意のOpenAI互換サーバー",
     "lmStudioEndpoint": "サーバーアドレス",
@@ -209,7 +205,9 @@
     "modeSuperFast": "超高速",
     "modeFast": "高速",
     "modeBalanced": "バランス",
-    "modeQuality": "品質"
+    "modeQuality": "品質",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "100以上のモデル向けクラウドAPI（APIキー必須）"
   },
   "mic": {
     "idle": "マイク – クリックで開始",

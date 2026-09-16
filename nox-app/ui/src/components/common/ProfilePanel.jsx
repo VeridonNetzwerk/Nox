@@ -106,7 +106,7 @@ function ProfileCard({ fieldKey, value, meta, onSave }) {
 
   return (
     <div
-      className="rounded-lg border border-nox-border bg-nox-surface/50 px-3 py-2 transition-all duration-200 hover:border-nox-accent/30"
+      className="rounded-xl border border-nox-border bg-nox-surface/50 backdrop-blur-sm px-3 py-2 transition-all duration-200 hover:border-nox-accent/30"
       style={{ animation: "profileCardIn 0.3s ease-out" }}
     >
       <div className="flex items-center gap-2">
@@ -211,9 +211,9 @@ export default function ProfilePanel({ onClose }) {
   const fields = profile ? Object.keys(FIELD_META) : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-nox-backdrop/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-nox-bg rounded-xl border border-nox-border shadow-2xl w-full max-w-md"
+        className="bg-nox-surface-raised rounded-xl border border-nox-border shadow-2xl w-full max-w-md backdrop-blur-xl"
         onClick={(e) => e.stopPropagation()}
         style={{ animation: "profilePanelIn 0.25s ease-out" }}
       >

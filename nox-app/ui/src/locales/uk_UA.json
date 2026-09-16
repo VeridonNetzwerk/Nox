@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Лок. додаток, дружній до CPU",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Сервер для розказів і чату",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Інший сервер Ollama в мережі",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Високопродуктивний сервер виведення",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI з плагіном OpenAI API",
     "providerCustom": "Корист.",
     "providerCustomDesc": "Будь-який інший сервер, сумісний з OpenAI",
     "lmStudioEndpoint": "Адреса сервера",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Супершвидко",
     "modeFast": "Швидко",
     "modeBalanced": "Баланс",
-    "modeQuality": "Якість"
+    "modeQuality": "Якість",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Хмарний API для 100+ моделей (потрібен API-ключ)"
   },
   "mic": {
     "idle": "Мікрофон – натисніть для старту",

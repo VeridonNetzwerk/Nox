@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import noxLogo from "../../assets/nox-logo.png";
+import NoxAvatar from "../common/NoxAvatar.jsx";
 import { API_BASE, FlagIcon, LanguageDropdown } from "../../shared/constants.jsx";
 import { IconWarning, IconX, IconCheck, IconSpeaker } from "../../shared/Icon.jsx";
 
@@ -123,9 +123,9 @@ function VoiceSelection({ locale, currentVoice, currentEngine, lockedLang, onClo
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-nox-backdrop backdrop-blur-sm animate-fade-in">
       <div className="w-[480px] max-h-[600px] flex flex-col glass-card rounded-2xl shadow-2xl shadow-nox-shadowStrong overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-nox-border bg-nox-surface/30 backdrop-blur-xl">
           <div className="flex items-center gap-2">
-            <img src={noxLogo} alt="Nox" className="h-6 w-6 rounded-full" />
+            <NoxAvatar size={24} />
             <span className="text-sm font-semibold text-nox-text">
               {so.selectVoice || "Stimme wählen"}
             </span>
@@ -163,10 +163,10 @@ function VoiceSelection({ locale, currentVoice, currentEngine, lockedLang, onClo
                     return (
                       <div
                         key={`${v._engine}:${v.id}`}
-                        className={`px-3 py-2.5 rounded-lg text-sm transition-all border cursor-pointer ${
+                        className={`px-3 py-2.5 rounded-xl text-sm transition-all border cursor-pointer backdrop-blur-sm ${
                           isSelected
                             ? "bg-nox-accent/10 border-nox-accent shadow-sm shadow-nox-accent/20"
-                            : "bg-nox-surface border-nox-border hover:border-nox-accent/40 hover:bg-nox-surface/80"
+                            : "bg-nox-surface/60 border-nox-border hover:border-nox-accent/40 hover:bg-nox-surface-hover/80"
                         }`}
                         onClick={() => saveVoiceSetting(v.id, v._engine)}
                       >
@@ -233,7 +233,7 @@ function VoiceSelection({ locale, currentVoice, currentEngine, lockedLang, onClo
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-4 py-3 border-t border-nox-border">
+        <div className="flex items-center justify-end px-4 py-3 border-t border-nox-border bg-nox-surface/30 backdrop-blur-xl">
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-full bg-nox-accent hover:bg-nox-accentHover text-nox-accentFg text-sm font-medium transition-all hover:scale-105"

@@ -4,77 +4,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---------------------------------------------------------------------------
-   CSS Variables – Theme tokens (Clean Neutral)
-   --------------------------------------------------------------------------- */
-
-[data-theme="dark"] {
-  --nox-bg: rgba(28, 28, 30, 0.92);
-  --nox-bg-solid: #1b1c1d;
-  --nox-surface: rgba(38, 39, 42, 0.92);
-  --nox-surface-hover: rgba(48, 49, 53, 0.95);
-  --nox-surface-raised: rgba(53, 54, 58, 0.98);
-  --nox-border: rgba(255, 255, 255, 0.08);
-  --nox-border-hover: rgba(255, 255, 255, 0.14);
-  --nox-border-accent: rgba(138, 180, 248, 0.25);
-  --nox-text: #e3e3e6;
-  --nox-text-dim: #9b9da3;
-  --nox-text-faint: #6b6d73;
-  --nox-accent: #8ab4f8;
-  --nox-accent-hover: #aac8fa;
-  --nox-accent-fg: #1b1c1d;
-  --nox-violet: #8ab4f8;
-  --nox-glow-2: #c2d7fc;
-  --nox-phosphor: #5bb97c;
-  --nox-phosphor-dim: rgba(91, 185, 124, 0.12);
-  --nox-amber: #f29800;
-  --nox-red: #f28b82;
-  --nox-shadow: rgba(0, 0, 0, 0.3);
-  --nox-shadow-strong: rgba(0, 0, 0, 0.45);
-  --nox-backdrop: rgba(0, 0, 0, 0.5);
-  --nox-pill-bg: #28292c;
-  --nox-pill-border: rgba(255, 255, 255, 0.06);
-  --nox-pill-halo-opacity: 0.35;
-  --nox-scrollbar: rgba(255, 255, 255, 0.12);
-  --nox-scrollbar-hover: rgba(255, 255, 255, 0.2);
-  --nox-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --nox-font-mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
-  --nox-font-body: "Inter", system-ui, sans-serif;
-}
-
-[data-theme="light"] {
-  --nox-bg: rgba(255, 255, 255, 0.92);
-  --nox-bg-solid: #ffffff;
-  --nox-surface: rgba(248, 249, 250, 0.93);
-  --nox-surface-hover: rgba(241, 243, 244, 0.96);
-  --nox-surface-raised: rgba(244, 245, 246, 0.98);
-  --nox-border: rgba(0, 0, 0, 0.08);
-  --nox-border-hover: rgba(0, 0, 0, 0.14);
-  --nox-border-accent: rgba(26, 115, 232, 0.25);
-  --nox-text: #1b1c1d;
-  --nox-text-dim: #5f6368;
-  --nox-text-faint: #9aa0a6;
-  --nox-accent: #1a73e8;
-  --nox-accent-hover: #1765cc;
-  --nox-accent-fg: #ffffff;
-  --nox-violet: #1a73e8;
-  --nox-glow-2: #4c9aff;
-  --nox-phosphor: #1e8e3e;
-  --nox-phosphor-dim: rgba(30, 142, 62, 0.10);
-  --nox-amber: #f29800;
-  --nox-red: #d93025;
-  --nox-shadow: rgba(0, 0, 0, 0.08);
-  --nox-shadow-strong: rgba(0, 0, 0, 0.16);
-  --nox-backdrop: rgba(0, 0, 0, 0.25);
-  --nox-pill-bg: #f8f9fa;
-  --nox-pill-border: rgba(0, 0, 0, 0.06);
-  --nox-pill-halo-opacity: 0.4;
-  --nox-scrollbar: rgba(0, 0, 0, 0.12);
-  --nox-scrollbar-hover: rgba(0, 0, 0, 0.2);
-  --nox-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --nox-font-mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
-  --nox-font-body: "Inter", system-ui, sans-serif;
-}
+/* Theme variables are defined in themes.css — imported via Vite
+   This file contains component styles, animations, and liquid effects. */
 
 /* ---------------------------------------------------------------------------
    Nox Avatar — Lebende Flüssigkeit: SVG N with organic displacement
@@ -231,11 +162,40 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Window background (transparent + blur)
+   Window background — deep aurora gradient with subtle color wash
    --------------------------------------------------------------------------- */
 
 .nox-window-bg {
   background: var(--nox-bg);
+  position: relative;
+}
+
+/* Liquid mesh background — animated drifting color blobs */
+.nox-window-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 50% at 15% 20%, var(--nox-blob-1), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 85% 80%, var(--nox-blob-2), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 50% 50%, var(--nox-blob-3), transparent 70%);
+  z-index: 0;
+  animation: nox-liquid-drift 24s ease-in-out infinite;
+}
+
+/* Liquid blob layer 2 — slower, different drift pattern */
+.nox-window-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 40% 30% at 70% 30%, var(--nox-blob-2), transparent 65%),
+    radial-gradient(ellipse 35% 25% at 25% 70%, var(--nox-blob-1), transparent 65%);
+  z-index: 0;
+  animation: nox-liquid-drift 32s ease-in-out infinite reverse;
+  opacity: 0.7;
 }
 
 /* ---------------------------------------------------------------------------
@@ -322,41 +282,80 @@ body {
 
 @layer components {
   .glass-panel {
-    border-radius: 16px;
+    border-radius: var(--nox-radius-lg);
     background: color-mix(in srgb, var(--nox-surface) 72%, transparent);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(var(--nox-blur-lg)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--nox-blur-lg)) saturate(160%);
     border: 1px solid var(--nox-border);
-    box-shadow: 0 8px 32px var(--nox-shadow-strong);
+    box-shadow: 0 8px 32px var(--nox-shadow-strong), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    transition: box-shadow var(--nox-transition) var(--nox-ease-flow), border-color var(--nox-transition) var(--nox-ease-flow);
+  }
+
+  /* Liquid hover glow — soft gradient halo appears on hover */
+  .glass-panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--nox-gradient-soft);
+    opacity: 0;
+    transition: opacity 0.4s var(--nox-ease-flow);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .glass-panel:hover::after {
+    opacity: 0.5;
   }
 
   .glass-card {
-    border-radius: 4px;
+    border-radius: var(--nox-radius-md);
     background: var(--nox-surface);
     border: 1px solid var(--nox-border);
-    transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+    transition: background var(--nox-transition) var(--nox-ease-flow), border-color var(--nox-transition) var(--nox-ease-flow), box-shadow var(--nox-transition) var(--nox-ease-flow), transform var(--nox-transition) var(--nox-ease-liquid);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Liquid ripple layer — appears on hover */
+  .glass-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle at 50% 0%, var(--nox-gradient-soft), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.4s var(--nox-ease-flow);
+    pointer-events: none;
   }
 
   .glass-card:hover {
     background: var(--nox-surface-hover);
     border-color: var(--nox-border-hover);
+    box-shadow: 0 4px 20px var(--nox-shadow-accent);
+    transform: translateY(-1px);
+  }
+
+  .glass-card:hover::after {
+    opacity: 1;
   }
 
   .glass-input {
-    border-radius: 4px;
+    border-radius: var(--nox-radius-sm);
     background: color-mix(in srgb, var(--nox-surface) 50%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(var(--nox-blur-sm)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--nox-blur-sm)) saturate(140%);
     border: 1px solid var(--nox-border);
-    transition: border-color 200ms ease;
+    transition: border-color var(--nox-transition) var(--nox-ease-flow), box-shadow var(--nox-transition) var(--nox-ease-flow);
   }
 
   .glass-input:focus {
     border-color: var(--nox-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--nox-accent) 12%, transparent);
   }
 
   .accent-text-gradient {
-    background: linear-gradient(135deg, var(--nox-accent), var(--nox-glow-2));
+    background: var(--nox-gradient);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -379,26 +378,25 @@ body {
     letter-spacing: -0.02em;
   }
 
-  /* Console-style button — monospace, sharp, glow */
+  /* Primary button — gradient background with glow */
   .nox-btn-primary {
     font-family: var(--nox-font-mono);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    border-radius: 2px;
-    background: var(--nox-accent);
+    border-radius: var(--nox-radius-sm);
+    background: var(--nox-gradient-accent);
     color: var(--nox-accent-fg);
-    box-shadow: 0 1px 3px var(--nox-shadow);
-    transition: all 0.2s ease;
+    box-shadow: 0 2px 12px var(--nox-shadow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transition: all var(--nox-transition) var(--nox-ease-liquid);
     border: none;
     cursor: pointer;
   }
 
   .nox-btn-primary:hover {
-    background: var(--nox-accent-hover);
-    box-shadow: 0 2px 8px var(--nox-shadow);
-    transform: translateY(-1px);
+    box-shadow: 0 4px 24px var(--nox-shadow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px) scale(1.02);
   }
 
   .nox-btn-primary:disabled {
@@ -414,17 +412,21 @@ body {
     font-weight: 500;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    border-radius: 2px;
-    background: transparent;
+    border-radius: var(--nox-radius-sm);
+    background: color-mix(in srgb, var(--nox-surface) 60%, transparent);
+    backdrop-filter: blur(var(--nox-blur-sm));
+    -webkit-backdrop-filter: blur(var(--nox-blur-sm));
     color: var(--nox-text);
     border: 1px solid var(--nox-border);
-    transition: all 0.25s ease;
+    transition: all var(--nox-transition) var(--nox-ease-liquid);
     cursor: pointer;
   }
 
   .nox-btn-secondary:hover {
     border-color: var(--nox-border-hover);
-    background: color-mix(in srgb, var(--nox-text) 5%, transparent);
+    background: color-mix(in srgb, var(--nox-surface-hover) 80%, transparent);
+    box-shadow: 0 2px 16px var(--nox-shadow);
+    transform: translateY(-1px);
   }
 
   .nox-btn-secondary:disabled {
@@ -442,70 +444,67 @@ body {
     animation: nox-dot-pulse 2.5s ease-in-out infinite;
   }
 
-  /* Console card — raised surface with accent border */
+  /* Console card — raised glass surface with gradient accent border on hover */
   .nox-console-card {
-    border-radius: 4px;
+    border-radius: var(--nox-radius-md);
     background: var(--nox-surface-raised);
     border: 1px solid var(--nox-border);
-    transition: border-color 200ms ease, box-shadow 200ms ease;
+    backdrop-filter: blur(var(--nox-blur-md)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--nox-blur-md)) saturate(140%);
+    transition: border-color var(--nox-transition) var(--nox-ease-flow), box-shadow var(--nox-transition) var(--nox-ease-flow);
   }
 
   .nox-console-card:hover {
     border-color: var(--nox-border-accent);
-    box-shadow: 0 1px 6px var(--nox-shadow);
+    box-shadow: 0 2px 16px var(--nox-shadow-accent);
   }
 
-  /* Gemini-style input pill — solid pill with multi-color ambient gradient halo */
+  /* Input pill — liquid glass with multi-color ambient gradient halo */
   .nox-input-pill {
     position: relative;
-    border-radius: 28px;
+    border-radius: var(--nox-radius-pill);
     background: var(--nox-pill-bg);
     border: 1px solid var(--nox-pill-border);
-    box-shadow: 0 4px 18px var(--nox-shadow);
-    transition: box-shadow 0.3s ease;
+    backdrop-filter: blur(var(--nox-blur-md)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--nox-blur-md)) saturate(160%);
+    box-shadow: 0 4px 24px var(--nox-shadow);
+    transition: box-shadow 0.3s var(--nox-ease-flow);
   }
 
   /* Gradient halo painted behind the pill background */
   .nox-input-pill::before {
     content: "";
     position: absolute;
-    inset: -3px;
+    inset: -2px;
     border-radius: inherit;
-    background: linear-gradient(
-      100deg,
-      var(--nox-accent),
-      var(--nox-violet),
-      var(--nox-glow-2),
-      var(--nox-accent)
-    );
+    background: var(--nox-gradient);
     background-size: 200% 100%;
-    filter: blur(9px);
+    filter: blur(10px);
     opacity: var(--nox-pill-halo-opacity);
     z-index: -1;
     transition: opacity 0.3s ease, filter 0.3s ease;
+    animation: nox-gradient-shift 8s ease-in-out infinite;
   }
 
   .nox-input-pill:hover::before {
-    opacity: calc(var(--nox-pill-halo-opacity) + 0.2);
-    filter: blur(11px);
+    opacity: calc(var(--nox-pill-halo-opacity) + 0.15);
+    filter: blur(12px);
   }
 
-  /* Active-listening state — rotating colorful border ring (Gemini style) */
+  /* Active-listening state — rotating colorful border ring */
   .nox-input-pill.is-listening::before {
     inset: -2px;
     border-radius: inherit;
     background: conic-gradient(
       from var(--pill-angle, 0deg),
-      #ff0080,
-      #ff8c00,
-      #ffd700,
-      #00ff7f,
-      #00bfff,
-      #8a2be2,
-      #ff0080
+      #e930f0,
+      #8b2df5,
+      #2b6cf0,
+      #1fe0e0,
+      #e930f0
     );
-    filter: blur(3px);
-    opacity: 0.7;
+    filter: blur(4px);
+    opacity: 0.65;
     animation: pill-angle-rotate 3s linear infinite;
   }
 
@@ -523,9 +522,9 @@ body {
     position: absolute;
     inset: -5px;
     border-radius: 50%;
-    background: conic-gradient(from 0deg, var(--nox-accent), var(--nox-violet), var(--nox-glow-2), var(--nox-accent));
+    background: conic-gradient(from 0deg, #e930f0, #8b2df5, #2b6cf0, #1fe0e0, #e930f0);
     filter: blur(5px);
-    opacity: 0.9;
+    opacity: 0.85;
     animation: nox-gradient-rotate 2.2s linear infinite;
     z-index: 0;
   }
@@ -535,14 +534,17 @@ body {
     z-index: 1;
   }
 
-  /* Gemini-style response card — dark floating modal above input pill */
+  /* Response card — floating glass modal above input pill */
   .nox-response-card {
+    border-radius: var(--nox-radius-lg);
     background: var(--nox-pill-bg);
     border: 1px solid var(--nox-pill-border);
-    box-shadow: 0 8px 32px var(--nox-shadow-strong);
+    backdrop-filter: blur(var(--nox-blur-lg)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--nox-blur-lg)) saturate(160%);
+    box-shadow: 0 8px 32px var(--nox-shadow-strong), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* Gemini-style action buttons — subtle icon buttons */
+  /* Action buttons — subtle icon buttons with glass hover */
   .nox-action-btn {
     display: flex;
     align-items: center;
@@ -554,16 +556,17 @@ body {
     border: none;
     color: var(--nox-text-dim);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s var(--nox-ease-liquid);
   }
 
   .nox-action-btn:hover {
     color: var(--nox-text);
     background: color-mix(in srgb, var(--nox-surface-hover) 80%, transparent);
+    box-shadow: 0 2px 12px var(--nox-shadow-accent);
   }
 
   .nox-action-btn:active {
-    transform: scale(0.92);
+    transform: scale(0.88);
   }
 }
 
@@ -578,12 +581,29 @@ body {
   inherits: false;
 }
 
-@keyframes pill-angle-rotate {
-  to { --pill-angle: 360deg; }
-}
-
 @keyframes nox-gradient-rotate {
   to { transform: rotate(360deg); }
+}
+
+@keyframes nox-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Liquid drift — slowly shifts background blob positions for flowing effect */
+@keyframes nox-liquid-drift {
+  0%, 100% {
+    background-position: 0% 0%, 100% 100%, 50% 50%;
+    transform: scale(1) rotate(0deg);
+  }
+  33% {
+    background-position: 20% 10%, 80% 90%, 60% 40%;
+    transform: scale(1.05) rotate(1deg);
+  }
+  66% {
+    background-position: 10% 20%, 90% 80%, 40% 60%;
+    transform: scale(0.98) rotate(-1deg);
+  }
 }
 
 /* ---------------------------------------------------------------------------

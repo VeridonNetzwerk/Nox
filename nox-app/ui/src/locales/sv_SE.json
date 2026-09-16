@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Lokalt skrivbordsprogram, CPU-vänligt",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Berättar- och chatserver",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Annan Ollama-server på nätverket",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Högpresterande inferensserver",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI med OpenAI API-plugin",
     "providerCustom": "Anpassad",
     "providerCustomDesc": "Annan OpenAI-kompatibel server",
     "lmStudioEndpoint": "Serveradress",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Supersnabb",
     "modeFast": "Snabb",
     "modeBalanced": "Balanserad",
-    "modeQuality": "Kvalitet"
+    "modeQuality": "Kvalitet",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Moln-API för 100+ modeller (kräver API-nyckel)"
   },
   "mic": {
     "idle": "Mikrofon – klicka för att starta",

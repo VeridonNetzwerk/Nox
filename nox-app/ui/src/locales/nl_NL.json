@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Lokale desktop-app, CPU-vriendelijk",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Verhalen- en chatserver",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Andere Ollama-server op het netwerk",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Hoogprestatie inference-server",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI met OpenAI API-plug-in",
     "providerCustom": "Aangepast",
     "providerCustomDesc": "Elke andere OpenAI-compatibele server",
     "lmStudioEndpoint": "Serveradres",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Supersnel",
     "modeFast": "Snel",
     "modeBalanced": "Gebalanceerd",
-    "modeQuality": "Kwaliteit"
+    "modeQuality": "Kwaliteit",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "Cloud-API voor 100+ modellen (API-sleutel vereist)"
   },
   "mic": {
     "idle": "Microfoon – klik om te starten",

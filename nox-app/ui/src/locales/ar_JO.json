@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "تطبيق محلي، متوافق مع CPU",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "خادم للروايات والدردشة",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "خادم Ollama آخر على الشبكة",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "خادم استدلال عالأداء",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI مع إداة OpenAI API",
     "providerCustom": "مخصص",
     "providerCustomDesc": "أي خادم آخر متوافق مع OpenAI",
     "lmStudioEndpoint": "عنوان الخادم",
@@ -209,7 +205,9 @@
     "modeSuperFast": "سريع جداً",
     "modeFast": "سريع",
     "modeBalanced": "متوازن",
-    "modeQuality": "جودة"
+    "modeQuality": "جودة",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "واجهة برمجية سحابية لأكثر من 100 نموذج (يتطلب مفتاح API)"
   },
   "mic": {
     "idle": "ميكروفون – انقر للبدء",

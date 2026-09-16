@@ -32,9 +32,15 @@ def _detect_device() -> tuple[str, str]:
 
     try:
         import ctypes
-        if ctypes.windll.LoadLibrary("cudart64_12.dll"):
-            return "cuda", "float16"
-    except OSError:
+        import platform
+        if platform.system() == "Windows":
+            for dll in ("cudart64_12.dll", "cudart64_11.dll", "cudart64_10.dll"):
+                try:
+                    ctypes.windll.LoadLibrary(dll)
+                    return "cuda", "float16"
+                except OSError:
+                    continue
+    except Exception:
         pass
 
     logger.info("No CUDA detected — using CPU with int8 (runs on any hardware)")

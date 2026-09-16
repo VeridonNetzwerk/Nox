@@ -1,23 +1,18 @@
 """Active window monitor – tracks window focus changes.
 
 Windows: Uses Win32 API (win32gui) to detect foreground window changes.
-Linux:   Uses xdotool/xprop (X11) or kdotool/dbus (KDE Wayland) or
-         AT-SPI2 (GNOME Wayland) as fallback.
 
 A short-interval check (every 500ms) compares the current foreground window
-handle/id against the last known one, which is much cheaper than full polling
+handle against the last known one, which is much cheaper than full polling
 of window content.
 """
 
 import logging
-import re
-import subprocess
 import threading
 import time
 from typing import Callable, List, Optional
 
-from platform_utils import IS_WINDOWS, IS_LINUX, is_command_available, get_display_server, is_cosmic
-import atspi_compat
+from platform_utils import IS_WINDOWS
 
 logger = logging.getLogger("nox.eye.window")
 
@@ -25,12 +20,10 @@ logger = logging.getLogger("nox.eye.window")
 try:
     import win32gui
     import win32process
-    import psutil
     _WIN32_AVAILABLE = True
 except ImportError:
     _WIN32_AVAILABLE = False
 
-# Conditional imports — Linux (psutil is cross-platform)
 try:
     import psutil
     _PSUTIL_AVAILABLE = True
@@ -62,7 +55,7 @@ class WindowInfo:
 class WindowMonitor:
     """Monitors active window changes via platform-native APIs."""
 
-    POLL_INTERVAL = 0.5  # seconds – lightweight check
+    POLL_INTERVAL = 1.0  # seconds – lightweight check
 
     def __init__(self, excluded_apps: Optional[List[str]] = None):
         self.excluded_apps = {a.lower() for a in (excluded_apps or [])}
@@ -74,29 +67,7 @@ class WindowMonitor:
 
     @property
     def is_available(self) -> bool:
-        if IS_WINDOWS:
-            return _WIN32_AVAILABLE
-        elif IS_LINUX:
-            return self._linux_backend_available()
-        return False
-
-    def _linux_backend_available(self) -> bool:
-        """Check if any Linux window monitoring backend is available."""
-        ds = get_display_server()
-        if ds == "x11":
-            return is_command_available("xdotool") and is_command_available("xprop")
-        elif ds == "wayland":
-            # COSMIC: try cosmic-ext-window-helper first, then AT-SPI2
-            if is_cosmic():
-                if is_command_available("cosmic-ext-window-helper"):
-                    return True
-                return atspi_compat.is_available()
-            # KDE Wayland: kdotool
-            if is_command_available("kdotool"):
-                return True
-            # GNOME/others: AT-SPI2
-            return atspi_compat.is_available()
-        return False
+        return IS_WINDOWS and _WIN32_AVAILABLE
 
     def start(self) -> None:
         if not self.is_available:
@@ -127,13 +98,11 @@ class WindowMonitor:
         """Get current foreground window info (one-shot)."""
         if IS_WINDOWS and _WIN32_AVAILABLE:
             return self._get_foreground_window_win32()
-        elif IS_LINUX:
-            return self._get_foreground_window_linux()
         return None
 
     def find_window_by_app_name(self, app_name: str) -> Optional[WindowInfo]:
         """Find a visible window whose app name or title contains the given string.
-        
+
         Useful when the user mentions an app (e.g. "Emby") but it's not the active window.
         """
         app_lower = app_name.lower()
@@ -189,7 +158,7 @@ class WindowMonitor:
 
     def find_last_active_media_window(self) -> Optional[WindowInfo]:
         """Find the best candidate for a media/content window when the active window is excluded.
-        
+
         Enumerates all visible windows, excludes Nox and password managers,
         and returns the largest remaining window (likely a media player, browser, etc.)
         """
@@ -274,196 +243,6 @@ class WindowMonitor:
                               process_name=process_name, pid=pid)
         except Exception as exc:
             logger.debug("Failed to get foreground window: %s", exc)
-            return None
-
-    # -----------------------------------------------------------------------
-    # Linux backend
-    # -----------------------------------------------------------------------
-
-    def _get_foreground_window_linux(self) -> Optional[WindowInfo]:
-        """Get active window on Linux using the best available backend."""
-        ds = get_display_server()
-        if ds == "x11":
-            return self._get_foreground_window_x11()
-        elif ds == "wayland":
-            if is_cosmic() and is_command_available("cosmic-ext-window-helper"):
-                return self._get_foreground_window_cosmic()
-            if is_command_available("kdotool"):
-                return self._get_foreground_window_kdotool()
-            else:
-                return self._get_foreground_window_atspi()
-        return None
-
-    def _get_foreground_window_x11(self) -> Optional[WindowInfo]:
-        """Get active window via xdotool + xprop (X11)."""
-        try:
-            result = subprocess.run(
-                ["xdotool", "getactivewindow"],
-                capture_output=True, text=True, timeout=2
-            )
-            if result.returncode != 0:
-                return None
-            window_id = int(result.stdout.strip())
-
-            result = subprocess.run(
-                ["xdotool", "getactivewindow", "getwindowname"],
-                capture_output=True, text=True, timeout=2
-            )
-            title = result.stdout.strip() if result.returncode == 0 else ""
-
-            result = subprocess.run(
-                ["xdotool", "getactivewindow", "getwindowpid"],
-                capture_output=True, text=True, timeout=2
-            )
-            pid = int(result.stdout.strip()) if result.returncode == 0 else 0
-
-            process_name = ""
-            app_name = ""
-            if pid and _PSUTIL_AVAILABLE:
-                try:
-                    proc = psutil.Process(pid)
-                    process_name = proc.name()
-                    app_name = process_name
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-
-            # Also try WM_CLASS for better app name
-            try:
-                result = subprocess.run(
-                    ["xprop", "-id", str(window_id), "WM_CLASS"],
-                    capture_output=True, text=True, timeout=2
-                )
-                if result.returncode == 0:
-                    match = re.match(r'WM_CLASS\(\w+\) = (.+)$', result.stdout.strip())
-                    if match:
-                        parts = match.group(1).split(", ")
-                        if parts:
-                            app_name = parts[0].strip('"') or app_name
-            except Exception:
-                pass
-
-            return WindowInfo(hwnd=window_id, title=title, app_name=app_name,
-                              process_name=process_name, pid=pid)
-        except Exception as exc:
-            logger.debug("X11 window detection failed: %s", exc)
-            return None
-
-    def _get_foreground_window_cosmic(self) -> Optional[WindowInfo]:
-        """Get active window on COSMIC via cosmic-ext-window-helper or AT-SPI2 fallback."""
-        # Try cosmic-ext-window-helper first
-        if is_command_available("cosmic-ext-window-helper"):
-            try:
-                # 'state' returns JSON array of all toplevel windows
-                result = subprocess.run(
-                    ["cosmic-ext-window-helper", "state"],
-                    capture_output=True, text=True, timeout=2
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    import json
-                    windows = json.loads(result.stdout.strip())
-                    for win in windows:
-                        if win.get("is_active"):
-                            app_name = win.get("app_id", "")
-                            title = win.get("title", "")
-                            if app_name or title:
-                                hwnd_hash = hash((app_name, title)) & 0xFFFFFFFF
-                                return WindowInfo(hwnd=hwnd_hash, title=title,
-                                                  app_name=app_name, process_name=app_name, pid=0)
-            except Exception as exc:
-                logger.debug("cosmic-ext-window-helper failed: %s", exc)
-
-        # Fallback to AT-SPI2
-        return self._get_foreground_window_atspi()
-
-    def _get_foreground_window_kdotool(self) -> Optional[WindowInfo]:
-        """Get active window via kdotool (KDE Wayland)."""
-        try:
-            result = subprocess.run(
-                ["kdotool", "getactivewindow"],
-                capture_output=True, text=True, timeout=2
-            )
-            if result.returncode != 0:
-                return None
-            window_id = result.stdout.strip()
-
-            name_result = subprocess.run(
-                ["kdotool", "getactivewindow", "getwindowname"],
-                capture_output=True, text=True, timeout=2
-            )
-            title = name_result.stdout.strip() if name_result.returncode == 0 else ""
-
-            pid_result = subprocess.run(
-                ["kdotool", "getactivewindow", "getwindowpid"],
-                capture_output=True, text=True, timeout=2
-            )
-            pid = int(pid_result.stdout.strip()) if pid_result.returncode == 0 else 0
-
-            process_name = ""
-            app_name = ""
-            if pid and _PSUTIL_AVAILABLE:
-                try:
-                    proc = psutil.Process(pid)
-                    process_name = proc.name()
-                    app_name = process_name
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-
-            hwnd_hash = hash(window_id) & 0xFFFFFFFF
-            return WindowInfo(hwnd=hwnd_hash, title=title, app_name=app_name,
-                              process_name=process_name, pid=pid)
-        except Exception as exc:
-            logger.debug("kdotool window detection failed: %s", exc)
-            return None
-
-    def _get_foreground_window_atspi(self) -> Optional[WindowInfo]:
-        """Get active window via AT-SPI2 (GNOME/COSMIC Wayland fallback)."""
-        try:
-            desktop = atspi_compat.get_desktop(0)
-            if desktop is None:
-                return None
-            for i in range(atspi_compat.get_child_count(desktop)):
-                app = atspi_compat.get_child_at_index(desktop, i)
-                if app is None:
-                    continue
-                try:
-                    state_set = atspi_compat.get_state_set(app)
-                    if atspi_compat.state_contains(state_set, atspi_compat.STATE_ACTIVE):
-                        app_name = atspi_compat.get_name(app)
-                        title = ""
-                        pid = atspi_compat.get_process_id(app)
-
-                        for j in range(atspi_compat.get_child_count(app)):
-                            child = atspi_compat.get_child_at_index(app, j)
-                            if child is None:
-                                continue
-                            try:
-                                child_state = atspi_compat.get_state_set(child)
-                                if atspi_compat.state_contains(child_state, atspi_compat.STATE_ACTIVE):
-                                    title = atspi_compat.get_name(child)
-                                    child_pid = atspi_compat.get_process_id(child)
-                                    if child_pid:
-                                        pid = child_pid
-                                    break
-                            except Exception:
-                                continue
-
-                        process_name = ""
-                        if pid and _PSUTIL_AVAILABLE:
-                            try:
-                                proc = psutil.Process(pid)
-                                process_name = proc.name()
-                            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                                pass
-
-                        hwnd_hash = hash((app_name, title, pid)) & 0xFFFFFFFF
-                        return WindowInfo(hwnd=hwnd_hash, title=title,
-                                          app_name=app_name or process_name,
-                                          process_name=process_name, pid=pid)
-                except Exception:
-                    continue
-            return None
-        except Exception as exc:
-            logger.debug("AT-SPI window detection failed: %s", exc)
             return None
 
     # -----------------------------------------------------------------------

@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "Ứng dụng desktop cục bộ, thân thiện CPU",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "Máy chủ kể chuyện và chat",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "Máy chủ Ollama khác trên mạng",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "Máy chủ suy luận hiệu suất cao",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "WebUI với plugin OpenAI API",
     "providerCustom": "Tùy chọn",
     "providerCustomDesc": "Bất kỳ máy chủ tương thích OpenAI nào khác",
     "lmStudioEndpoint": "Địa chỉ máy chủ",
@@ -209,7 +205,9 @@
     "modeSuperFast": "Siêu nhanh",
     "modeFast": "Nhanh",
     "modeBalanced": "Cân bằng",
-    "modeQuality": "Chất lượng"
+    "modeQuality": "Chất lượng",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "API đám mây cho 100+ mẫu (yêu cầu khóa API)"
   },
   "mic": {
     "idle": "Mic – bấm để bắt đầu",

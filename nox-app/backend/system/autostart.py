@@ -1,17 +1,15 @@
-"""Autostart management — cross-platform.
+"""Autostart management — Windows.
 
-Windows: Manages the HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run
-         registry entry for Nox.
-Linux:   Manages a .desktop file in ~/.config/autostart/ for Nox.
+Manages the HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run
+registry entry for Nox.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from platform_utils import IS_WINDOWS, IS_LINUX, get_autostart_dir
+from platform_utils import IS_WINDOWS
 
 logger = logging.getLogger("nox.autostart")
 
@@ -23,21 +21,16 @@ except ImportError:
 
 REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "Nox"
-DESKTOP_FILE_NAME = "nox.desktop"
 
 
 class AutostartManager:
-    """Manages autostart via Windows Registry (Windows) or .desktop file (Linux)."""
+    """Manages autostart via the Windows Registry."""
 
     def __init__(self):
         self._exe_path = self._resolve_exe_path()
-        if IS_LINUX:
-            self._desktop_file = get_autostart_dir() / DESKTOP_FILE_NAME
-        else:
-            self._desktop_file = None
 
     def _resolve_exe_path(self) -> str:
-        """Resolve the path to the Nox executable or dev launcher."""
+        """Resolve the path to the Nox executable."""
         if IS_WINDOWS:
             # In production: the installed executable (electron-builder layout)
             # Nox.exe is at the app root, Python is at resources/backend/.venv/Scripts/
@@ -51,36 +44,16 @@ class AutostartManager:
                         return str(nox_exe)
             # In dev: return the current executable path
             return sys.executable if sys.executable else ""
-        elif IS_LINUX:
-            # In production: /usr/bin/nox or /opt/Nox/nox
-            # In dev: the npm dev launcher
-            # Check common install locations
-            candidates = [
-                "/usr/bin/nox",
-                "/opt/Nox/nox",
-                "/usr/local/bin/nox",
-            ]
-            for c in candidates:
-                if os.path.exists(c):
-                    return c
-            # Dev mode: return a placeholder (Electron handles dev mode)
-            return sys.executable if sys.executable else ""
         return sys.executable if sys.executable else ""
 
     @property
     def is_available(self) -> bool:
-        if IS_WINDOWS:
-            return _WINREG_AVAILABLE
-        elif IS_LINUX:
-            return True  # .desktop file mechanism is always available
-        return False
+        return IS_WINDOWS and _WINREG_AVAILABLE
 
     def is_enabled(self) -> bool:
         """Check if autostart is currently enabled."""
         if IS_WINDOWS:
             return self._is_enabled_win32()
-        elif IS_LINUX:
-            return self._is_enabled_linux()
         return False
 
     def _is_enabled_win32(self) -> bool:
@@ -95,17 +68,10 @@ class AutostartManager:
         except Exception:
             return False
 
-    def _is_enabled_linux(self) -> bool:
-        if not self._desktop_file:
-            return False
-        return self._desktop_file.exists()
-
     def enable(self) -> bool:
         """Enable autostart."""
         if IS_WINDOWS:
             return self._enable_win32()
-        elif IS_LINUX:
-            return self._enable_linux()
         return False
 
     def _enable_win32(self) -> bool:
@@ -122,36 +88,10 @@ class AutostartManager:
             logger.error("Failed to enable autostart: %s", exc, exc_info=True)
             return False
 
-    def _enable_linux(self) -> bool:
-        if not self._desktop_file:
-            return False
-        try:
-            autostart_dir = get_autostart_dir()
-            autostart_dir.mkdir(parents=True, exist_ok=True)
-            desktop_entry = f"""[Desktop Entry]
-Type=Application
-Name=Nox
-Comment=Local AI Desktop Assistant
-Exec={self._exe_path}
-Icon=nox
-Terminal=false
-Categories=Utility;AI;Assistant;
-X-GNOME-Autostart-enabled=true
-"""
-            self._desktop_file.write_text(desktop_entry, encoding="utf-8")
-            os.chmod(str(self._desktop_file), 0o755)
-            logger.info("Autostart enabled: %s", self._desktop_file)
-            return True
-        except Exception as exc:
-            logger.error("Failed to enable autostart: %s", exc, exc_info=True)
-            return False
-
     def disable(self) -> bool:
         """Disable autostart."""
         if IS_WINDOWS:
             return self._disable_win32()
-        elif IS_LINUX:
-            return self._disable_linux()
         return False
 
     def _disable_win32(self) -> bool:
@@ -163,18 +103,6 @@ X-GNOME-Autostart-enabled=true
             logger.info("Autostart disabled")
             return True
         except FileNotFoundError:
-            return True
-        except Exception as exc:
-            logger.error("Failed to disable autostart: %s", exc, exc_info=True)
-            return False
-
-    def _disable_linux(self) -> bool:
-        if not self._desktop_file:
-            return False
-        try:
-            if self._desktop_file.exists():
-                self._desktop_file.unlink()
-            logger.info("Autostart disabled")
             return True
         except Exception as exc:
             logger.error("Failed to disable autostart: %s", exc, exc_info=True)

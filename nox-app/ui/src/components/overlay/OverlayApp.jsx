@@ -3,7 +3,7 @@ import SettingsPanel from "../settings/SettingsPanel.jsx";
 import MusicCard from "../common/MusicCard.jsx";
 import AudioEqualizer from "../common/AudioEqualizer.jsx";
 import { useToast } from "../common/Toast.jsx";
-import noxIcon from "../../assets/nox-icon.png";
+import NoxAvatar from "../common/NoxAvatar.jsx";
 import deLocale from "../../locales/de.json";
 import { LOCALE_MAP, WS_URL, API_BASE, speakText } from "../../shared/constants.jsx";
 
@@ -15,6 +15,7 @@ function OverlayApp() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [theme, setTheme] = useState("dark");
+  const [skin, setSkin] = useState("aurora");
   const [showSettings, setShowSettings] = useState(false);
   const [micState, setMicState] = useState("idle"); // idle | listening | processing | speaking
   const [imageResult, setImageResult] = useState(null);
@@ -48,6 +49,26 @@ function OverlayApp() {
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const t = localeData;
+
+  // Token batching: accumulate tokens and flush with rAF for smooth streaming
+  const tokenBufferRef = useRef("");
+  const rafFlushRef = useRef(null);
+  const msgIdRef = useRef(0);
+  const nextMsgId = useCallback(() => `ovr-${++msgIdRef.current}`, []);
+
+  const flushTokens = useCallback(() => {
+    rafFlushRef.current = null;
+    const buf = tokenBufferRef.current;
+    if (!buf) return;
+    tokenBufferRef.current = "";
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === "assistant" && last.streaming) {
+        return [...prev.slice(0, -1), { ...last, content: last.content + buf }];
+      }
+      return [...prev, { id: nextMsgId(), role: "assistant", content: buf, streaming: true }];
+    });
+  }, [nextMsgId]);
 
   // Load locale based on system language from backend
   useEffect(() => {
@@ -189,7 +210,7 @@ function OverlayApp() {
         if (data.type === "user_message") {
           setMessages((prev) => [
             ...prev,
-            { role: "user", content: data.content, streaming: false, voice: data.voice_input },
+            { id: nextMsgId(), role: "user", content: data.content, streaming: false, voice: data.voice_input },
           ]);
           setIsStreaming(true);
           setMusicResult(null); // clear music card when user asks something new
@@ -213,6 +234,7 @@ function OverlayApp() {
         }
 
         if (data.type === "tool_start") {
+          if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); flushTokens(); }
           setActiveTool(data.tool || null);
           // Clear the current streaming assistant message (tool-call text)
           setMessages((prev) => {
@@ -231,17 +253,14 @@ function OverlayApp() {
         }
 
         if (data.type === "token") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.role === "assistant" && last.streaming) {
-              return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
-            }
-            return [
-              ...prev,
-              { role: "assistant", content: data.content, streaming: true },
-            ];
-          });
+          // Batch tokens: accumulate in ref, flush with rAF for smooth rendering
+          tokenBufferRef.current += data.content;
+          if (rafFlushRef.current === null) {
+            rafFlushRef.current = requestAnimationFrame(flushTokens);
+          }
         } else if (data.type === "done") {
+          // Flush any pending batched tokens first
+          if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); flushTokens(); }
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant") {
@@ -253,6 +272,7 @@ function OverlayApp() {
           setActiveTool(null);
           window.nox?.setThinkingState?.(false);
         } else if (data.type === "aborted") {
+          if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); flushTokens(); }
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && last.streaming) {
@@ -265,9 +285,10 @@ function OverlayApp() {
           setMusicResult(null);
           window.nox?.setThinkingState?.(false);
         } else if (data.type === "error") {
+          if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); flushTokens(); }
           setMessages((prev) => [
             ...prev,
-            { role: "error", content: data.content, streaming: false },
+            { id: nextMsgId(), role: "error", content: data.content, streaming: false },
           ]);
           setIsStreaming(false);
           setActiveTool(null);
@@ -296,6 +317,7 @@ function OverlayApp() {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); rafFlushRef.current = null; }
     };
   }, []);
 
@@ -334,6 +356,9 @@ function OverlayApp() {
 
     if (nox.onThemeChanged) {
       nox.onThemeChanged((t) => setTheme(t));
+    }
+    if (nox.onSkinChanged) {
+      nox.onSkinChanged((s) => setSkin(s));
     }
     if (nox.onWindowShow) {
       nox.onWindowShow(() => {
@@ -385,14 +410,14 @@ function OverlayApp() {
     const userMessage = input.trim();
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: userMessage, streaming: false },
+      { id: nextMsgId(), role: "user", content: userMessage, streaming: false },
     ]);
     setInput("");
     setIsStreaming(true);
 
     wsRef.current.send(JSON.stringify({ message: userMessage }));
     window.nox?.setThinkingState?.(true);
-  }, [input, isStreaming]);
+  }, [input, nextMsgId]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -443,7 +468,7 @@ function OverlayApp() {
   const handleRemember = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ message: "Speichere eine Notiz für mich." }));
-      setMessages((prev) => [...prev, { role: "user", content: "Speichere eine Notiz für mich.", streaming: false }]);
+      setMessages((prev) => [...prev, { id: nextMsgId(), role: "user", content: "Speichere eine Notiz für mich.", streaming: false }]);
       setIsStreaming(true);
     }
   };
@@ -451,7 +476,7 @@ function OverlayApp() {
   const handleFiles = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ message: "Welche Dateien hast du indiziert?" }));
-      setMessages((prev) => [...prev, { role: "user", content: "Welche Dateien hast du indiziert?", streaming: false }]);
+      setMessages((prev) => [...prev, { id: nextMsgId(), role: "user", content: "Welche Dateien hast du indiziert?", streaming: false }]);
       setIsStreaming(true);
     }
   };
@@ -618,6 +643,7 @@ function OverlayApp() {
   return (
     <div
       data-theme={theme}
+      data-skin={skin}
       className={`h-full w-full overflow-hidden ${animClass}`}
       style={{ background: "transparent", zoom: uiScale }}
     >
@@ -636,18 +662,14 @@ function OverlayApp() {
         </div>
       ) : backendStarting ? (
         <div className="flex flex-col items-center justify-end h-full pb-6 gap-3">
-          <img
-            src={noxIcon}
-            alt="Nox"
-            className="w-10 h-10 rounded-full orb-idle"
-          />
+          <NoxAvatar size={40} className="orb-idle" />
           <span className="text-xs text-nox-textDim">{t.app.starting || "Nox wird gestartet…"}</span>
         </div>
       ) : (
         <div className="relative h-full w-full overflow-hidden">
           {/* Subtle ambient glow at bottom-right */}
           <div className="absolute inset-0 pointer-events-none" style={{
-            background: "radial-gradient(ellipse 60% 40% at 80% 90%, color-mix(in srgb, var(--nox-accent) 10%, transparent), transparent 70%)"
+            background: "radial-gradient(ellipse 60% 40% at 80% 90%, color-mix(in srgb, var(--nox-accent) 8%, transparent), transparent 70%), radial-gradient(ellipse 40% 30% at 20% 10%, color-mix(in srgb, var(--nox-violet) 6%, transparent), transparent 70%)"
           }} />
 
           {/* Top-left: connection indicator */}
@@ -699,8 +721,8 @@ function OverlayApp() {
           {updateProgress && (
             <div className="absolute top-10 right-3 left-3 nox-console-card px-3 py-2.5 border-l-2 border-l-nox-accent z-20">
               <div className="nox-label text-nox-accent mb-1.5">Update wird heruntergeladen… {updateProgress.percent}%</div>
-              <div className="w-full h-1.5 bg-nox-surface rounded-sm overflow-hidden">
-                <div className="h-full bg-nox-accent rounded-sm transition-all duration-300" style={{ width: `${updateProgress.percent}%` }} />
+              <div className="w-full h-1.5 bg-nox-surface rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-300" style={{ width: `${updateProgress.percent}%`, background: "var(--nox-gradient)" }} />
               </div>
               <div className="text-[10px] text-nox-text-dim mt-1">{(updateProgress.received / 1048576).toFixed(1)} / {(updateProgress.total / 1048576).toFixed(1)} MB</div>
             </div>
@@ -710,13 +732,38 @@ function OverlayApp() {
           {!isActive && (ollamaDown || wakeModelMissing) && (
             <div className="absolute top-10 right-3 left-3 space-y-1.5 z-20">
               {ollamaDown && (
-                <div className="nox-console-card text-nox-red px-3 py-2 text-xs flex items-center justify-between gap-2 border-l-2 border-l-nox-red">
+                <div
+                  className="nox-console-card px-3 py-2 text-xs flex items-center justify-between gap-2 border-l-2"
+                  style={{ color: "var(--nox-red)", borderLeftColor: "var(--nox-red)" }}
+                >
                   <span>{t.errors.ollamaDown}</span>
-                  <button onClick={checkOllamaStatus} className="nox-btn-secondary px-2 py-0.5 text-[10px] border-nox-red/30 text-nox-red hover:bg-nox-red/10 hover:border-nox-red/50">{t.errors.checkOllama}</button>
+                  <button
+                    onClick={checkOllamaStatus}
+                    className="nox-btn-secondary px-2 py-0.5 text-[10px]"
+                    style={{
+                      color: "var(--nox-red)",
+                      borderColor: "color-mix(in srgb, var(--nox-red) 30%, transparent)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "color-mix(in srgb, var(--nox-red) 10%, transparent)";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--nox-red) 50%, transparent)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--nox-red) 30%, transparent)";
+                    }}
+                  >
+                    {t.errors.checkOllama}
+                  </button>
                 </div>
               )}
               {wakeModelMissing && (
-                <div className="nox-console-card text-nox-amber px-3 py-2 text-xs border-l-2 border-l-nox-amber">{t.errors.wakeModelMissing}</div>
+                <div
+                  className="nox-console-card px-3 py-2 text-xs border-l-2"
+                  style={{ color: "var(--nox-amber)", borderLeftColor: "var(--nox-amber)" }}
+                >
+                  {t.errors.wakeModelMissing}
+                </div>
               )}
             </div>
           )}
@@ -730,7 +777,7 @@ function OverlayApp() {
                 <div className="nox-response-card rounded-2xl px-4 py-3">
                   {/* Header row */}
                   <div className="flex items-center gap-2 mb-2">
-                    <img src={noxIcon} alt="Nox" className="w-5 h-5 rounded-full" />
+                    <NoxAvatar size={20} />
                     <span className="text-xs font-medium text-nox-text">Nox</span>
                     {micState === "processing" || activeTool ? (
                       <div className="flex items-center gap-0.5 ml-auto">
@@ -763,7 +810,7 @@ function OverlayApp() {
                       </div>
                     )}
                     {imageResult && (
-                      <div className="mt-2 rounded-xl border border-nox-border bg-nox-surface overflow-hidden">
+                      <div className="mt-2 rounded-xl border border-nox-border bg-nox-surface/50 overflow-hidden backdrop-blur-sm">
                         <div className="px-3 py-1.5 border-b border-nox-border bg-nox-surface-hover/30 flex items-center justify-between">
                           <span className="text-[10px] text-nox-textDim font-medium">Generiertes Bild</span>
                           <button onClick={() => setImageResult(null)} className="text-nox-textDim hover:text-nox-text text-[10px]">✕</button>
@@ -835,7 +882,7 @@ function OverlayApp() {
                   }}
                   aria-label="Nox"
                 >
-                  <img src={noxIcon} alt="Nox" className="w-full h-full rounded-full object-cover" style={{ pointerEvents: "none" }} />
+                  <NoxAvatar size={28} style={{ pointerEvents: "none" }} />
                 </button>
               </div>
 

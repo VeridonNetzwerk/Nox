@@ -188,12 +188,8 @@
     "providerGPT4AllDesc": "स्थानीय डेस्कटॉप ऐप, CPU-अनुकूल",
     "providerKoboldCpp": "KoboldCpp",
     "providerKoboldCppDesc": "कहानी और चैट सर्वर",
-    "providerOllamaCompat": "Ollama-compatible",
-    "providerOllamaCompatDesc": "नेटवर्क पर अन्य Ollama सर्वर",
     "providerVLLM": "vLLM",
     "providerVLLMDesc": "उच्च-प्रदर्शन अनुमान सर्वर",
-    "providerTextGenWebUI": "text-generation-webui",
-    "providerTextGenWebUIDesc": "OpenAI API प्लगिन के साथ WebUI",
     "providerCustom": "कस्टम",
     "providerCustomDesc": "कोई भी अन्य OpenAI-संगत सर्वर",
     "lmStudioEndpoint": "सर्वर पता",
@@ -209,7 +205,9 @@
     "modeSuperFast": "सुपर फास्ट",
     "modeFast": "फास्ट",
     "modeBalanced": "संतुलित",
-    "modeQuality": "गुणवत्ता"
+    "modeQuality": "गुणवत्ता",
+    "providerOpenRouter": "OpenRouter",
+    "providerOpenRouterDesc": "100+ मॉडल के लिए क्लाउड API (API कुंजी आवश्यक)"
   },
   "mic": {
     "idle": "माइक्रोफोन – शुरू करने के लिए क्लिक करें",
